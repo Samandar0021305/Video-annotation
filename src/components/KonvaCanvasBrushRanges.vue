@@ -715,26 +715,49 @@
       </v-layer>
 
       <v-layer ref="polygonLayerRef">
-        <v-line
-          v-for="polygon in visiblePolygons"
-          :key="polygon.id"
-          :config="{
-            id: polygon.id,
-            points: polygon.points.flatMap((p) => [
-              p.x * displayScale,
-              p.y * displayScale,
-            ]),
-            fill: polygon.color + '30',
-            stroke: polygon.color,
-            strokeWidth: 2,
-            closed: true,
-            draggable: currentTool === Tool.SELECT,
-            name: 'polygon',
-          }"
-          @dragend="handlePolygonDragEnd"
-          @transformend="handlePolygonTransformEnd"
-          @click="handlePolygonClick"
-        />
+        <template v-for="polygon in visiblePolygons" :key="polygon.id">
+          <v-line
+            :config="{
+              id: polygon.id,
+              points: polygon.points.flatMap((p) => [
+                p.x * displayScale,
+                p.y * displayScale,
+              ]),
+              fill: polygon.color + '30',
+              stroke: polygon.color,
+              strokeWidth: currentTool === Tool.PAN ? 4 : 2,
+              closed: true,
+              draggable: currentTool === Tool.SELECT,
+              name: 'polygon',
+              hitStrokeWidth: currentTool === Tool.PAN ? 10 : 0,
+            }"
+            @dragend="handlePolygonDragEnd"
+            @transformend="handlePolygonTransformEnd"
+            @click="(e: any) => handlePolygonLineClick(e, polygon.id)"
+          />
+          <!-- Vertex points -->
+          <v-circle
+            v-for="(point, pointIdx) in polygon.points"
+            :key="`${polygon.id}-pt-${pointIdx}`"
+            :config="{
+              x: point.x * displayScale,
+              y: point.y * displayScale,
+              radius: 6,
+              fill: polygon.color,
+              stroke:
+                selectedPolygonTrackId === polygon.id
+                  ? '#fff'
+                  : polygon.color,
+              strokeWidth: selectedPolygonTrackId === polygon.id ? 2 : 1,
+              draggable: currentTool === Tool.SELECT || currentTool === Tool.PAN,
+              name: 'polygonVertex',
+            }"
+            @dragmove="(e: any) => handlePolygonPointDragging(e, polygon.id, pointIdx)"
+            @dragend="(e: any) => handlePolygonPointDragEnd(e, polygon.id, pointIdx)"
+            @click="() => handlePolygonVertexClick(polygon.id)"
+            @dblclick="() => handlePolygonPointDelete(polygon.id, pointIdx)"
+          />
+        </template>
       </v-layer>
 
       <v-layer ref="skeletonLayerRef">
@@ -1801,25 +1824,6 @@ const handleBboxTransformEnd = async () => {
   }
 };
 
-const handlePolygonClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
-  if (
-    currentTool.value === Tool.BRUSH ||
-    currentTool.value === Tool.ERASER ||
-    currentTool.value === Tool.BBOX ||
-    currentTool.value === Tool.POLYGON
-  )
-    return;
-
-  const line = e.target;
-  if (line && line.id()) {
-    selectedPolygonTrackId.value = line.id();
-    selectedTrackId.value = null;
-    selectedBboxTrackId.value = null;
-    currentTool.value = Tool.SELECT;
-    updateTransformerSelection();
-  }
-};
-
 const handlePolygonDragEnd = async (e: Konva.KonvaEventObject<MouseEvent>) => {
   const line = e.target as Konva.Line;
   const trackId = line.id();
@@ -1925,6 +1929,197 @@ const handlePolygonTransformEnd = async () => {
     await savePolygonTrack(track, videoFileName.value);
   } catch (error) {
     console.error("Failed to save after polygon transform:", error);
+  }
+};
+
+// Update polygon in real-time while dragging vertex
+const handlePolygonPointDragging = (
+  e: any,
+  trackId: string,
+  pointIndex: number
+) => {
+  const circle = e.target;
+  if (!polygonLayerRef.value) return;
+
+  const currentPolygon = getPolygonAtFrame(trackId, currentFrame.value);
+  if (!currentPolygon) return;
+
+  // Find the line element for this polygon
+  const layer = polygonLayerRef.value.getNode();
+  const line = layer.findOne(`#${trackId}`);
+  if (!line) return;
+
+  // Get current line points and update the dragged point
+  const dScale = displayScale.value;
+  const points = [...currentPolygon.points];
+  points[pointIndex] = {
+    x: circle.x() * storageScale.value,
+    y: circle.y() * storageScale.value,
+  };
+
+  // Update line with new points
+  const flatPoints: number[] = [];
+  for (const p of points) {
+    flatPoints.push(p.x * dScale, p.y * dScale);
+  }
+  line.points(flatPoints);
+
+  layer.batchDraw();
+};
+
+// Save polygon after vertex drag ends
+const handlePolygonPointDragEnd = async (
+  e: any,
+  trackId: string,
+  pointIndex: number
+) => {
+  const circle = e.target;
+  const track = polygonTracks.value.get(trackId);
+  if (!track) return;
+
+  const currentPolygon = getPolygonAtFrame(trackId, currentFrame.value);
+  if (!currentPolygon) return;
+
+  const scale = storageScale.value;
+  const newX = circle.x() * scale;
+  const newY = circle.y() * scale;
+
+  // Update the point position in polygon
+  const updatedPoints = currentPolygon.points.map((p, i) =>
+    i === pointIndex ? { x: newX, y: newY } : p
+  );
+
+  const updatedPolygon: Polygon = {
+    ...currentPolygon,
+    points: updatedPoints,
+  };
+
+  updatePolygonKeyframe(trackId, currentFrame.value, updatedPolygon);
+
+  try {
+    await savePolygonTrack(track, videoFileName.value);
+  } catch (error) {
+    console.error("Failed to save after polygon point drag:", error);
+  }
+};
+
+// Handle clicking on polygon line to add a new point (in PAN mode)
+const handlePolygonLineClick = async (e: any, trackId: string) => {
+  // If not in PAN mode, just select the polygon
+  if (currentTool.value !== Tool.PAN) {
+    const line = e.target;
+    if (line && line.id()) {
+      selectedPolygonTrackId.value = line.id();
+      selectedTrackId.value = null;
+      selectedBboxTrackId.value = null;
+      selectedSkeletonTrackId.value = null;
+      currentTool.value = Tool.SELECT;
+      updateTransformerSelection();
+    }
+    return;
+  }
+
+  const track = polygonTracks.value.get(trackId);
+  if (!track) return;
+
+  const currentPolygon = getPolygonAtFrame(trackId, currentFrame.value);
+  if (!currentPolygon || currentPolygon.points.length < 2) return;
+
+  // Get click position in stage coordinates
+  const stage = e.target.getStage();
+  const pos = stage.getRelativePointerPosition();
+  const scale = storageScale.value;
+  const clickX = pos.x * scale;
+  const clickY = pos.y * scale;
+
+  // Find which line segment was clicked (including the closing segment)
+  let insertIndex = -1;
+  let minDistance = Infinity;
+
+  const numPoints = currentPolygon.points.length;
+  for (let i = 0; i < numPoints; i++) {
+    const p1 = currentPolygon.points[i]!;
+    const p2 = currentPolygon.points[(i + 1) % numPoints]!;
+
+    // Calculate distance from point to line segment
+    const dist = pointToSegmentDistance(clickX, clickY, p1.x, p1.y, p2.x, p2.y);
+    if (dist < minDistance) {
+      minDistance = dist;
+      insertIndex = i + 1;
+    }
+  }
+
+  if (insertIndex === -1) return;
+
+  // Handle insertion at the end (closing segment)
+  if (insertIndex === numPoints) {
+    insertIndex = numPoints; // Insert at end
+  }
+
+  // Insert new point at click position
+  const updatedPoints = [...currentPolygon.points];
+  updatedPoints.splice(insertIndex, 0, { x: clickX, y: clickY });
+
+  const updatedPolygon: Polygon = {
+    ...currentPolygon,
+    points: updatedPoints,
+  };
+
+  updatePolygonKeyframe(trackId, currentFrame.value, updatedPolygon);
+
+  // Select the polygon
+  selectedPolygonTrackId.value = trackId;
+  selectedTrackId.value = null;
+  selectedBboxTrackId.value = null;
+  selectedSkeletonTrackId.value = null;
+
+  try {
+    await savePolygonTrack(track, videoFileName.value);
+  } catch (error) {
+    console.error("Failed to save after adding polygon point:", error);
+  }
+};
+
+// Handle clicking on polygon vertex to select
+const handlePolygonVertexClick = (trackId: string) => {
+  selectedPolygonTrackId.value = trackId;
+  selectedTrackId.value = null;
+  selectedBboxTrackId.value = null;
+  selectedSkeletonTrackId.value = null;
+  updateTransformerSelection();
+};
+
+// Handle double-click on vertex to delete it (in PAN mode)
+const handlePolygonPointDelete = async (trackId: string, pointIndex: number) => {
+  // Only allow deletion in PAN mode
+  if (currentTool.value !== Tool.PAN) return;
+
+  const track = polygonTracks.value.get(trackId);
+  if (!track) return;
+
+  const currentPolygon = getPolygonAtFrame(trackId, currentFrame.value);
+  if (!currentPolygon) return;
+
+  // Need at least 3 points to keep a valid polygon
+  if (currentPolygon.points.length <= 3) {
+    alert("Cannot delete point: polygon must have at least 3 points");
+    return;
+  }
+
+  // Remove the point at the specified index
+  const updatedPoints = currentPolygon.points.filter((_, i) => i !== pointIndex);
+
+  const updatedPolygon: Polygon = {
+    ...currentPolygon,
+    points: updatedPoints,
+  };
+
+  updatePolygonKeyframe(trackId, currentFrame.value, updatedPolygon);
+
+  try {
+    await savePolygonTrack(track, videoFileName.value);
+  } catch (error) {
+    console.error("Failed to save after deleting polygon point:", error);
   }
 };
 

@@ -43,9 +43,31 @@ export function usePolygonTool(options: UsePolygonToolOptions) {
     updateTransformerSelection,
   } = options;
 
+  const POINT_RADIUS = 6;
+
   const isDrawing = ref(false);
   const currentPoints = ref<PolygonPoint[]>([]);
   const previewLine = ref<Konva.Line | null>(null);
+  const previewCircles = ref<Konva.Circle[]>([]);
+
+  const createPreviewCircle = (x: number, y: number): Konva.Circle => {
+    return new Konva.Circle({
+      x,
+      y,
+      radius: POINT_RADIUS,
+      fill: color.value,
+      stroke: '#fff',
+      strokeWidth: 2,
+      listening: false,
+    });
+  };
+
+  const clearPreviewCircles = () => {
+    for (const circle of previewCircles.value) {
+      circle.destroy();
+    }
+    previewCircles.value = [];
+  };
 
   const handleMouseDown = (_e: Konva.KonvaEventObject<MouseEvent>) => {
     if (!stageRef.value || !layerRef.value) return false;
@@ -58,14 +80,24 @@ export function usePolygonTool(options: UsePolygonToolOptions) {
       currentPoints.value = [{ x: pos.x, y: pos.y }];
 
       const layer = layerRef.value.getNode();
+
+      // Create preview line with closed shape and fill
       previewLine.value = new Konva.Line({
         points: [pos.x, pos.y],
         stroke: color.value,
         strokeWidth: 2,
         dash: [5, 5],
+        closed: true,
+        fill: color.value + '30',
         listening: false,
       });
       layer.add(previewLine.value);
+
+      // Create first preview circle
+      const circle = createPreviewCircle(pos.x, pos.y);
+      layer.add(circle);
+      previewCircles.value.push(circle);
+
       layer.batchDraw();
     } else {
       const firstPoint = currentPoints.value[0];
@@ -79,6 +111,13 @@ export function usePolygonTool(options: UsePolygonToolOptions) {
         completeDrawing();
       } else {
         currentPoints.value.push({ x: pos.x, y: pos.y });
+
+        // Add preview circle for new point
+        const layer = layerRef.value.getNode();
+        const circle = createPreviewCircle(pos.x, pos.y);
+        layer.add(circle);
+        previewCircles.value.push(circle);
+
         updatePreview();
       }
     }
@@ -119,6 +158,8 @@ export function usePolygonTool(options: UsePolygonToolOptions) {
       previewLine.value = null;
     }
 
+    clearPreviewCircles();
+
     const trackId = createTrack(
       currentFrame.value,
       polygon,
@@ -151,6 +192,7 @@ export function usePolygonTool(options: UsePolygonToolOptions) {
       previewLine.value.destroy();
       previewLine.value = null;
     }
+    clearPreviewCircles();
     isDrawing.value = false;
     currentPoints.value = [];
     if (layerRef.value) {
