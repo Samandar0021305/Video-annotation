@@ -16,11 +16,7 @@ interface UseSelectToolOptions {
   deleteBboxTrack: (trackId: string) => void;
   deletePolygonTrack: (trackId: string) => void;
   deleteSkeletonTrack: (trackId: string) => void;
-  deleteBrushTrackFromDB: (trackId: string, videoFileName: string) => Promise<void>;
-  deleteBboxTrackFromDB: (trackId: string, videoFileName: string) => Promise<void>;
-  deletePolygonTrackFromDB: (trackId: string, videoFileName: string) => Promise<void>;
-  deleteSkeletonTrackFromDB: (trackId: string, videoFileName: string) => Promise<void>;
-  videoFileName: Ref<string>;
+  saveAllAnnotations: () => Promise<void>;
   segmentationBrush: Ref<any>;
 }
 
@@ -35,11 +31,7 @@ export function useSelectTool(options: UseSelectToolOptions) {
     deleteBboxTrack,
     deletePolygonTrack,
     deleteSkeletonTrack,
-    deleteBrushTrackFromDB,
-    deleteBboxTrackFromDB,
-    deletePolygonTrackFromDB,
-    deleteSkeletonTrackFromDB,
-    videoFileName,
+    saveAllAnnotations,
     segmentationBrush,
   } = options;
 
@@ -69,9 +61,9 @@ export function useSelectTool(options: UseSelectToolOptions) {
       }
 
       try {
-        await deleteBrushTrackFromDB(trackId, videoFileName.value);
+        await saveAllAnnotations();
       } catch (error) {
-        console.error('Failed to delete brush track from DB:', error);
+        console.error('Failed to save after deleting brush track:', error);
       }
 
       selectedTrackId.value = null;
@@ -84,9 +76,9 @@ export function useSelectTool(options: UseSelectToolOptions) {
       deleteBboxTrack(trackId);
 
       try {
-        await deleteBboxTrackFromDB(trackId, videoFileName.value);
+        await saveAllAnnotations();
       } catch (error) {
-        console.error('Failed to delete bbox track from DB:', error);
+        console.error('Failed to save after deleting bbox track:', error);
       }
 
       selectedBboxTrackId.value = null;
@@ -99,9 +91,9 @@ export function useSelectTool(options: UseSelectToolOptions) {
       deletePolygonTrack(trackId);
 
       try {
-        await deletePolygonTrackFromDB(trackId, videoFileName.value);
+        await saveAllAnnotations();
       } catch (error) {
-        console.error('Failed to delete polygon track from DB:', error);
+        console.error('Failed to save after deleting polygon track:', error);
       }
 
       selectedPolygonTrackId.value = null;
@@ -114,9 +106,9 @@ export function useSelectTool(options: UseSelectToolOptions) {
       deleteSkeletonTrack(trackId);
 
       try {
-        await deleteSkeletonTrackFromDB(trackId, videoFileName.value);
+        await saveAllAnnotations();
       } catch (error) {
-        console.error('Failed to delete skeleton track from DB:', error);
+        console.error('Failed to save after deleting skeleton track:', error);
       }
 
       selectedSkeletonTrackId.value = null;
