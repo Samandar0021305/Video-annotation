@@ -65,22 +65,6 @@ export function useSkeletonTool(options: UseSkeletonToolOptions) {
     });
   };
 
-  const updatePreviewCircles = () => {
-    if (!layerRef.value) return;
-    const layer = layerRef.value.getNode();
-
-    for (const circle of previewCircles.value) {
-      circle.destroy();
-    }
-    previewCircles.value = [];
-
-    for (const point of currentPoints.value) {
-      const circle = createPreviewCircle(point.x, point.y);
-      layer.add(circle);
-      previewCircles.value.push(circle);
-    }
-  };
-
   const clearPreviewCircles = () => {
     for (const circle of previewCircles.value) {
       circle.destroy();

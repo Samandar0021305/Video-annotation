@@ -12,7 +12,7 @@
         {{ config.label }}
       </button>
       <button
-        @click="clearAllIndexedDB"
+        @click="clearAllAnnotations"
         class="tab-btn clear-btn"
         :disabled="isTransitioning"
       >
@@ -825,14 +825,11 @@ import {
 import Konva from "konva";
 import { useVideoPlayer } from "../composables/useVideoPlayer";
 import { useBrushTracks } from "../composables/useBrushTracks";
-import { useBrushTracksDB } from "../composables/useBrushTracksDB";
 import { useBoundingBoxTracks } from "../composables/useBoundingBoxTracks";
-import { useBoundingBoxDB } from "../composables/useBoundingBoxDB";
 import { usePolygonTracks } from "../composables/usePolygonTracks";
-import { usePolygonDB } from "../composables/usePolygonDB";
 import { useSkeletonTracks } from "../composables/useSkeletonTracks";
-import { useSkeletonDB } from "../composables/useSkeletonDB";
 import type { Skeleton } from "../types/skeleton";
+import { useAnnotationStore } from "../stores/annotationStore";
 import {
   createKonvaSegmentationBrush,
   KonvaSegmentationBrush,
@@ -865,6 +862,9 @@ import {
   useBboxTool,
   useSelectTool,
 } from "../composables/tools";
+
+// Initialize Pinia store
+const annotationStore = useAnnotationStore();
 
 const stageRef = ref<any>(null);
 const drawingLayerRef = ref<any>(null);
@@ -915,15 +915,6 @@ const {
 } = useBrushTracks(currentFrame);
 
 const {
-  openDB: openBrushDB,
-  saveTrack: saveBrushTrack,
-  saveKeyframe,
-  saveTrackWithKeyframes,
-  loadTracksForVideo: loadBrushTracksForVideo,
-  deleteTrack: deleteBrushTrackFromDB,
-} = useBrushTracksDB();
-
-const {
   tracks: bboxTracks,
   selectedTrackId: selectedBboxTrackId,
   selectedTrack: selectedBboxTrack,
@@ -937,13 +928,6 @@ const {
   jumpToPreviousKeyframe: jumpToPreviousBboxKeyframe,
   isFrameInRanges: isBboxFrameInRanges,
 } = useBoundingBoxTracks(currentFrame);
-
-const {
-  openDB: openBboxDB,
-  saveTrack: saveBboxTrack,
-  loadTracksForVideo: loadBboxTracksForVideo,
-  deleteTrack: deleteBboxTrackFromDB,
-} = useBoundingBoxDB();
 
 const {
   tracks: polygonTracks,
@@ -961,13 +945,6 @@ const {
 } = usePolygonTracks(currentFrame);
 
 const {
-  openDB: openPolygonDB,
-  saveTrack: savePolygonTrack,
-  loadTracksForVideo: loadPolygonTracksForVideo,
-  deleteTrack: deletePolygonTrackFromDB,
-} = usePolygonDB();
-
-const {
   tracks: skeletonTracks,
   selectedTrackId: selectedSkeletonTrackId,
   selectedTrack: selectedSkeletonTrack,
@@ -981,13 +958,6 @@ const {
   jumpToPreviousKeyframe: jumpToPreviousSkeletonKeyframe,
   isFrameInRanges: isSkeletonFrameInRanges,
 } = useSkeletonTracks(currentFrame);
-
-const {
-  openDB: openSkeletonDB,
-  saveTrack: saveSkeletonTrack,
-  loadTracksForVideo: loadSkeletonTracksForVideo,
-  deleteTrack: deleteSkeletonTrackFromDB,
-} = useSkeletonDB();
 
 const skeletonLayerRef = ref<any>(null);
 const skeletonColor = ref(DEFAULT_COLORS.skeleton);
@@ -1055,6 +1025,45 @@ const brushColor = ref(DEFAULT_COLORS.brush);
 const bboxColor = ref(DEFAULT_COLORS.bbox);
 const polygonColor = ref(DEFAULT_COLORS.polygon);
 const segmentationOpacity = ref(DEFAULT_SEGMENTATION_OPACITY);
+
+// Save all annotations to API via Pinia store
+const saveAllAnnotationsToApi = async () => {
+  if (!videoFileName.value) return;
+
+  try {
+    // Sync composable data to store
+    annotationStore.setAllTracks({
+      bbox: bboxTracks.value,
+      polygon: polygonTracks.value,
+      skeleton: skeletonTracks.value,
+      brush: tracks.value,
+    });
+    annotationStore.setVideoFileName(videoFileName.value);
+
+    // Save via store
+    await annotationStore.save();
+  } catch (error) {
+    console.error("Failed to save annotations to API:", error);
+  }
+};
+
+// Load all annotations from API via Pinia store
+const loadAllAnnotationsFromApi = async () => {
+  if (!videoFileName.value) return;
+
+  try {
+    // Load via store
+    await annotationStore.load(videoFileName.value);
+
+    // Sync store data to composables
+    tracks.value = annotationStore.brushTracks;
+    bboxTracks.value = annotationStore.bboxTracks;
+    polygonTracks.value = annotationStore.polygonTracks;
+    skeletonTracks.value = annotationStore.skeletonTracks;
+  } catch (error) {
+    console.error("Failed to load annotations from API:", error);
+  }
+};
 
 const brushImageConfig = ref<any>(null);
 const isDrawing = ref(false);
@@ -1232,32 +1241,20 @@ const handleJumpToPreviousKeyframe = () => {
   }
 };
 
-const handleToggleInterpolation = () => {
+const handleToggleInterpolation = async () => {
   if (selectedTrackId.value) {
     toggleInterpolation(selectedTrackId.value);
-    const track = tracks.value.get(selectedTrackId.value);
-    if (track) {
-      saveBrushTrack(track, videoFileName.value);
-    }
+    await saveAllAnnotationsToApi();
     loadBrushCanvasForFrame();
   } else if (selectedBboxTrackId.value) {
     toggleBboxInterpolation(selectedBboxTrackId.value);
-    const track = bboxTracks.value.get(selectedBboxTrackId.value);
-    if (track) {
-      saveBboxTrack(track, videoFileName.value);
-    }
+    await saveAllAnnotationsToApi();
   } else if (selectedPolygonTrackId.value) {
     togglePolygonInterpolation(selectedPolygonTrackId.value);
-    const track = polygonTracks.value.get(selectedPolygonTrackId.value);
-    if (track) {
-      savePolygonTrack(track, videoFileName.value);
-    }
+    await saveAllAnnotationsToApi();
   } else if (selectedSkeletonTrackId.value) {
     toggleSkeletonInterpolation(selectedSkeletonTrackId.value);
-    const track = skeletonTracks.value.get(selectedSkeletonTrackId.value);
-    if (track) {
-      saveSkeletonTrack(track, videoFileName.value);
-    }
+    await saveAllAnnotationsToApi();
   }
 };
 
@@ -1462,7 +1459,7 @@ const polygonTool = usePolygonTool({
   createTrack: createPolygonTrack,
   getPolygonAtFrame,
   updateKeyframe: updatePolygonKeyframe,
-  saveTrack: savePolygonTrack,
+  saveTrack: async () => { await saveAllAnnotationsToApi(); },
   videoFileName,
   updateTransformerSelection,
 });
@@ -1483,7 +1480,7 @@ const skeletonTool = useSkeletonTool({
   createTrack: createSkeletonTrack,
   getSkeletonAtFrame,
   updateKeyframe: updateSkeletonKeyframe,
-  saveTrack: saveSkeletonTrack,
+  saveTrack: async () => { await saveAllAnnotationsToApi(); },
   videoFileName,
   updateTransformerSelection,
 });
@@ -1504,7 +1501,7 @@ const bboxTool = useBboxTool({
   createTrack: createBboxTrack,
   getBoxAtFrame,
   updateKeyframe: updateBboxKeyframe,
-  saveTrack: saveBboxTrack,
+  saveTrack: async () => { await saveAllAnnotationsToApi(); },
   videoFileName,
   updateTransformerSelection,
 });
@@ -1526,11 +1523,7 @@ const selectTool = useSelectTool({
   deleteBboxTrack,
   deletePolygonTrack,
   deleteSkeletonTrack,
-  deleteBrushTrackFromDB,
-  deleteBboxTrackFromDB,
-  deletePolygonTrackFromDB,
-  deleteSkeletonTrackFromDB,
-  videoFileName,
+  saveAllAnnotations: saveAllAnnotationsToApi,
   segmentationBrush,
 });
 
@@ -1671,7 +1664,7 @@ const handleStageMouseUp = async (e: Konva.KonvaEventObject<MouseEvent>) => {
     const track = tracks.value.get(trackId);
     if (track) {
       try {
-        await saveTrackWithKeyframes(track, videoFileName.value);
+        await saveAllAnnotationsToApi();
       } catch (error) {
         console.error("Failed to save track:", error);
       }
@@ -1691,7 +1684,7 @@ const handleStageMouseUp = async (e: Konva.KonvaEventObject<MouseEvent>) => {
       track.ranges = [[startFrame, endFrame + 1]];
 
       try {
-        await saveTrackWithKeyframes(track, videoFileName.value);
+        await saveAllAnnotationsToApi();
       } catch (error) {
         console.error("Failed to save track:", error);
       }
@@ -1776,7 +1769,7 @@ const handleBboxDragEnd = async (e: Konva.KonvaEventObject<MouseEvent>) => {
   updateBboxKeyframe(trackId, currentFrame.value, updatedBox);
 
   try {
-    await saveBboxTrack(track, videoFileName.value);
+    await saveAllAnnotationsToApi();
   } catch (error) {
     console.error("Failed to save after drag:", error);
   }
@@ -1818,7 +1811,7 @@ const handleBboxTransformEnd = async () => {
   updateBboxKeyframe(trackId, currentFrame.value, updatedBox);
 
   try {
-    await saveBboxTrack(track, videoFileName.value);
+    await saveAllAnnotationsToApi();
   } catch (error) {
     console.error("Failed to save after transform:", error);
   }
@@ -1863,7 +1856,7 @@ const handlePolygonDragEnd = async (e: Konva.KonvaEventObject<MouseEvent>) => {
   updatePolygonKeyframe(trackId, currentFrame.value, updatedPolygon);
 
   try {
-    await savePolygonTrack(track, videoFileName.value);
+    await saveAllAnnotationsToApi();
   } catch (error) {
     console.error("Failed to save after polygon drag:", error);
   }
@@ -1926,7 +1919,7 @@ const handlePolygonTransformEnd = async () => {
   updatePolygonKeyframe(trackId, currentFrame.value, updatedPolygon);
 
   try {
-    await savePolygonTrack(track, videoFileName.value);
+    await saveAllAnnotationsToApi();
   } catch (error) {
     console.error("Failed to save after polygon transform:", error);
   }
@@ -1997,7 +1990,7 @@ const handlePolygonPointDragEnd = async (
   updatePolygonKeyframe(trackId, currentFrame.value, updatedPolygon);
 
   try {
-    await savePolygonTrack(track, videoFileName.value);
+    await saveAllAnnotationsToApi();
   } catch (error) {
     console.error("Failed to save after polygon point drag:", error);
   }
@@ -2074,7 +2067,7 @@ const handlePolygonLineClick = async (e: any, trackId: string) => {
   selectedSkeletonTrackId.value = null;
 
   try {
-    await savePolygonTrack(track, videoFileName.value);
+    await saveAllAnnotationsToApi();
   } catch (error) {
     console.error("Failed to save after adding polygon point:", error);
   }
@@ -2117,7 +2110,7 @@ const handlePolygonPointDelete = async (trackId: string, pointIndex: number) => 
   updatePolygonKeyframe(trackId, currentFrame.value, updatedPolygon);
 
   try {
-    await savePolygonTrack(track, videoFileName.value);
+    await saveAllAnnotationsToApi();
   } catch (error) {
     console.error("Failed to save after deleting polygon point:", error);
   }
@@ -2204,7 +2197,7 @@ const handleSkeletonKeypointDrag = async (
   updateSkeletonKeyframe(trackId, currentFrame.value, updatedSkeleton);
 
   try {
-    await saveSkeletonTrack(track, videoFileName.value);
+    await saveAllAnnotationsToApi();
   } catch (error) {
     console.error("Failed to save after skeleton keypoint drag:", error);
   }
@@ -2250,7 +2243,7 @@ const handleSkeletonDragEnd = async (e: Konva.KonvaEventObject<MouseEvent>) => {
   updateSkeletonKeyframe(trackId, currentFrame.value, updatedSkeleton);
 
   try {
-    await saveSkeletonTrack(track, videoFileName.value);
+    await saveAllAnnotationsToApi();
   } catch (error) {
     console.error("Failed to save after skeleton drag:", error);
   }
@@ -2313,7 +2306,7 @@ const handleSkeletonLineClick = async (e: any, trackId: string) => {
   selectedPolygonTrackId.value = null;
 
   try {
-    await saveSkeletonTrack(track, videoFileName.value);
+    await saveAllAnnotationsToApi();
   } catch (error) {
     console.error("Failed to save after adding skeleton point:", error);
   }
@@ -2370,7 +2363,7 @@ const handleSkeletonKeypointDelete = async (trackId: string, pointIndex: number)
   updateSkeletonKeyframe(trackId, currentFrame.value, updatedSkeleton);
 
   try {
-    await saveSkeletonTrack(track, videoFileName.value);
+    await saveAllAnnotationsToApi();
   } catch (error) {
     console.error("Failed to save after deleting skeleton point:", error);
   }
@@ -2455,8 +2448,7 @@ const checkAndMergeSkeletons = async (
       deleteSkeletonTrack(otherTrackId);
 
       try {
-        await deleteSkeletonTrackFromDB(otherTrackId, videoFileName.value);
-        await saveSkeletonTrack(draggedTrack, videoFileName.value);
+        await saveAllAnnotationsToApi();
       } catch (error) {
         console.error("Failed to save after merging skeletons:", error);
       }
@@ -2473,9 +2465,9 @@ const handleDeleteSelected = async () => {
     selectedTrackId.value = null;
 
     try {
-      await deleteBrushTrackFromDB(trackId, videoFileName.value);
+      await saveAllAnnotationsToApi();
     } catch (error) {
-      console.error("Failed to delete track from IndexedDB:", error);
+      console.error("Failed to save after deleting track:", error);
     }
 
     loadBrushCanvasForFrame();
@@ -2487,9 +2479,9 @@ const handleDeleteSelected = async () => {
     selectedBboxTrackId.value = null;
 
     try {
-      await deleteBboxTrackFromDB(trackId, videoFileName.value);
+      await saveAllAnnotationsToApi();
     } catch (error) {
-      console.error("Failed to delete bbox track from IndexedDB:", error);
+      console.error("Failed to save after deleting bbox track:", error);
     }
 
     updateTransformerSelection();
@@ -2501,9 +2493,9 @@ const handleDeleteSelected = async () => {
     selectedPolygonTrackId.value = null;
 
     try {
-      await deletePolygonTrackFromDB(trackId, videoFileName.value);
+      await saveAllAnnotationsToApi();
     } catch (error) {
-      console.error("Failed to delete polygon track from IndexedDB:", error);
+      console.error("Failed to save after deleting polygon track:", error);
     }
 
     updateTransformerSelection();
@@ -2515,9 +2507,9 @@ const handleDeleteSelected = async () => {
     selectedSkeletonTrackId.value = null;
 
     try {
-      await deleteSkeletonTrackFromDB(trackId, videoFileName.value);
+      await saveAllAnnotationsToApi();
     } catch (error) {
-      console.error("Failed to delete skeleton track from IndexedDB:", error);
+      console.error("Failed to save after deleting skeleton track:", error);
     }
 
     updateTransformerSelection();
@@ -2555,22 +2547,17 @@ const cleanupCurrentVideo = () => {
   }
 };
 
-// Clear all IndexedDB data
-const clearAllIndexedDB = async () => {
+// Clear all annotation data
+const clearAllAnnotations = async () => {
   const confirmed = confirm(
-    "Are you sure you want to clear ALL annotation data from IndexedDB?\n\n" +
-      "This will delete annotations for ALL videos (HD, 4K, URL) and cannot be undone!"
+    "Are you sure you want to clear ALL annotation data?\n\n" +
+      "This will delete all annotations for this video and cannot be undone!"
   );
 
   if (!confirmed) return;
 
   try {
-    // Clear all stores by deleting and recreating the database
-    const dbName = "VideoAnnotationDB";
-
-    // Close any open connections first
-    indexedDB.deleteDatabase(dbName);
-
+    // Clear local state
     tracks.value.clear();
     bboxTracks.value.clear();
     polygonTracks.value.clear();
@@ -2590,10 +2577,11 @@ const clearAllIndexedDB = async () => {
       transformerRef.value.nodes([]);
     }
 
-    await openBrushDB();
-    await openBboxDB();
-    await openPolygonDB();
-    await openSkeletonDB();
+    // Clear store and send empty result to API
+    if (videoFileName.value) {
+      annotationStore.setVideoFileName(videoFileName.value);
+      await annotationStore.clearAll();
+    }
 
     // Redraw
     if (drawingLayerRef.value) {
@@ -2606,10 +2594,10 @@ const clearAllIndexedDB = async () => {
       polygonLayerRef.value.getNode().batchDraw();
     }
 
-    alert("All IndexedDB data has been cleared successfully!");
+    alert("All annotation data has been cleared successfully!");
   } catch (error) {
-    console.error("Failed to clear IndexedDB:", error);
-    alert("Failed to clear IndexedDB. Please try again.");
+    console.error("Failed to clear annotations:", error);
+    alert("Failed to clear annotations. Please try again.");
   }
 };
 
@@ -2661,12 +2649,7 @@ const addManualKeyframe = async () => {
     addKeyframe(selectedTrackId.value, currentFrame.value, contours);
 
     try {
-      await saveKeyframe(
-        selectedTrackId.value,
-        currentFrame.value,
-        contours,
-        videoFileName.value
-      );
+      await saveAllAnnotationsToApi();
     } catch (error) {
       console.error("Failed to save keyframe:", error);
     }
@@ -2837,22 +2820,22 @@ const endRangeResize = async () => {
   if (resizeTrackType.value === "brush") {
     track = tracks.value.get(resizeTrackId.value);
     if (track) {
-      await saveBrushTrack(track, videoFileName.value);
+      await saveAllAnnotationsToApi();
     }
   } else if (resizeTrackType.value === "bbox") {
     track = bboxTracks.value.get(resizeTrackId.value);
     if (track) {
-      await saveBboxTrack(track, videoFileName.value);
+      await saveAllAnnotationsToApi();
     }
   } else if (resizeTrackType.value === "polygon") {
     track = polygonTracks.value.get(resizeTrackId.value);
     if (track) {
-      await savePolygonTrack(track, videoFileName.value);
+      await saveAllAnnotationsToApi();
     }
   } else if (resizeTrackType.value === "skeleton") {
     track = skeletonTracks.value.get(resizeTrackId.value);
     if (track) {
-      await saveSkeletonTrack(track, videoFileName.value);
+      await saveAllAnnotationsToApi();
     }
   }
 
@@ -2868,15 +2851,6 @@ onMounted(async () => {
   window.addEventListener("keydown", handleKeyDown);
   window.addEventListener("mousemove", handleRangeResize);
   window.addEventListener("mouseup", endRangeResize);
-
-  try {
-    await openBrushDB();
-    await openBboxDB();
-    await openPolygonDB();
-    await openSkeletonDB();
-  } catch (error) {
-    console.error("Failed to open IndexedDB:", error);
-  }
 
   const config = VIDEO_SOURCES[activeVideoTab.value];
   loadVideoFromUrl(config.source, config.filename);
@@ -2895,29 +2869,8 @@ watch(videoLoaded, async (loaded) => {
   if (loaded) {
     await nextTick();
 
-    try {
-      const loadedBrushTracks = await loadBrushTracksForVideo(
-        videoFileName.value
-      );
-      tracks.value = loadedBrushTracks;
-
-      const loadedBboxTracks = await loadBboxTracksForVideo(
-        videoFileName.value
-      );
-      bboxTracks.value = loadedBboxTracks;
-
-      const loadedPolygonTracks = await loadPolygonTracksForVideo(
-        videoFileName.value
-      );
-      polygonTracks.value = loadedPolygonTracks;
-
-      const loadedSkeletonTracks = await loadSkeletonTracksForVideo(
-        videoFileName.value
-      );
-      skeletonTracks.value = loadedSkeletonTracks;
-    } catch (error) {
-      console.error("Failed to load tracks:", error);
-    }
+    // Load annotations from API
+    await loadAllAnnotationsFromApi();
 
     await nextTick();
 

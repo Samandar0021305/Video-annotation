@@ -115,6 +115,7 @@ export function useBboxTool(options: UseBboxToolOptions) {
       y: previewRect.value.y() * scale,
       width: width * scale,
       height: height * scale,
+      rotation: 0,
       color: color.value,
       classId: 0,
     };

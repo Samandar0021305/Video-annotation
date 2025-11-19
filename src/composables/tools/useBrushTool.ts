@@ -69,11 +69,11 @@ export function useBrushTool(options: UseBrushToolOptions) {
     isDrawing.value = false;
     segmentationBrush.value.onMouseUp(e);
 
-    const brushImage = segmentationBrush.value.getBrushImage();
-    if (!brushImage) return;
+    const offscreenCanvas = segmentationBrush.value.getOffscreenCanvas();
+    if (!offscreenCanvas) return;
 
     const contours = getSegmentationImageContoursForSaving(
-      brushImage.image(),
+      offscreenCanvas,
       storageScale.value
     );
 
