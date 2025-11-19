@@ -1,19 +1,20 @@
 import { ref, toRaw } from 'vue';
-import type { Polyline, PolylineTrack } from '../types/polyline';
+import type { Skeleton, SkeletonTrack } from '../types/skeleton';
 
 const DB_NAME = 'VideoAnnotationDB';
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 const TRACKS_STORE = 'brushTracksUnified';
 const BBOX_STORE = 'boundingBoxTracks';
 const POLYGON_STORE = 'polygonTracks';
 const POLYLINE_STORE = 'polylineTracks';
+const SKELETON_STORE = 'skeletonTracks';
 
 interface KeyframeEntry {
   frameNumber: number;
-  polyline: Polyline;
+  skeleton: Skeleton;
 }
 
-interface PolylineRecord {
+interface SkeletonRecord {
   id: string;
   trackId: string;
   videoFileName: string;
@@ -27,7 +28,7 @@ interface PolylineRecord {
   timestamp: number;
 }
 
-export function usePolylineDB() {
+export function useSkeletonDB() {
   const db = ref<IDBDatabase | null>(null);
 
   const openDB = (): Promise<IDBDatabase> => {
@@ -69,33 +70,39 @@ export function usePolylineDB() {
           polylineStore.createIndex('videoFileName', 'videoFileName', { unique: false });
           polylineStore.createIndex('trackId', 'trackId', { unique: false });
         }
+
+        if (!database.objectStoreNames.contains(SKELETON_STORE)) {
+          const skeletonStore = database.createObjectStore(SKELETON_STORE, { keyPath: 'id' });
+          skeletonStore.createIndex('videoFileName', 'videoFileName', { unique: false });
+          skeletonStore.createIndex('trackId', 'trackId', { unique: false });
+        }
       };
     });
   };
 
   const saveTrack = async (
-    track: PolylineTrack,
+    track: SkeletonTrack,
     videoFileName: string
   ): Promise<void> => {
     const database = db.value || await openDB();
 
     return new Promise((resolve, reject) => {
-      const transaction = database.transaction([POLYLINE_STORE], 'readwrite');
-      const objectStore = transaction.objectStore(POLYLINE_STORE);
+      const transaction = database.transaction([SKELETON_STORE], 'readwrite');
+      const objectStore = transaction.objectStore(SKELETON_STORE);
 
       const rawTrack = toRaw(track);
       const rawKeyframes = toRaw(rawTrack.keyframes);
 
       const keyframesData: KeyframeEntry[] = [];
-      for (const [frameNumber, polyline] of rawKeyframes.entries()) {
+      for (const [frameNumber, skeleton] of rawKeyframes.entries()) {
         keyframesData.push({
           frameNumber,
-          polyline: JSON.parse(JSON.stringify(toRaw(polyline)))
+          skeleton: JSON.parse(JSON.stringify(toRaw(skeleton)))
         });
       }
 
-      const record: PolylineRecord = {
-        id: `${videoFileName}_polyline_${rawTrack.trackId}`,
+      const record: SkeletonRecord = {
+        id: `${videoFileName}_skeleton_${rawTrack.trackId}`,
         trackId: rawTrack.trackId,
         videoFileName,
         label: rawTrack.label,
@@ -115,28 +122,28 @@ export function usePolylineDB() {
       };
 
       request.onerror = (event: any) => {
-        reject(new Error('Failed to save polyline track: ' + event.target.error));
+        reject(new Error('Failed to save skeleton track: ' + event.target.error));
       };
     });
   };
 
   const loadTracksForVideo = async (
     videoFileName: string
-  ): Promise<Map<string, PolylineTrack>> => {
+  ): Promise<Map<string, SkeletonTrack>> => {
     const database = db.value || await openDB();
-    const tracks = new Map<string, PolylineTrack>();
+    const tracks = new Map<string, SkeletonTrack>();
 
-    const records = await new Promise<PolylineRecord[]>((resolve, reject) => {
-      const transaction = database.transaction([POLYLINE_STORE], 'readonly');
-      const objectStore = transaction.objectStore(POLYLINE_STORE);
+    const records = await new Promise<SkeletonRecord[]>((resolve, reject) => {
+      const transaction = database.transaction([SKELETON_STORE], 'readonly');
+      const objectStore = transaction.objectStore(SKELETON_STORE);
       const index = objectStore.index('videoFileName');
       const request = index.openCursor(IDBKeyRange.only(videoFileName));
-      const results: PolylineRecord[] = [];
+      const results: SkeletonRecord[] = [];
 
       request.onsuccess = (event) => {
         const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
         if (cursor) {
-          results.push(cursor.value as PolylineRecord);
+          results.push(cursor.value as SkeletonRecord);
           cursor.continue();
         } else {
           resolve(results);
@@ -144,25 +151,25 @@ export function usePolylineDB() {
       };
 
       request.onerror = () => {
-        reject(new Error('Failed to load polyline tracks'));
+        reject(new Error('Failed to load skeleton tracks'));
       };
     });
 
     for (const record of records) {
-      const keyframes = new Map<number, Polyline>();
+      const keyframes = new Map<number, Skeleton>();
 
       if (record.keyframesData && Array.isArray(record.keyframesData)) {
         for (const entry of record.keyframesData) {
-          keyframes.set(entry.frameNumber, entry.polyline);
+          keyframes.set(entry.frameNumber, entry.skeleton);
         }
       }
 
-      const track: PolylineTrack = {
+      const track: SkeletonTrack = {
         trackId: record.trackId,
         keyframes,
         interpolationEnabled: record.interpolationEnabled ?? true,
         label: record.label,
-        color: record.color || '#ff0000',
+        color: record.color || '#00ff00',
         classId: record.classId || 0,
         ranges: record.ranges || [],
         hiddenAreas: record.hiddenAreas || [],
@@ -181,9 +188,9 @@ export function usePolylineDB() {
     const database = db.value || await openDB();
 
     return new Promise((resolve, reject) => {
-      const transaction = database.transaction([POLYLINE_STORE], 'readwrite');
-      const objectStore = transaction.objectStore(POLYLINE_STORE);
-      const id = `${videoFileName}_polyline_${trackId}`;
+      const transaction = database.transaction([SKELETON_STORE], 'readwrite');
+      const objectStore = transaction.objectStore(SKELETON_STORE);
+      const id = `${videoFileName}_skeleton_${trackId}`;
       const request = objectStore.delete(id);
 
       request.onsuccess = () => {
@@ -191,7 +198,7 @@ export function usePolylineDB() {
       };
 
       request.onerror = () => {
-        reject(new Error('Failed to delete polyline track'));
+        reject(new Error('Failed to delete skeleton track'));
       };
     });
   };
@@ -200,8 +207,8 @@ export function usePolylineDB() {
     const database = db.value || await openDB();
 
     return new Promise((resolve, reject) => {
-      const transaction = database.transaction([POLYLINE_STORE], 'readwrite');
-      const objectStore = transaction.objectStore(POLYLINE_STORE);
+      const transaction = database.transaction([SKELETON_STORE], 'readwrite');
+      const objectStore = transaction.objectStore(SKELETON_STORE);
       const index = objectStore.index('videoFileName');
       const request = index.openCursor(IDBKeyRange.only(videoFileName));
 
@@ -216,7 +223,7 @@ export function usePolylineDB() {
       };
 
       request.onerror = () => {
-        reject(new Error('Failed to clear polyline tracks'));
+        reject(new Error('Failed to clear skeleton tracks'));
       };
     });
   };
