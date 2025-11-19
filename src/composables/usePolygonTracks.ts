@@ -39,10 +39,13 @@ function interpolatePolygon(
 
   const t = (targetFrame - frame1) / (frame2 - frame1);
 
-  const interpolatedPoints: PolygonPoint[] = poly1.points.map((p1, i) => ({
-    x: p1.x + (poly2.points[i].x - p1.x) * t,
-    y: p1.y + (poly2.points[i].y - p1.y) * t
-  }));
+  const interpolatedPoints: PolygonPoint[] = poly1.points.map((p1, i) => {
+    const p2 = poly2.points[i]!;
+    return {
+      x: p1.x + (p2.x - p1.x) * t,
+      y: p1.y + (p2.y - p1.y) * t
+    };
+  });
 
   return {
     id: poly1.id,
