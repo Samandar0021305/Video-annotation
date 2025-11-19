@@ -1,10 +1,10 @@
 import { ref, computed, type Ref } from 'vue';
-import type { Polyline, PolylineTrack, PolylinePoint } from '../types/polyline';
+import type { Skeleton, SkeletonTrack, SkeletonPoint } from '../types/skeleton';
 
 function findSurroundingKeyframes(
-  keyframes: Map<number, Polyline>,
+  keyframes: Map<number, Skeleton>,
   targetFrame: number
-): { before: [number, Polyline] | null; after: [number, Polyline] | null } {
+): { before: [number, Skeleton] | null; after: [number, Skeleton] | null } {
   const frames = Array.from(keyframes.keys()).sort((a, b) => a - b);
 
   let beforeFrame: number | null = null;
@@ -26,21 +26,22 @@ function findSurroundingKeyframes(
   };
 }
 
-function interpolatePolyline(
-  line1: Polyline,
-  line2: Polyline,
+function interpolateSkeleton(
+  skeleton1: Skeleton,
+  skeleton2: Skeleton,
   frame1: number,
   frame2: number,
   targetFrame: number
-): Polyline {
-  if (line1.points.length !== line2.points.length) {
-    return line1;
+): Skeleton {
+  // Can only interpolate if both skeletons have same number of points
+  if (skeleton1.points.length !== skeleton2.points.length) {
+    return skeleton1;
   }
 
   const t = (targetFrame - frame1) / (frame2 - frame1);
 
-  const interpolatedPoints: PolylinePoint[] = line1.points.map((p1, i) => {
-    const p2 = line2.points[i]!;
+  const interpolatedPoints: SkeletonPoint[] = skeleton1.points.map((p1, i) => {
+    const p2 = skeleton2.points[i]!;
     return {
       x: p1.x + (p2.x - p1.x) * t,
       y: p1.y + (p2.y - p1.y) * t
@@ -48,35 +49,35 @@ function interpolatePolyline(
   });
 
   return {
-    id: line1.id,
+    id: skeleton1.id,
     points: interpolatedPoints,
-    label: line1.label,
-    color: line1.color,
-    classId: line1.classId
+    label: skeleton1.label,
+    color: skeleton1.color,
+    classId: skeleton1.classId
   };
 }
 
-export function usePolylineTracks(currentFrame: Ref<number>) {
-  const tracks = ref<Map<string, PolylineTrack>>(new Map());
+export function useSkeletonTracks(currentFrame: Ref<number>) {
+  const tracks = ref<Map<string, SkeletonTrack>>(new Map());
   const selectedTrackId = ref<string | null>(null);
 
   function createTrack(
     initialFrame: number,
-    polyline: Polyline,
+    skeleton: Skeleton,
     label?: string,
     totalFrames: number = 1000
   ): string {
-    const trackId = `polyline_track_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+    const trackId = `skeleton_track_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 
-    const track: PolylineTrack = {
+    const track: SkeletonTrack = {
       trackId,
-      keyframes: new Map([[initialFrame, { ...polyline, id: trackId }]]),
+      keyframes: new Map([[initialFrame, { ...skeleton, id: trackId }]]),
       interpolationEnabled: true,
       label,
       ranges: [[initialFrame, totalFrames]],
       hiddenAreas: [],
-      color: polyline.color,
-      classId: polyline.classId
+      color: skeleton.color,
+      classId: skeleton.classId
     };
 
     tracks.value.set(trackId, track);
@@ -86,18 +87,18 @@ export function usePolylineTracks(currentFrame: Ref<number>) {
   function addKeyframe(
     trackId: string,
     frame: number,
-    polyline: Polyline
+    skeleton: Skeleton
   ): void {
     const track = tracks.value.get(trackId);
     if (!track) return;
 
-    track.keyframes.set(frame, { ...polyline, id: trackId });
+    track.keyframes.set(frame, { ...skeleton, id: trackId });
   }
 
-  function getPolylineAtFrame(
+  function getSkeletonAtFrame(
     trackId: string,
     frame: number
-  ): Polyline | null {
+  ): Skeleton | null {
     const track = tracks.value.get(trackId);
     if (!track) return null;
 
@@ -125,21 +126,21 @@ export function usePolylineTracks(currentFrame: Ref<number>) {
     if (!before && after) return after[1];
     if (before && !after) return before[1];
 
-    const [frame1, line1] = before!;
-    const [frame2, line2] = after!;
+    const [frame1, skeleton1] = before!;
+    const [frame2, skeleton2] = after!;
 
-    return interpolatePolyline(line1, line2, frame1, frame2, frame);
+    return interpolateSkeleton(skeleton1, skeleton2, frame1, frame2, frame);
   }
 
   function updateKeyframe(
     trackId: string,
     frame: number,
-    polyline: Polyline
+    skeleton: Skeleton
   ): void {
     const track = tracks.value.get(trackId);
     if (!track) return;
 
-    track.keyframes.set(frame, { ...polyline, id: trackId });
+    track.keyframes.set(frame, { ...skeleton, id: trackId });
   }
 
   function toggleInterpolation(trackId: string): void {
@@ -215,7 +216,7 @@ export function usePolylineTracks(currentFrame: Ref<number>) {
     isCurrentFrameKeyframe,
     createTrack,
     addKeyframe,
-    getPolylineAtFrame,
+    getSkeletonAtFrame,
     updateKeyframe,
     toggleInterpolation,
     deleteTrack,

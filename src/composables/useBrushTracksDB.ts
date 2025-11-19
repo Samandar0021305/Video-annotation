@@ -3,11 +3,12 @@ import type { SegmentationContour } from '../types/contours';
 import type { BrushTrack } from './useBrushTracks';
 
 const DB_NAME = 'VideoAnnotationDB';
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 const TRACKS_STORE = 'brushTracksUnified';
 const BBOX_STORE = 'boundingBoxTracks';
 const POLYGON_STORE = 'polygonTracks';
 const POLYLINE_STORE = 'polylineTracks';
+const SKELETON_STORE = 'skeletonTracks';
 
 interface KeyframeEntry {
   frameNumber: number;
@@ -68,6 +69,12 @@ export function useBrushTracksDB() {
           const polylineStore = database.createObjectStore(POLYLINE_STORE, { keyPath: 'id' });
           polylineStore.createIndex('videoFileName', 'videoFileName', { unique: false });
           polylineStore.createIndex('trackId', 'trackId', { unique: false });
+        }
+
+        if (!database.objectStoreNames.contains(SKELETON_STORE)) {
+          const skeletonStore = database.createObjectStore(SKELETON_STORE, { keyPath: 'id' });
+          skeletonStore.createIndex('videoFileName', 'videoFileName', { unique: false });
+          skeletonStore.createIndex('trackId', 'trackId', { unique: false });
         }
       };
     });

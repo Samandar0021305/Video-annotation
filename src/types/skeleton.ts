@@ -1,19 +1,19 @@
-export interface PolylinePoint {
+export interface SkeletonPoint {
   x: number;
   y: number;
 }
 
-export interface Polyline {
+export interface Skeleton {
   id: string;
-  points: PolylinePoint[];
+  points: SkeletonPoint[];
   label?: string;
   color: string;
   classId: number;
 }
 
-export interface PolylineTrack {
+export interface SkeletonTrack {
   trackId: string;
-  keyframes: Map<number, Polyline>;
+  keyframes: Map<number, Skeleton>;
   ranges: Array<[number, number]>;
   hiddenAreas: Array<[number, number]>;
   interpolationEnabled: boolean;
@@ -22,7 +22,7 @@ export interface PolylineTrack {
   classId: number;
 }
 
-export interface PolylineClass {
+export interface SkeletonClass {
   value: number;
   name: string;
   color: string;

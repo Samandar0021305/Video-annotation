@@ -5,7 +5,7 @@
       <button
         v-for="(config, key) in VIDEO_SOURCES"
         :key="key"
-        @click="switchVideoTab(key as VideoTabKey)"
+        @click="switchVideoTab(key as VideoTab)"
         :class="['tab-btn', { active: activeVideoTab === key }]"
         :disabled="isTransitioning"
       >
@@ -39,7 +39,7 @@
               !selectedTrackId &&
               !selectedBboxTrackId &&
               !selectedPolygonTrackId &&
-              !selectedPolylineTrackId
+              !selectedSkeletonTrackId
             "
           >
             ◄◄ Keyframe
@@ -51,7 +51,7 @@
               !selectedTrackId &&
               !selectedBboxTrackId &&
               !selectedPolygonTrackId &&
-              !selectedPolylineTrackId
+              !selectedSkeletonTrackId
             "
           >
             Keyframe ►►
@@ -74,44 +74,44 @@
 
         <div class="tool-selector">
           <button
-            @click="currentTool = 'pan'"
-            :class="['tool-btn', { active: currentTool === 'pan' }]"
+            @click="currentTool = Tool.PAN"
+            :class="['tool-btn', { active: currentTool === Tool.PAN }]"
           >
             Pan
           </button>
           <button
-            @click="currentTool = 'brush'"
-            :class="['tool-btn', { active: currentTool === 'brush' }]"
+            @click="currentTool = Tool.BRUSH"
+            :class="['tool-btn', { active: currentTool === Tool.BRUSH }]"
           >
             Brush
           </button>
           <button
-            @click="currentTool = 'eraser'"
-            :class="['tool-btn', { active: currentTool === 'eraser' }]"
+            @click="currentTool = Tool.ERASER"
+            :class="['tool-btn', { active: currentTool === Tool.ERASER }]"
           >
             Eraser
           </button>
           <button
-            @click="currentTool = 'bbox'"
-            :class="['tool-btn', { active: currentTool === 'bbox' }]"
+            @click="currentTool = Tool.BBOX"
+            :class="['tool-btn', { active: currentTool === Tool.BBOX }]"
           >
             BBox
           </button>
           <button
-            @click="currentTool = 'polygon'"
-            :class="['tool-btn', { active: currentTool === 'polygon' }]"
+            @click="currentTool = Tool.POLYGON"
+            :class="['tool-btn', { active: currentTool === Tool.POLYGON }]"
           >
             Polygon
           </button>
           <button
-            @click="currentTool = 'polyline'"
-            :class="['tool-btn', { active: currentTool === 'polyline' }]"
+            @click="currentTool = Tool.SKELETON"
+            :class="['tool-btn', { active: currentTool === Tool.SKELETON }]"
           >
-            Polyline
+            Skeleton
           </button>
           <button
-            @click="currentTool = 'select'"
-            :class="['tool-btn', { active: currentTool === 'select' }]"
+            @click="currentTool = Tool.SELECT"
+            :class="['tool-btn', { active: currentTool === Tool.SELECT }]"
           >
             Select
           </button>
@@ -122,7 +122,7 @@
               !selectedTrackId &&
               !selectedBboxTrackId &&
               !selectedPolygonTrackId &&
-              !selectedPolylineTrackId
+              !selectedSkeletonTrackId
             "
           >
             Delete
@@ -130,7 +130,7 @@
         </div>
 
         <div
-          v-if="currentTool === 'brush' || currentTool === 'eraser'"
+          v-if="currentTool === Tool.BRUSH || currentTool === Tool.ERASER"
           class="brush-controls"
         >
           <label>
@@ -143,36 +143,36 @@
               class="brush-slider"
             />
           </label>
-          <label v-if="currentTool === 'brush'">
+          <label v-if="currentTool === Tool.BRUSH">
             Color:
             <input type="color" v-model="brushColor" class="color-picker" />
           </label>
         </div>
 
-        <div v-if="currentTool === 'bbox'" class="bbox-controls">
+        <div v-if="currentTool === Tool.BBOX" class="bbox-controls">
           <label>
             Color:
             <input type="color" v-model="bboxColor" class="color-picker" />
           </label>
         </div>
 
-        <div v-if="currentTool === 'polygon'" class="polygon-controls">
+        <div v-if="currentTool === Tool.POLYGON" class="polygon-controls">
           <label>
             Color:
             <input type="color" v-model="polygonColor" class="color-picker" />
           </label>
-          <span v-if="isDrawingPolygon" class="drawing-hint">
+          <span v-if="polygonTool.isDrawing.value" class="drawing-hint">
             Click to add points. Double-click or click near start to complete.
           </span>
         </div>
 
-        <div v-if="currentTool === 'polyline'" class="polyline-controls">
+        <div v-if="currentTool === Tool.SKELETON" class="skeleton-controls">
           <label>
             Color:
-            <input type="color" v-model="polylineColor" class="color-picker" />
+            <input type="color" v-model="skeletonColor" class="color-picker" />
           </label>
-          <span v-if="isDrawingPolyline" class="drawing-hint">
-            Click to add points. Double-click to complete.
+          <span v-if="skeletonTool.isDrawing.value" class="drawing-hint">
+            Click to add keypoints. Double-click to complete.
           </span>
         </div>
 
@@ -206,7 +206,7 @@
           selectedTrack ||
           selectedBboxTrack ||
           selectedPolygonTrack ||
-          selectedPolylineTrack
+          selectedSkeletonTrack
         "
         class="interpolation-controls-row"
       >
@@ -218,7 +218,7 @@
                 selectedTrackId ||
                 selectedBboxTrackId ||
                 selectedPolygonTrackId ||
-                selectedPolylineTrackId
+                selectedSkeletonTrackId
               )?.substring(0, 16)
             }}...
           </span>
@@ -229,14 +229,14 @@
                 isCurrentFrameKeyframe ||
                 isBboxCurrentFrameKeyframe ||
                 isPolygonCurrentFrameKeyframe ||
-                isPolylineCurrentFrameKeyframe,
+                isSkeletonCurrentFrameKeyframe,
             }"
           >
             {{
               isCurrentFrameKeyframe ||
               isBboxCurrentFrameKeyframe ||
               isPolygonCurrentFrameKeyframe ||
-              isPolylineCurrentFrameKeyframe
+              isSkeletonCurrentFrameKeyframe
                 ? "🔑 Keyframe"
                 : "🔄 Interpolated"
             }}
@@ -247,8 +247,10 @@
               :checked="
                 (selectedTrack && selectedTrack.interpolationEnabled) ||
                 (selectedBboxTrack && selectedBboxTrack.interpolationEnabled) ||
-                (selectedPolygonTrack && selectedPolygonTrack.interpolationEnabled) ||
-                (selectedPolylineTrack && selectedPolylineTrack.interpolationEnabled) ||
+                (selectedPolygonTrack &&
+                  selectedPolygonTrack.interpolationEnabled) ||
+                (selectedSkeletonTrack &&
+                  selectedSkeletonTrack.interpolationEnabled) ||
                 false
               "
               @change="handleToggleInterpolation"
@@ -258,8 +260,10 @@
               {{
                 (selectedTrack && selectedTrack.interpolationEnabled) ||
                 (selectedBboxTrack && selectedBboxTrack.interpolationEnabled) ||
-                (selectedPolygonTrack && selectedPolygonTrack.interpolationEnabled) ||
-                (selectedPolylineTrack && selectedPolylineTrack.interpolationEnabled)
+                (selectedPolygonTrack &&
+                  selectedPolygonTrack.interpolationEnabled) ||
+                (selectedSkeletonTrack &&
+                  selectedSkeletonTrack.interpolationEnabled)
                   ? "ON"
                   : "OFF"
               }}
@@ -293,12 +297,12 @@
               tracks.size === 0 &&
               bboxTracks.size === 0 &&
               polygonTracks.size === 0 &&
-              polylineTracks.size === 0
+              skeletonTracks.size === 0
             "
             class="timeline-empty"
           >
-            No tracks yet. Draw with brush, bbox, polygon, or polyline tool to
-            create one.
+            No tracks yet. Draw with brush, bbox, polygon, or skeleton
+            tool to create one.
           </div>
 
           <div
@@ -337,11 +341,31 @@
               >
                 <div
                   class="resize-handle left"
-                  @mousedown="startRangeResize($event, trackId, 'brush', rangeIndex, 'left', range[0], range[1])"
+                  @mousedown="
+                    startRangeResize(
+                      $event,
+                      trackId,
+                      'brush',
+                      rangeIndex,
+                      'left',
+                      range[0],
+                      range[1]
+                    )
+                  "
                 ></div>
                 <div
                   class="resize-handle right"
-                  @mousedown="startRangeResize($event, trackId, 'brush', rangeIndex, 'right', range[0], range[1])"
+                  @mousedown="
+                    startRangeResize(
+                      $event,
+                      trackId,
+                      'brush',
+                      rangeIndex,
+                      'right',
+                      range[0],
+                      range[1]
+                    )
+                  "
                 ></div>
               </div>
 
@@ -401,11 +425,31 @@
               >
                 <div
                   class="resize-handle left"
-                  @mousedown="startRangeResize($event, trackId, 'bbox', rangeIndex, 'left', range[0], range[1])"
+                  @mousedown="
+                    startRangeResize(
+                      $event,
+                      trackId,
+                      'bbox',
+                      rangeIndex,
+                      'left',
+                      range[0],
+                      range[1]
+                    )
+                  "
                 ></div>
                 <div
                   class="resize-handle right"
-                  @mousedown="startRangeResize($event, trackId, 'bbox', rangeIndex, 'right', range[0], range[1])"
+                  @mousedown="
+                    startRangeResize(
+                      $event,
+                      trackId,
+                      'bbox',
+                      rangeIndex,
+                      'right',
+                      range[0],
+                      range[1]
+                    )
+                  "
                 ></div>
               </div>
 
@@ -466,11 +510,31 @@
               >
                 <div
                   class="resize-handle left"
-                  @mousedown="startRangeResize($event, trackId, 'polygon', rangeIndex, 'left', range[0], range[1])"
+                  @mousedown="
+                    startRangeResize(
+                      $event,
+                      trackId,
+                      'polygon',
+                      rangeIndex,
+                      'left',
+                      range[0],
+                      range[1]
+                    )
+                  "
                 ></div>
                 <div
                   class="resize-handle right"
-                  @mousedown="startRangeResize($event, trackId, 'polygon', rangeIndex, 'right', range[0], range[1])"
+                  @mousedown="
+                    startRangeResize(
+                      $event,
+                      trackId,
+                      'polygon',
+                      rangeIndex,
+                      'right',
+                      range[0],
+                      range[1]
+                    )
+                  "
                 ></div>
               </div>
 
@@ -494,14 +558,14 @@
           </div>
 
           <div
-            v-for="[trackId, track] in Array.from(polylineTracks.entries())"
+            v-for="[trackId, track] in Array.from(skeletonTracks.entries())"
             :key="trackId"
             class="timeline-track-row"
-            :class="{ selected: selectedPolylineTrackId === trackId }"
-            @click="selectPolylineTrack(trackId)"
+            :class="{ selected: selectedSkeletonTrackId === trackId }"
+            @click="selectSkeletonTrack(trackId)"
           >
             <div class="track-label">
-              <span class="track-icon">📈</span>
+              <span class="track-icon">🦴</span>
               <span class="track-name">{{ trackId.substring(0, 12) }}...</span>
               <span class="keyframe-count"
                 >{{ track.keyframes.size }} keys</span
@@ -518,9 +582,9 @@
 
               <div
                 v-for="(range, rangeIndex) in track.ranges || []"
-                :key="`${trackId}-polyline-range-${rangeIndex}`"
-                class="timeline-segment-bar polyline"
-                :class="{ selected: selectedPolylineTrackId === trackId }"
+                :key="`${trackId}-skeleton-range-${rangeIndex}`"
+                class="timeline-segment-bar skeleton"
+                :class="{ selected: selectedSkeletonTrackId === trackId }"
                 :style="{
                   left: (range[0] / (totalFrames || 1)) * 100 + '%',
                   width:
@@ -531,23 +595,43 @@
               >
                 <div
                   class="resize-handle left"
-                  @mousedown="startRangeResize($event, trackId, 'polyline', rangeIndex, 'left', range[0], range[1])"
+                  @mousedown="
+                    startRangeResize(
+                      $event,
+                      trackId,
+                      'skeleton',
+                      rangeIndex,
+                      'left',
+                      range[0],
+                      range[1]
+                    )
+                  "
                 ></div>
                 <div
                   class="resize-handle right"
-                  @mousedown="startRangeResize($event, trackId, 'polyline', rangeIndex, 'right', range[0], range[1])"
+                  @mousedown="
+                    startRangeResize(
+                      $event,
+                      trackId,
+                      'skeleton',
+                      rangeIndex,
+                      'right',
+                      range[0],
+                      range[1]
+                    )
+                  "
                 ></div>
               </div>
 
               <div
                 v-for="frameNum in Array.from(track.keyframes.keys())"
-                :key="`${trackId}-polyline-${frameNum}`"
-                v-show="isPolylineFrameInRanges(frameNum, track.ranges || [])"
+                :key="`${trackId}-skeleton-${frameNum}`"
+                v-show="isSkeletonFrameInRanges(frameNum, track.ranges || [])"
                 class="keyframe-diamond"
                 :class="{
                   active: frameNum === currentFrame,
                   selected:
-                    selectedPolylineTrackId === trackId &&
+                    selectedSkeletonTrackId === trackId &&
                     frameNum === currentFrame,
                 }"
                 :style="{ left: (frameNum / (totalFrames || 1)) * 100 + '%' }"
@@ -577,7 +661,7 @@
       ref="stageRef"
       :config="stageConfig"
       @wheel="handleWheel"
-      :class="{ 'pan-tool-active': currentTool === 'pan' }"
+      :class="{ 'pan-tool-active': currentTool === Tool.PAN }"
     >
       <v-layer ref="videoLayerRef">
         <v-image
@@ -611,7 +695,7 @@
             x: box.x * displayScale,
             y: box.y * displayScale,
             rotation: box.rotation,
-            draggable: currentTool === 'select',
+            draggable: currentTool === Tool.SELECT,
             name: 'boundingBox',
           }"
           @dragend="handleBboxDragEnd"
@@ -644,7 +728,7 @@
             stroke: polygon.color,
             strokeWidth: 2,
             closed: true,
-            draggable: currentTool === 'select',
+            draggable: currentTool === Tool.SELECT,
             name: 'polygon',
           }"
           @dragend="handlePolygonDragEnd"
@@ -653,26 +737,50 @@
         />
       </v-layer>
 
-      <v-layer ref="polylineLayerRef">
-        <v-line
-          v-for="polyline in visiblePolylines"
-          :key="polyline.id"
-          :config="{
-            id: polyline.id,
-            points: polyline.points.flatMap((p) => [
-              p.x * displayScale,
-              p.y * displayScale,
-            ]),
-            stroke: polyline.color,
-            strokeWidth: 2,
-            closed: false,
-            draggable: currentTool === 'select',
-            name: 'polyline',
-          }"
-          @dragend="handlePolylineDragEnd"
-          @transformend="handlePolylineTransformEnd"
-          @click="handlePolylineClick"
-        />
+      <v-layer ref="skeletonLayerRef">
+        <template v-for="skeleton in visibleSkeletons" :key="skeleton.id">
+          <!-- Lines connecting keypoints -->
+          <v-line
+            :config="{
+              id: skeleton.id,
+              points: skeleton.points.flatMap((p) => [
+                p.x * displayScale,
+                p.y * displayScale,
+              ]),
+              stroke: skeleton.color,
+              strokeWidth: currentTool === Tool.PAN ? 4 : 2,
+              lineCap: 'round',
+              lineJoin: 'round',
+              draggable: currentTool === Tool.SELECT,
+              name: 'skeleton',
+              hitStrokeWidth: currentTool === Tool.PAN ? 10 : 0,
+            }"
+            @dragend="handleSkeletonDragEnd"
+            @click="(e: any) => handleSkeletonLineClick(e, skeleton.id)"
+          />
+          <!-- Keypoints -->
+          <v-circle
+            v-for="(point, pointIdx) in skeleton.points"
+            :key="`${skeleton.id}-kp-${pointIdx}`"
+            :config="{
+              x: point.x * displayScale,
+              y: point.y * displayScale,
+              radius: 6,
+              fill: skeleton.color,
+              stroke:
+                selectedSkeletonTrackId === skeleton.id
+                  ? '#fff'
+                  : skeleton.color,
+              strokeWidth: selectedSkeletonTrackId === skeleton.id ? 2 : 1,
+              draggable: currentTool === Tool.SELECT || currentTool === Tool.SKELETON || currentTool === Tool.PAN,
+              name: 'skeletonKeypoint',
+            }"
+            @dragmove="(e: any) => handleSkeletonKeypointDragging(e, skeleton.id, pointIdx)"
+            @dragend="(e: any) => handleSkeletonKeypointDrag(e, skeleton.id, pointIdx)"
+            @click="() => handleSkeletonClick(skeleton.id)"
+            @dblclick="() => handleSkeletonKeypointDelete(skeleton.id, pointIdx)"
+          />
+        </template>
       </v-layer>
     </v-stage>
 
@@ -699,8 +807,9 @@ import { useBoundingBoxTracks } from "../composables/useBoundingBoxTracks";
 import { useBoundingBoxDB } from "../composables/useBoundingBoxDB";
 import { usePolygonTracks } from "../composables/usePolygonTracks";
 import { usePolygonDB } from "../composables/usePolygonDB";
-import { usePolylineTracks } from "../composables/usePolylineTracks";
-import { usePolylineDB } from "../composables/usePolylineDB";
+import { useSkeletonTracks } from "../composables/useSkeletonTracks";
+import { useSkeletonDB } from "../composables/useSkeletonDB";
+import type { Skeleton } from "../types/skeleton";
 import {
   createKonvaSegmentationBrush,
   KonvaSegmentationBrush,
@@ -711,45 +820,39 @@ import {
 } from "../utils/opencv-contours";
 import type { ToolClass, SegmentationContour } from "../types/contours";
 import type { BoundingBox } from "../types/boundingBox";
-import type { Polygon, PolygonPoint } from "../types/polygon";
-import type { Polyline, PolylinePoint } from "../types/polyline";
+import type { Polygon } from "../types/polygon";
 import { formatTime } from "../utils/formatters";
-import videoFileHD from "../assets/video.mp4";
-import videoFile4K from "../assets/video_4K.MOV";
-
-// Video source configuration for tabs
-const VIDEO_SOURCES = {
-  hd: {
-    source: videoFileHD,
-    filename: "video.mp4",
-    label: "HD Video",
-  },
-  "4k": {
-    source: videoFile4K,
-    filename: "video_4K.MOV",
-    label: "4K Video",
-  },
-  url: {
-    source:
-      "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-    filename: "BigBuckBunny.mp4",
-    label: "URL Video",
-  },
-} as const;
-
-type VideoTabKey = keyof typeof VIDEO_SOURCES;
+import { Tool, TrackType, ResizeEdge, VideoTab } from "../types/enums";
+import {
+  VIDEO_SOURCES,
+  MAX_WORKING_DIMENSION,
+  DEFAULT_STAGE_CONFIG,
+  CONTAINER_DIMENSIONS,
+  MAX_STAGE_DIMENSIONS,
+  DEFAULT_COLORS,
+  DEFAULT_BRUSH_SIZE,
+  DEFAULT_SEGMENTATION_OPACITY,
+  MIN_BBOX_SIZE,
+  DEFAULT_TOOL_CLASS,
+  KONVA_PIXEL_RATIO,
+} from "../constants/canvas";
+import {
+  usePolygonTool,
+  useSkeletonTool,
+  useBboxTool,
+  useSelectTool,
+} from "../composables/tools";
 
 const stageRef = ref<any>(null);
 const drawingLayerRef = ref<any>(null);
 const bboxLayerRef = ref<any>(null);
 const polygonLayerRef = ref<any>(null);
-const polylineLayerRef = ref<any>(null);
 const brushImageRef = ref<any>(null);
 const segmentationBrush = ref<KonvaSegmentationBrush | null>(null);
 const transformerRef = ref<Konva.Transformer | null>(null);
 
 // Video tab state
-const activeVideoTab = ref<VideoTabKey>("hd");
+const activeVideoTab = ref<VideoTab>(VideoTab.HD);
 const isTransitioning = ref(false);
 
 const {
@@ -842,38 +945,38 @@ const {
 } = usePolygonDB();
 
 const {
-  tracks: polylineTracks,
-  selectedTrackId: selectedPolylineTrackId,
-  selectedTrack: selectedPolylineTrack,
-  isCurrentFrameKeyframe: isPolylineCurrentFrameKeyframe,
-  createTrack: createPolylineTrack,
-  getPolylineAtFrame,
-  updateKeyframe: updatePolylineKeyframe,
-  toggleInterpolation: togglePolylineInterpolation,
-  deleteTrack: deletePolylineTrack,
-  jumpToNextKeyframe: jumpToNextPolylineKeyframe,
-  jumpToPreviousKeyframe: jumpToPreviousPolylineKeyframe,
-  isFrameInRanges: isPolylineFrameInRanges,
-} = usePolylineTracks(currentFrame);
+  tracks: skeletonTracks,
+  selectedTrackId: selectedSkeletonTrackId,
+  selectedTrack: selectedSkeletonTrack,
+  isCurrentFrameKeyframe: isSkeletonCurrentFrameKeyframe,
+  createTrack: createSkeletonTrack,
+  getSkeletonAtFrame,
+  updateKeyframe: updateSkeletonKeyframe,
+  toggleInterpolation: toggleSkeletonInterpolation,
+  deleteTrack: deleteSkeletonTrack,
+  jumpToNextKeyframe: jumpToNextSkeletonKeyframe,
+  jumpToPreviousKeyframe: jumpToPreviousSkeletonKeyframe,
+  isFrameInRanges: isSkeletonFrameInRanges,
+} = useSkeletonTracks(currentFrame);
 
 const {
-  openDB: openPolylineDB,
-  saveTrack: savePolylineTrack,
-  loadTracksForVideo: loadPolylineTracksForVideo,
-  deleteTrack: deletePolylineTrackFromDB,
-} = usePolylineDB();
+  openDB: openSkeletonDB,
+  saveTrack: saveSkeletonTrack,
+  loadTracksForVideo: loadSkeletonTracksForVideo,
+  deleteTrack: deleteSkeletonTrackFromDB,
+} = useSkeletonDB();
+
+const skeletonLayerRef = ref<any>(null);
+const skeletonColor = ref(DEFAULT_COLORS.skeleton);
 
 const stageScale = ref(1);
 const stageConfig = ref({
-  width: 900,
-  height: 700,
-  draggable: true,
-  scaleX: 1,
-  scaleY: 1,
+  width: DEFAULT_STAGE_CONFIG.width as number,
+  height: DEFAULT_STAGE_CONFIG.height as number,
+  draggable: DEFAULT_STAGE_CONFIG.draggable,
+  scaleX: DEFAULT_STAGE_CONFIG.scaleX as number,
+  scaleY: DEFAULT_STAGE_CONFIG.scaleY as number,
 });
-
-// 4K Support: Working resolution calculations
-const MAX_WORKING_DIMENSION = 1920; // Cap at 1080p for performance
 
 const workingResolution = computed(() => {
   const { width, height } = videoSize.value;
@@ -916,49 +1019,33 @@ const initialStageScale = computed(() => {
     workingResolution.value;
   if (!workingWidth || !workingHeight) return 1;
 
-  const containerWidth = 1200;
-  const containerHeight = 900;
-
   return Math.min(
-    containerWidth / workingWidth,
-    containerHeight / workingHeight,
+    CONTAINER_DIMENSIONS.width / workingWidth,
+    CONTAINER_DIMENSIONS.height / workingHeight,
     1 // Don't scale up if smaller than container
   );
 });
 
-const currentTool = ref<
-  "pan" | "brush" | "eraser" | "bbox" | "select" | "polygon" | "polyline"
->("pan");
-const brushSize = ref(30);
-const brushColor = ref("#ff0000");
-const bboxColor = ref("#00ff00");
-const polygonColor = ref("#0000ff");
-const polylineColor = ref("#ff00ff");
-const segmentationOpacity = ref(0.7);
+const currentTool = ref<Tool>(Tool.PAN);
+const brushSize = ref(DEFAULT_BRUSH_SIZE);
+const brushColor = ref(DEFAULT_COLORS.brush);
+const bboxColor = ref(DEFAULT_COLORS.bbox);
+const polygonColor = ref(DEFAULT_COLORS.polygon);
+const segmentationOpacity = ref(DEFAULT_SEGMENTATION_OPACITY);
 
 const brushImageConfig = ref<any>(null);
 const isDrawing = ref(false);
 const drawingStartFrame = ref(0);
-const drawStartPos = ref({ x: 0, y: 0 });
-const previewRect = ref<Konva.Rect | null>(null);
-const isDrawingPolygon = ref(false);
-const currentPolygonPoints = ref<PolygonPoint[]>([]);
-const previewPolygonLine = ref<Konva.Line | null>(null);
-const isDrawingPolyline = ref(false);
-const currentPolylinePoints = ref<PolylinePoint[]>([]);
-const previewPolylineLine = ref<Konva.Line | null>(null);
 
 const isResizingRange = ref(false);
 const resizeTrackId = ref<string | null>(null);
-const resizeTrackType = ref<'brush' | 'bbox' | 'polygon' | 'polyline' | null>(null);
+const resizeTrackType = ref<TrackType | null>(null);
 const resizeRangeIndex = ref(0);
-const resizeEdge = ref<'left' | 'right' | null>(null);
+const resizeEdge = ref<ResizeEdge | null>(null);
 const resizeStartX = ref(0);
 const resizeStartFrame = ref(0);
 
-const toolClasses = ref<ToolClass[]>([
-  { value: 0, name: "Red", color: "#ff0000", markup_type: "segment" },
-]);
+const toolClasses = ref<ToolClass[]>([DEFAULT_TOOL_CLASS]);
 
 const totalFrames = computed(() => {
   return Math.floor(videoDuration.value * videoFPS.value);
@@ -1007,30 +1094,30 @@ const visiblePolygons = computed(() => {
   return polygons;
 });
 
-const visiblePolylines = computed(() => {
-  const polylines: Polyline[] = [];
+const visibleSkeletons = computed(() => {
+  const skeletons: Skeleton[] = [];
 
-  for (const [trackId, track] of polylineTracks.value.entries()) {
+  for (const [trackId, track] of skeletonTracks.value.entries()) {
     const isInRange = track.ranges.some(
       ([start, end]) => currentFrame.value >= start && currentFrame.value < end
     );
 
     if (!isInRange) continue;
 
-    const polyline = getPolylineAtFrame(trackId, currentFrame.value);
-    if (polyline) {
-      polylines.push(polyline);
+    const skeleton = getSkeletonAtFrame(trackId, currentFrame.value);
+    if (skeleton) {
+      skeletons.push(skeleton);
     }
   }
 
-  return polylines;
+  return skeletons;
 });
 
 const selectBrushTrack = (trackId: string) => {
   selectedTrackId.value = trackId;
   selectedBboxTrackId.value = null;
   selectedPolygonTrackId.value = null;
-  selectedPolylineTrackId.value = null;
+  selectedSkeletonTrackId.value = null;
   updateTransformerSelection();
 };
 
@@ -1038,7 +1125,7 @@ const selectBboxTrack = (trackId: string) => {
   selectedBboxTrackId.value = trackId;
   selectedTrackId.value = null;
   selectedPolygonTrackId.value = null;
-  selectedPolylineTrackId.value = null;
+  selectedSkeletonTrackId.value = null;
   updateTransformerSelection();
 };
 
@@ -1046,12 +1133,12 @@ const selectPolygonTrack = (trackId: string) => {
   selectedPolygonTrackId.value = trackId;
   selectedTrackId.value = null;
   selectedBboxTrackId.value = null;
-  selectedPolylineTrackId.value = null;
+  selectedSkeletonTrackId.value = null;
   updateTransformerSelection();
 };
 
-const selectPolylineTrack = (trackId: string) => {
-  selectedPolylineTrackId.value = trackId;
+const selectSkeletonTrack = (trackId: string) => {
+  selectedSkeletonTrackId.value = trackId;
   selectedTrackId.value = null;
   selectedBboxTrackId.value = null;
   selectedPolygonTrackId.value = null;
@@ -1066,13 +1153,13 @@ const handleFrameDurationChange = (e: Event) => {
     tracks.value.size > 0 ||
     bboxTracks.value.size > 0 ||
     polygonTracks.value.size > 0 ||
-    polylineTracks.value.size > 0;
+    skeletonTracks.value.size > 0;
 
   if (hasAnyTracks) {
     const confirmChange = window.confirm(
-      'Changing frame duration will affect existing annotations. ' +
-      'Keyframes will remain at the same frame numbers but represent different times. ' +
-      'Continue?'
+      "Changing frame duration will affect existing annotations. " +
+        "Keyframes will remain at the same frame numbers but represent different times. " +
+        "Continue?"
     );
     if (!confirmChange) {
       target.value = secondsPerFrame.value.toString();
@@ -1105,8 +1192,8 @@ const handleJumpToNextKeyframe = () => {
     jumpToNextBboxKeyframe(seekToFrame);
   } else if (selectedPolygonTrackId.value) {
     jumpToNextPolygonKeyframe(seekToFrame);
-  } else if (selectedPolylineTrackId.value) {
-    jumpToNextPolylineKeyframe(seekToFrame);
+  } else if (selectedSkeletonTrackId.value) {
+    jumpToNextSkeletonKeyframe(seekToFrame);
   }
 };
 
@@ -1117,8 +1204,8 @@ const handleJumpToPreviousKeyframe = () => {
     jumpToPreviousBboxKeyframe(seekToFrame);
   } else if (selectedPolygonTrackId.value) {
     jumpToPreviousPolygonKeyframe(seekToFrame);
-  } else if (selectedPolylineTrackId.value) {
-    jumpToPreviousPolylineKeyframe(seekToFrame);
+  } else if (selectedSkeletonTrackId.value) {
+    jumpToPreviousSkeletonKeyframe(seekToFrame);
   }
 };
 
@@ -1142,20 +1229,17 @@ const handleToggleInterpolation = () => {
     if (track) {
       savePolygonTrack(track, videoFileName.value);
     }
-  } else if (selectedPolylineTrackId.value) {
-    togglePolylineInterpolation(selectedPolylineTrackId.value);
-    const track = polylineTracks.value.get(selectedPolylineTrackId.value);
+  } else if (selectedSkeletonTrackId.value) {
+    toggleSkeletonInterpolation(selectedSkeletonTrackId.value);
+    const track = skeletonTracks.value.get(selectedSkeletonTrackId.value);
     if (track) {
-      savePolylineTrack(track, videoFileName.value);
+      saveSkeletonTrack(track, videoFileName.value);
     }
   }
 };
 
 watch(videoSize, (newSize) => {
   if (!newSize.width || !newSize.height) return;
-
-  const maxWidth = 900;
-  const maxHeight = 700;
 
   // Use working resolution for stage sizing
   const { width: workingWidth, height: workingHeight } =
@@ -1166,8 +1250,8 @@ watch(videoSize, (newSize) => {
   stageScale.value = initScale;
 
   // Stage dimensions (container size)
-  let stageWidth = Math.min(workingWidth * initScale + 100, maxWidth);
-  let stageHeight = Math.min(workingHeight * initScale + 100, maxHeight);
+  let stageWidth = Math.min(workingWidth * initScale + 100, MAX_STAGE_DIMENSIONS.width);
+  let stageHeight = Math.min(workingHeight * initScale + 100, MAX_STAGE_DIMENSIONS.height);
 
   stageConfig.value = {
     ...stageConfig.value,
@@ -1309,9 +1393,8 @@ const setupTransformer = () => {
       "bottom-right",
     ],
     boundBoxFunc: (_oldBox, newBox) => {
-      const minSize = 10;
-      if (newBox.width < minSize) newBox.width = minSize;
-      if (newBox.height < minSize) newBox.height = minSize;
+      if (newBox.width < MIN_BBOX_SIZE) newBox.width = MIN_BBOX_SIZE;
+      if (newBox.height < MIN_BBOX_SIZE) newBox.height = MIN_BBOX_SIZE;
       return newBox;
     },
     rotationSnaps: [0, 45, 90, 135, 180, 225, 270, 315],
@@ -1341,6 +1424,93 @@ const updateTransformerSelection = () => {
   layer.batchDraw();
 };
 
+const polygonTool = usePolygonTool({
+  stageRef,
+  layerRef: polygonLayerRef,
+  currentFrame,
+  totalFrames,
+  storageScale,
+  color: polygonColor,
+  polygonTracks,
+  selectedPolygonTrackId,
+  selectedTrackId,
+  selectedBboxTrackId,
+  selectedSkeletonTrackId,
+  createTrack: createPolygonTrack,
+  getPolygonAtFrame,
+  updateKeyframe: updatePolygonKeyframe,
+  saveTrack: savePolygonTrack,
+  videoFileName,
+  updateTransformerSelection,
+});
+
+const skeletonTool = useSkeletonTool({
+  stageRef,
+  layerRef: skeletonLayerRef,
+  currentFrame,
+  totalFrames,
+  storageScale,
+  displayScale,
+  color: skeletonColor,
+  skeletonTracks,
+  selectedSkeletonTrackId,
+  selectedTrackId,
+  selectedBboxTrackId,
+  selectedPolygonTrackId,
+  createTrack: createSkeletonTrack,
+  getSkeletonAtFrame,
+  updateKeyframe: updateSkeletonKeyframe,
+  saveTrack: saveSkeletonTrack,
+  videoFileName,
+  updateTransformerSelection,
+});
+
+const bboxTool = useBboxTool({
+  stageRef,
+  layerRef: bboxLayerRef,
+  currentFrame,
+  totalFrames,
+  storageScale,
+  displayScale,
+  color: bboxColor,
+  bboxTracks,
+  selectedBboxTrackId,
+  selectedTrackId,
+  selectedPolygonTrackId,
+  selectedSkeletonTrackId,
+  createTrack: createBboxTrack,
+  getBoxAtFrame,
+  updateKeyframe: updateBboxKeyframe,
+  saveTrack: saveBboxTrack,
+  videoFileName,
+  updateTransformerSelection,
+});
+
+// Note: brushTool requires additional wrapper functions for proper integration
+// const brushTool = useBrushTool({ ... });
+
+const selectTool = useSelectTool({
+  currentTool,
+  selectedTrackId,
+  selectedBboxTrackId,
+  selectedPolygonTrackId,
+  selectedSkeletonTrackId,
+  tracks,
+  bboxTracks,
+  polygonTracks,
+  skeletonTracks,
+  deleteTrack,
+  deleteBboxTrack,
+  deletePolygonTrack,
+  deleteSkeletonTrack,
+  deleteBrushTrackFromDB,
+  deleteBboxTrackFromDB,
+  deletePolygonTrackFromDB,
+  deleteSkeletonTrackFromDB,
+  videoFileName,
+  segmentationBrush,
+});
+
 const handleWheel = (e: any) => {
   e.evt.preventDefault();
 
@@ -1369,113 +1539,30 @@ const handleWheel = (e: any) => {
 };
 
 const handleStageMouseDown = async (e: Konva.KonvaEventObject<MouseEvent>) => {
-  if (currentTool.value === "pan") return;
+  if (currentTool.value === Tool.PAN) return;
 
-  if (currentTool.value === "polygon") {
-    if (!stageRef.value || !polygonLayerRef.value) return;
-
-    const stage = stageRef.value.getNode();
-    const pos = stage.getRelativePointerPosition();
-
-    if (!isDrawingPolygon.value) {
-      isDrawingPolygon.value = true;
-      currentPolygonPoints.value = [{ x: pos.x, y: pos.y }];
-
-      const layer = polygonLayerRef.value.getNode();
-      previewPolygonLine.value = new Konva.Line({
-        points: [pos.x, pos.y],
-        stroke: polygonColor.value,
-        strokeWidth: 2,
-        dash: [5, 5],
-        listening: false,
-      });
-      layer.add(previewPolygonLine.value);
-      layer.batchDraw();
-    } else {
-      const firstPoint = currentPolygonPoints.value[0];
-      if (!firstPoint) return;
-
-      const distance = Math.sqrt(
-        Math.pow(pos.x - firstPoint.x, 2) + Math.pow(pos.y - firstPoint.y, 2)
-      );
-
-      if (distance < 15 && currentPolygonPoints.value.length >= 3) {
-        completePolygonDrawing();
-      } else {
-        currentPolygonPoints.value.push({ x: pos.x, y: pos.y });
-        updatePolygonPreview();
-      }
-    }
+  if (currentTool.value === Tool.POLYGON) {
+    polygonTool.handleMouseDown(e);
     return;
   }
 
-  if (currentTool.value === "polyline") {
-    if (!stageRef.value || !polylineLayerRef.value) return;
-
-    const stage = stageRef.value.getNode();
-    const pos = stage.getRelativePointerPosition();
-
-    if (!isDrawingPolyline.value) {
-      isDrawingPolyline.value = true;
-      currentPolylinePoints.value = [{ x: pos.x, y: pos.y }];
-
-      const layer = polylineLayerRef.value.getNode();
-      previewPolylineLine.value = new Konva.Line({
-        points: [pos.x, pos.y],
-        stroke: polylineColor.value,
-        strokeWidth: 2,
-        dash: [5, 5],
-        listening: false,
-      });
-      layer.add(previewPolylineLine.value);
-      layer.batchDraw();
-    } else {
-      currentPolylinePoints.value.push({ x: pos.x, y: pos.y });
-      updatePolylinePreview();
-    }
+  if (currentTool.value === Tool.SKELETON) {
+    skeletonTool.handleMouseDown(e);
     return;
   }
 
-  if (currentTool.value === "bbox") {
-    if (!stageRef.value || !bboxLayerRef.value) return;
-
-    const stage = stageRef.value.getNode();
-    const pos = stage.getRelativePointerPosition();
-
-    isDrawing.value = true;
-    drawStartPos.value = { x: pos.x, y: pos.y };
-
-    const layer = bboxLayerRef.value.getNode();
-
-    previewRect.value = new Konva.Rect({
-      x: pos.x,
-      y: pos.y,
-      width: 0,
-      height: 0,
-      stroke: bboxColor.value,
-      strokeWidth: 2,
-      dash: [5, 5],
-      listening: false,
-    });
-
-    layer.add(previewRect.value);
-    layer.batchDraw();
+  if (currentTool.value === Tool.BBOX) {
+    bboxTool.handleMouseDown(e);
     return;
   }
 
-  if (currentTool.value === "select") {
-    const clickedOnEmpty = e.target === e.target.getStage();
-    if (clickedOnEmpty) {
-      selectedBboxTrackId.value = null;
-      selectedTrackId.value = null;
-      selectedPolygonTrackId.value = null;
-      selectedPolylineTrackId.value = null;
-      updateTransformerSelection();
-    }
+  if (currentTool.value === Tool.SELECT) {
+    selectTool.handleMouseDown(e);
+    updateTransformerSelection();
     return;
   }
 
-  if (currentTool.value === "brush" || currentTool.value === "eraser") {
+  if (currentTool.value === Tool.BRUSH || currentTool.value === Tool.ERASER) {
     if (!stageRef.value || !segmentationBrush.value) return;
 
     drawingStartFrame.value = currentFrame.value;
@@ -1485,224 +1572,33 @@ const handleStageMouseDown = async (e: Konva.KonvaEventObject<MouseEvent>) => {
   }
 };
 
-const updatePolygonPreview = () => {
-  if (!previewPolygonLine.value || !polygonLayerRef.value) return;
-
-  const points: number[] = [];
-  for (const p of currentPolygonPoints.value) {
-    points.push(p.x, p.y);
-  }
-
-  previewPolygonLine.value.points(points);
-  polygonLayerRef.value.getNode().batchDraw();
-};
-
-const completePolygonDrawing = async () => {
-  if (currentPolygonPoints.value.length < 3) {
-    cancelPolygonDrawing();
-    return;
-  }
-
-  // Scale up from working resolution to original resolution for storage
-  const scale = storageScale.value;
-  const polygon: Polygon = {
-    id: "",
-    points: currentPolygonPoints.value.map((p) => ({
-      x: p.x * scale,
-      y: p.y * scale,
-    })),
-    color: polygonColor.value,
-    classId: 0,
-  };
-
-  if (previewPolygonLine.value) {
-    previewPolygonLine.value.destroy();
-    previewPolygonLine.value = null;
-  }
-
-  const trackId = createPolygonTrack(
-    currentFrame.value,
-    polygon,
-    undefined,
-    totalFrames.value
-  );
-
-  selectedPolygonTrackId.value = trackId;
-  selectedTrackId.value = null;
-  selectedBboxTrackId.value = null;
-
-  const track = polygonTracks.value.get(trackId);
-  if (track) {
-    try {
-      await savePolygonTrack(track, videoFileName.value);
-    } catch (error) {
-      console.error("Failed to save polygon track:", error);
-    }
-  }
-
-  isDrawingPolygon.value = false;
-  currentPolygonPoints.value = [];
-
-  await nextTick();
-  updateTransformerSelection();
-};
-
-const cancelPolygonDrawing = () => {
-  if (previewPolygonLine.value) {
-    previewPolygonLine.value.destroy();
-    previewPolygonLine.value = null;
-  }
-  isDrawingPolygon.value = false;
-  currentPolygonPoints.value = [];
-  if (polygonLayerRef.value) {
-    polygonLayerRef.value.getNode().batchDraw();
-  }
-};
-
-const updatePolylinePreview = () => {
-  if (!previewPolylineLine.value || !polylineLayerRef.value) return;
-
-  const points: number[] = [];
-  for (const p of currentPolylinePoints.value) {
-    points.push(p.x, p.y);
-  }
-
-  previewPolylineLine.value.points(points);
-  polylineLayerRef.value.getNode().batchDraw();
-};
-
-const completePolylineDrawing = async () => {
-  if (currentPolylinePoints.value.length < 2) {
-    cancelPolylineDrawing();
-    return;
-  }
-
-  const scale = storageScale.value;
-  const polyline: Polyline = {
-    id: "",
-    points: currentPolylinePoints.value.map((p) => ({
-      x: p.x * scale,
-      y: p.y * scale,
-    })),
-    color: polylineColor.value,
-    classId: 0,
-  };
-
-  if (previewPolylineLine.value) {
-    previewPolylineLine.value.destroy();
-    previewPolylineLine.value = null;
-  }
-
-  const trackId = createPolylineTrack(
-    currentFrame.value,
-    polyline,
-    undefined,
-    totalFrames.value
-  );
-
-  selectedPolylineTrackId.value = trackId;
-  selectedTrackId.value = null;
-  selectedBboxTrackId.value = null;
-  selectedPolygonTrackId.value = null;
-
-  const track = polylineTracks.value.get(trackId);
-  if (track) {
-    try {
-      await savePolylineTrack(track, videoFileName.value);
-    } catch (error) {
-      console.error("Failed to save polyline track:", error);
-    }
-  }
-
-  isDrawingPolyline.value = false;
-  currentPolylinePoints.value = [];
-
-  await nextTick();
-  updateTransformerSelection();
-};
-
-const cancelPolylineDrawing = () => {
-  if (previewPolylineLine.value) {
-    previewPolylineLine.value.destroy();
-    previewPolylineLine.value = null;
-  }
-  isDrawingPolyline.value = false;
-  currentPolylinePoints.value = [];
-  if (polylineLayerRef.value) {
-    polylineLayerRef.value.getNode().batchDraw();
-  }
-};
-
 const handleStageDblClick = async () => {
-  if (currentTool.value === "polygon" && isDrawingPolygon.value) {
-    await completePolygonDrawing();
+  if (currentTool.value === Tool.POLYGON && polygonTool.isDrawing.value) {
+    await polygonTool.completeDrawing();
   }
-  if (currentTool.value === "polyline" && isDrawingPolyline.value) {
-    await completePolylineDrawing();
+  if (currentTool.value === Tool.SKELETON && skeletonTool.isDrawing.value) {
+    await skeletonTool.completeDrawing();
   }
 };
 
 const handleStageMouseMove = (e: Konva.KonvaEventObject<MouseEvent>) => {
-  if (
-    currentTool.value === "polygon" &&
-    isDrawingPolygon.value &&
-    previewPolygonLine.value &&
-    stageRef.value
-  ) {
-    const stage = stageRef.value.getNode();
-    const pos = stage.getRelativePointerPosition();
+  if (!stageRef.value) return;
 
-    const points: number[] = [];
-    for (const p of currentPolygonPoints.value) {
-      points.push(p.x, p.y);
-    }
-    points.push(pos.x, pos.y);
+  const stage = stageRef.value.getNode();
+  const pos = stage.getRelativePointerPosition();
 
-    previewPolygonLine.value.points(points);
-    polygonLayerRef.value.getNode().batchDraw();
+  if (currentTool.value === Tool.POLYGON && polygonTool.isDrawing.value) {
+    polygonTool.handleMouseMove(pos);
     return;
   }
 
-  if (
-    currentTool.value === "polyline" &&
-    isDrawingPolyline.value &&
-    previewPolylineLine.value &&
-    stageRef.value
-  ) {
-    const stage = stageRef.value.getNode();
-    const pos = stage.getRelativePointerPosition();
-
-    const points: number[] = [];
-    for (const p of currentPolylinePoints.value) {
-      points.push(p.x, p.y);
-    }
-    points.push(pos.x, pos.y);
-
-    previewPolylineLine.value.points(points);
-    polylineLayerRef.value.getNode().batchDraw();
+  if (currentTool.value === Tool.SKELETON && skeletonTool.isDrawing.value) {
+    skeletonTool.handleMouseMove(pos);
     return;
   }
 
-  if (
-    currentTool.value === "bbox" &&
-    isDrawing.value &&
-    previewRect.value &&
-    stageRef.value
-  ) {
-    const stage = stageRef.value.getNode();
-    const pos = stage.getRelativePointerPosition();
-
-    const width = pos.x - drawStartPos.value.x;
-    const height = pos.y - drawStartPos.value.y;
-
-    previewRect.value.setAttrs({
-      x: width < 0 ? pos.x : drawStartPos.value.x,
-      y: height < 0 ? pos.y : drawStartPos.value.y,
-      width: Math.abs(width),
-      height: Math.abs(height),
-    });
-
-    bboxLayerRef.value.getNode().batchDraw();
+  if (currentTool.value === Tool.BBOX && bboxTool.isDrawing.value) {
+    bboxTool.handleMouseMove(pos);
     return;
   }
 
@@ -1711,60 +1607,14 @@ const handleStageMouseMove = (e: Konva.KonvaEventObject<MouseEvent>) => {
 };
 
 const handleStageMouseUp = async (e: Konva.KonvaEventObject<MouseEvent>) => {
-  if (currentTool.value === "bbox" && isDrawing.value && previewRect.value) {
-    isDrawing.value = false;
-
-    const width = previewRect.value.width();
-    const height = previewRect.value.height();
-
-    if (width < 10 || height < 10) {
-      previewRect.value.destroy();
-      previewRect.value = null;
-      bboxLayerRef.value.getNode().batchDraw();
-      return;
-    }
-
-    // Scale up from working resolution to original resolution for storage
-    const scale = storageScale.value;
-    const box: BoundingBox = {
-      id: "",
-      x: previewRect.value.x() * scale,
-      y: previewRect.value.y() * scale,
-      width: width * scale,
-      height: height * scale,
-      rotation: 0,
-      color: bboxColor.value,
-      classId: 0,
-    };
-
-    previewRect.value.destroy();
-    previewRect.value = null;
-
-    const trackId = createBboxTrack(
-      currentFrame.value,
-      box,
-      undefined,
-      totalFrames.value
-    );
-
-    selectedBboxTrackId.value = trackId;
-    selectedTrackId.value = null;
-
-    const track = bboxTracks.value.get(trackId);
-    if (track) {
-      try {
-        await saveBboxTrack(track, videoFileName.value);
-      } catch (error) {
-        console.error("Failed to save bounding box track:", error);
-      }
-    }
-
+  if (currentTool.value === Tool.BBOX && bboxTool.isDrawing.value) {
+    await bboxTool.handleMouseUp();
     await nextTick();
     updateTransformerSelection();
     return;
   }
 
-  if (currentTool.value === "pan" || currentTool.value === "select") return;
+  if (currentTool.value === Tool.PAN || currentTool.value === Tool.SELECT) return;
   if (!isDrawing.value || !stageRef.value || !segmentationBrush.value) return;
 
   segmentationBrush.value.onMouseUp(e);
@@ -1846,9 +1696,9 @@ const handleStageMouseUp = async (e: Konva.KonvaEventObject<MouseEvent>) => {
 
 const handleStageMouseOut = async () => {
   if (isDrawing.value && stageRef.value) {
-    if (currentTool.value === "bbox" && previewRect.value) {
-      previewRect.value.destroy();
-      previewRect.value = null;
+    if (currentTool.value === Tool.BBOX && bboxTool.previewRect.value) {
+      bboxTool.previewRect.value.destroy();
+      bboxTool.previewRect.value = null;
       isDrawing.value = false;
       bboxLayerRef.value.getNode().batchDraw();
       return;
@@ -1865,11 +1715,10 @@ const handleStageMouseOut = async () => {
 
 const handleBboxClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
   if (
-    currentTool.value === "brush" ||
-    currentTool.value === "eraser" ||
-    currentTool.value === "bbox" ||
-    currentTool.value === "polygon" ||
-    currentTool.value === "polyline"
+    currentTool.value === Tool.BRUSH ||
+    currentTool.value === Tool.ERASER ||
+    currentTool.value === Tool.BBOX ||
+    currentTool.value === Tool.POLYGON
   )
     return;
 
@@ -1878,7 +1727,7 @@ const handleBboxClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
     selectedBboxTrackId.value = group.id();
     selectedTrackId.value = null;
     selectedPolygonTrackId.value = null;
-    currentTool.value = "select";
+    currentTool.value = Tool.SELECT;
     updateTransformerSelection();
   }
 };
@@ -1954,10 +1803,10 @@ const handleBboxTransformEnd = async () => {
 
 const handlePolygonClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
   if (
-    currentTool.value === "brush" ||
-    currentTool.value === "eraser" ||
-    currentTool.value === "bbox" ||
-    currentTool.value === "polygon"
+    currentTool.value === Tool.BRUSH ||
+    currentTool.value === Tool.ERASER ||
+    currentTool.value === Tool.BBOX ||
+    currentTool.value === Tool.POLYGON
   )
     return;
 
@@ -1966,7 +1815,7 @@ const handlePolygonClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
     selectedPolygonTrackId.value = line.id();
     selectedTrackId.value = null;
     selectedBboxTrackId.value = null;
-    currentTool.value = "select";
+    currentTool.value = Tool.SELECT;
     updateTransformerSelection();
   }
 };
@@ -2079,42 +1928,111 @@ const handlePolygonTransformEnd = async () => {
   }
 };
 
-const handlePolylineClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
+const handleSkeletonClick = (trackId: string) => {
   if (
-    currentTool.value === "brush" ||
-    currentTool.value === "eraser" ||
-    currentTool.value === "bbox" ||
-    currentTool.value === "polygon" ||
-    currentTool.value === "polyline"
+    currentTool.value === Tool.BRUSH ||
+    currentTool.value === Tool.ERASER ||
+    currentTool.value === Tool.BBOX ||
+    currentTool.value === Tool.POLYGON
   )
     return;
 
-  const line = e.target;
-  if (line && line.id()) {
-    selectedPolylineTrackId.value = line.id();
-    selectedTrackId.value = null;
-    selectedBboxTrackId.value = null;
-    selectedPolygonTrackId.value = null;
-    currentTool.value = "select";
-    updateTransformerSelection();
-  }
+  selectedSkeletonTrackId.value = trackId;
+  selectedTrackId.value = null;
+  selectedBboxTrackId.value = null;
+  selectedPolygonTrackId.value = null;
+  currentTool.value = Tool.SELECT;
+  updateTransformerSelection();
 };
 
-const handlePolylineDragEnd = async (e: Konva.KonvaEventObject<MouseEvent>) => {
+// Update skeleton line in real-time while dragging keypoint
+const handleSkeletonKeypointDragging = (
+  e: any,
+  trackId: string,
+  pointIndex: number
+) => {
+  const circle = e.target;
+  if (!skeletonLayerRef.value) return;
+
+  const currentSkeleton = getSkeletonAtFrame(trackId, currentFrame.value);
+  if (!currentSkeleton) return;
+
+  // Find the line element for this skeleton
+  const layer = skeletonLayerRef.value.getNode();
+  const line = layer.findOne(`#${trackId}`);
+  if (!line) return;
+
+  // Get current line points and update the dragged point
+  const dScale = displayScale.value;
+  const points = [...currentSkeleton.points];
+  points[pointIndex] = {
+    x: circle.x() * storageScale.value,
+    y: circle.y() * storageScale.value,
+  };
+
+  // Update line with new points
+  const flatPoints: number[] = [];
+  for (const p of points) {
+    flatPoints.push(p.x * dScale, p.y * dScale);
+  }
+  line.points(flatPoints);
+
+  layer.batchDraw();
+};
+
+const handleSkeletonKeypointDrag = async (
+  e: any,
+  trackId: string,
+  pointIndex: number
+) => {
+  const circle = e.target;
+  const track = skeletonTracks.value.get(trackId);
+  if (!track) return;
+
+  const currentSkeleton = getSkeletonAtFrame(trackId, currentFrame.value);
+  if (!currentSkeleton) return;
+
+  const scale = storageScale.value;
+  const newX = circle.x() * scale;
+  const newY = circle.y() * scale;
+
+  // Update the point position in skeleton
+  const updatedPoints = currentSkeleton.points.map((p, i) =>
+    i === pointIndex ? { x: newX, y: newY } : p
+  );
+
+  const updatedSkeleton: Skeleton = {
+    ...currentSkeleton,
+    points: updatedPoints,
+  };
+
+  updateSkeletonKeyframe(trackId, currentFrame.value, updatedSkeleton);
+
+  try {
+    await saveSkeletonTrack(track, videoFileName.value);
+  } catch (error) {
+    console.error("Failed to save after skeleton keypoint drag:", error);
+  }
+
+  // Check for auto-merge with other skeletons (in PAN mode)
+  await checkAndMergeSkeletons(trackId, pointIndex);
+};
+
+const handleSkeletonDragEnd = async (e: Konva.KonvaEventObject<MouseEvent>) => {
   const line = e.target as Konva.Line;
   const trackId = line.id();
 
-  const track = polylineTracks.value.get(trackId);
+  const track = skeletonTracks.value.get(trackId);
   if (!track) return;
 
-  const currentPolyline = getPolylineAtFrame(trackId, currentFrame.value);
-  if (!currentPolyline) return;
+  const currentSkeleton = getSkeletonAtFrame(trackId, currentFrame.value);
+  if (!currentSkeleton) return;
 
   const scale = storageScale.value;
   const dx = line.x() * scale;
   const dy = line.y() * scale;
 
-  const updatedPoints = currentPolyline.points.map((p) => ({
+  const updatedPoints = currentSkeleton.points.map((p) => ({
     x: p.x + dx,
     y: p.y + dy,
   }));
@@ -2129,80 +2047,227 @@ const handlePolylineDragEnd = async (e: Konva.KonvaEventObject<MouseEvent>) => {
   }
   line.points(flatPoints);
 
-  const updatedPolyline: Polyline = {
-    ...currentPolyline,
+  const updatedSkeleton: Skeleton = {
+    ...currentSkeleton,
     points: updatedPoints,
   };
 
-  updatePolylineKeyframe(trackId, currentFrame.value, updatedPolyline);
+  updateSkeletonKeyframe(trackId, currentFrame.value, updatedSkeleton);
 
   try {
-    await savePolylineTrack(track, videoFileName.value);
+    await saveSkeletonTrack(track, videoFileName.value);
   } catch (error) {
-    console.error("Failed to save after polyline drag:", error);
+    console.error("Failed to save after skeleton drag:", error);
   }
 };
 
-const handlePolylineTransformEnd = async () => {
-  const nodes = transformerRef.value?.nodes();
-  if (!nodes || nodes.length === 0) return;
+// Handle clicking on skeleton line to add a new point (in PAN mode)
+const handleSkeletonLineClick = async (e: any, trackId: string) => {
+  // If not in PAN mode, just select the skeleton
+  if (currentTool.value !== Tool.PAN) {
+    handleSkeletonClick(trackId);
+    return;
+  }
 
-  const line = nodes[0] as Konva.Line;
-  const trackId = line.id();
-
-  const track = polylineTracks.value.get(trackId);
+  const track = skeletonTracks.value.get(trackId);
   if (!track) return;
 
-  const currentPolyline = getPolylineAtFrame(trackId, currentFrame.value);
-  if (!currentPolyline) return;
+  const currentSkeleton = getSkeletonAtFrame(trackId, currentFrame.value);
+  if (!currentSkeleton || currentSkeleton.points.length < 2) return;
 
-  const scaleX = line.scaleX();
-  const scaleY = line.scaleY();
-  const rotation = line.rotation();
-  const dx = line.x();
-  const dy = line.y();
-
-  const radians = (rotation * Math.PI) / 180;
-  const cos = Math.cos(radians);
-  const sin = Math.sin(radians);
-
+  // Get click position in stage coordinates
+  const stage = e.target.getStage();
+  const pos = stage.getRelativePointerPosition();
   const scale = storageScale.value;
-  const dScale = displayScale.value;
+  const clickX = pos.x * scale;
+  const clickY = pos.y * scale;
 
-  const updatedPoints = currentPolyline.points.map((p) => {
-    const scaledX = p.x * scaleX;
-    const scaledY = p.y * scaleY;
-    const rotatedX = scaledX * cos - scaledY * sin;
-    const rotatedY = scaledX * sin + scaledY * cos;
-    return {
-      x: rotatedX + dx * scale,
-      y: rotatedY + dy * scale,
-    };
-  });
+  // Find which line segment was clicked
+  let insertIndex = -1;
+  let minDistance = Infinity;
 
-  line.scaleX(1);
-  line.scaleY(1);
-  line.rotation(0);
-  line.x(0);
-  line.y(0);
+  for (let i = 0; i < currentSkeleton.points.length - 1; i++) {
+    const p1 = currentSkeleton.points[i]!;
+    const p2 = currentSkeleton.points[i + 1]!;
 
-  const flatPoints: number[] = [];
-  for (const p of updatedPoints) {
-    flatPoints.push(p.x * dScale, p.y * dScale);
+    // Calculate distance from point to line segment
+    const dist = pointToSegmentDistance(clickX, clickY, p1.x, p1.y, p2.x, p2.y);
+    if (dist < minDistance) {
+      minDistance = dist;
+      insertIndex = i + 1;
+    }
   }
-  line.points(flatPoints);
 
-  const updatedPolyline: Polyline = {
-    ...currentPolyline,
+  if (insertIndex === -1) return;
+
+  // Insert new point at click position
+  const updatedPoints = [...currentSkeleton.points];
+  updatedPoints.splice(insertIndex, 0, { x: clickX, y: clickY });
+
+  const updatedSkeleton: Skeleton = {
+    ...currentSkeleton,
     points: updatedPoints,
   };
 
-  updatePolylineKeyframe(trackId, currentFrame.value, updatedPolyline);
+  updateSkeletonKeyframe(trackId, currentFrame.value, updatedSkeleton);
+
+  // Select the skeleton
+  selectedSkeletonTrackId.value = trackId;
+  selectedTrackId.value = null;
+  selectedBboxTrackId.value = null;
+  selectedPolygonTrackId.value = null;
 
   try {
-    await savePolylineTrack(track, videoFileName.value);
+    await saveSkeletonTrack(track, videoFileName.value);
   } catch (error) {
-    console.error("Failed to save after polyline transform:", error);
+    console.error("Failed to save after adding skeleton point:", error);
+  }
+};
+
+// Helper function to calculate distance from point to line segment
+const pointToSegmentDistance = (
+  px: number, py: number,
+  x1: number, y1: number,
+  x2: number, y2: number
+): number => {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const lengthSq = dx * dx + dy * dy;
+
+  if (lengthSq === 0) {
+    return Math.sqrt((px - x1) * (px - x1) + (py - y1) * (py - y1));
+  }
+
+  let t = ((px - x1) * dx + (py - y1) * dy) / lengthSq;
+  t = Math.max(0, Math.min(1, t));
+
+  const nearestX = x1 + t * dx;
+  const nearestY = y1 + t * dy;
+
+  return Math.sqrt((px - nearestX) * (px - nearestX) + (py - nearestY) * (py - nearestY));
+};
+
+// Handle double-click on keypoint to delete it (in PAN mode)
+const handleSkeletonKeypointDelete = async (trackId: string, pointIndex: number) => {
+  // Only allow deletion in PAN mode
+  if (currentTool.value !== Tool.PAN) return;
+
+  const track = skeletonTracks.value.get(trackId);
+  if (!track) return;
+
+  const currentSkeleton = getSkeletonAtFrame(trackId, currentFrame.value);
+  if (!currentSkeleton) return;
+
+  // Need at least 2 points to keep a valid skeleton
+  if (currentSkeleton.points.length <= 2) {
+    alert("Cannot delete point: skeleton must have at least 2 points");
+    return;
+  }
+
+  // Remove the point at the specified index
+  const updatedPoints = currentSkeleton.points.filter((_, i) => i !== pointIndex);
+
+  const updatedSkeleton: Skeleton = {
+    ...currentSkeleton,
+    points: updatedPoints,
+  };
+
+  updateSkeletonKeyframe(trackId, currentFrame.value, updatedSkeleton);
+
+  try {
+    await saveSkeletonTrack(track, videoFileName.value);
+  } catch (error) {
+    console.error("Failed to save after deleting skeleton point:", error);
+  }
+};
+
+// Check and merge skeletons within 10px proximity (in PAN mode)
+const checkAndMergeSkeletons = async (
+  draggedTrackId: string,
+  draggedPointIndex: number
+) => {
+  if (currentTool.value !== Tool.PAN) return;
+
+  const draggedTrack = skeletonTracks.value.get(draggedTrackId);
+  if (!draggedTrack) return;
+
+  const draggedSkeleton = getSkeletonAtFrame(draggedTrackId, currentFrame.value);
+  if (!draggedSkeleton) return;
+
+  const draggedPoint = draggedSkeleton.points[draggedPointIndex];
+  if (!draggedPoint) return;
+
+  const MERGE_DISTANCE = 10;
+  const isEndpoint = draggedPointIndex === 0 || draggedPointIndex === draggedSkeleton.points.length - 1;
+
+  // Only merge if dragging an endpoint
+  if (!isEndpoint) return;
+
+  // Check against all other skeletons
+  for (const [otherTrackId] of skeletonTracks.value) {
+    if (otherTrackId === draggedTrackId) continue;
+
+    const otherSkeleton = getSkeletonAtFrame(otherTrackId, currentFrame.value);
+    if (!otherSkeleton || otherSkeleton.points.length === 0) continue;
+
+    // Check distance to other skeleton's endpoints
+    const otherStart = otherSkeleton.points[0]!;
+    const otherEnd = otherSkeleton.points[otherSkeleton.points.length - 1]!;
+
+    const distToStart = Math.sqrt(
+      Math.pow(draggedPoint.x - otherStart.x, 2) +
+      Math.pow(draggedPoint.y - otherStart.y, 2)
+    );
+
+    const distToEnd = Math.sqrt(
+      Math.pow(draggedPoint.x - otherEnd.x, 2) +
+      Math.pow(draggedPoint.y - otherEnd.y, 2)
+    );
+
+    if (distToStart < MERGE_DISTANCE || distToEnd < MERGE_DISTANCE) {
+      // Merge the skeletons
+      let mergedPoints: { x: number; y: number }[];
+
+      if (draggedPointIndex === 0) {
+        // Dragged skeleton's start point
+        if (distToEnd < distToStart) {
+          // Connect other's end to dragged's start -> other + dragged
+          mergedPoints = [...otherSkeleton.points, ...draggedSkeleton.points.slice(1)];
+        } else {
+          // Connect other's start to dragged's start -> reverse(other) + dragged
+          mergedPoints = [...otherSkeleton.points.slice().reverse(), ...draggedSkeleton.points.slice(1)];
+        }
+      } else {
+        // Dragged skeleton's end point
+        if (distToStart < distToEnd) {
+          // Connect dragged's end to other's start -> dragged + other
+          mergedPoints = [...draggedSkeleton.points.slice(0, -1), ...otherSkeleton.points];
+        } else {
+          // Connect dragged's end to other's end -> dragged + reverse(other)
+          mergedPoints = [...draggedSkeleton.points.slice(0, -1), ...otherSkeleton.points.slice().reverse()];
+        }
+      }
+
+      // Update the dragged skeleton with merged points
+      const mergedSkeleton: Skeleton = {
+        ...draggedSkeleton,
+        points: mergedPoints,
+      };
+
+      updateSkeletonKeyframe(draggedTrackId, currentFrame.value, mergedSkeleton);
+
+      // Delete the other skeleton
+      deleteSkeletonTrack(otherTrackId);
+
+      try {
+        await deleteSkeletonTrackFromDB(otherTrackId, videoFileName.value);
+        await saveSkeletonTrack(draggedTrack, videoFileName.value);
+      } catch (error) {
+        console.error("Failed to save after merging skeletons:", error);
+      }
+
+      break; // Only merge with one skeleton at a time
+    }
   }
 };
 
@@ -2249,15 +2314,15 @@ const handleDeleteSelected = async () => {
     updateTransformerSelection();
   }
 
-  if (selectedPolylineTrackId.value) {
-    const trackId = selectedPolylineTrackId.value;
-    deletePolylineTrack(trackId);
-    selectedPolylineTrackId.value = null;
+  if (selectedSkeletonTrackId.value) {
+    const trackId = selectedSkeletonTrackId.value;
+    deleteSkeletonTrack(trackId);
+    selectedSkeletonTrackId.value = null;
 
     try {
-      await deletePolylineTrackFromDB(trackId, videoFileName.value);
+      await deleteSkeletonTrackFromDB(trackId, videoFileName.value);
     } catch (error) {
-      console.error("Failed to delete polyline track from IndexedDB:", error);
+      console.error("Failed to delete skeleton track from IndexedDB:", error);
     }
 
     updateTransformerSelection();
@@ -2269,35 +2334,26 @@ const cleanupCurrentVideo = () => {
   selectedTrackId.value = null;
   selectedBboxTrackId.value = null;
   selectedPolygonTrackId.value = null;
-  selectedPolylineTrackId.value = null;
+  selectedSkeletonTrackId.value = null;
 
   tracks.value.clear();
   bboxTracks.value.clear();
   polygonTracks.value.clear();
-  polylineTracks.value.clear();
+  skeletonTracks.value.clear();
 
   if (segmentationBrush.value) {
     segmentationBrush.value.clearOffscreenCanvas();
   }
 
   isDrawing.value = false;
-  isDrawingPolygon.value = false;
-  currentPolygonPoints.value = [];
-  isDrawingPolyline.value = false;
-  currentPolylinePoints.value = [];
 
-  if (previewRect.value) {
-    previewRect.value.destroy();
-    previewRect.value = null;
+  if (bboxTool.previewRect.value) {
+    bboxTool.previewRect.value.destroy();
+    bboxTool.previewRect.value = null;
   }
-  if (previewPolygonLine.value) {
-    previewPolygonLine.value.destroy();
-    previewPolygonLine.value = null;
-  }
-  if (previewPolylineLine.value) {
-    previewPolylineLine.value.destroy();
-    previewPolylineLine.value = null;
-  }
+
+  polygonTool.cancelDrawing();
+  skeletonTool.cancelDrawing();
 
   if (transformerRef.value) {
     transformerRef.value.nodes([]);
@@ -2323,11 +2379,11 @@ const clearAllIndexedDB = async () => {
     tracks.value.clear();
     bboxTracks.value.clear();
     polygonTracks.value.clear();
-    polylineTracks.value.clear();
+    skeletonTracks.value.clear();
     selectedTrackId.value = null;
     selectedBboxTrackId.value = null;
     selectedPolygonTrackId.value = null;
-    selectedPolylineTrackId.value = null;
+    selectedSkeletonTrackId.value = null;
 
     // Clear brush canvas
     if (segmentationBrush.value) {
@@ -2342,7 +2398,7 @@ const clearAllIndexedDB = async () => {
     await openBrushDB();
     await openBboxDB();
     await openPolygonDB();
-    await openPolylineDB();
+    await openSkeletonDB();
 
     // Redraw
     if (drawingLayerRef.value) {
@@ -2363,10 +2419,10 @@ const clearAllIndexedDB = async () => {
 };
 
 // Tab switch handler
-const switchVideoTab = async (tab: VideoTabKey) => {
+const switchVideoTab = async (tab: VideoTab) => {
   // Guard clauses
   if (tab === activeVideoTab.value) return;
-  if (isDrawing.value || isDrawingPolygon.value) {
+  if (isDrawing.value || polygonTool.isDrawing.value || skeletonTool.isDrawing.value) {
     alert("Please finish current operation first");
     return;
   }
@@ -2423,13 +2479,13 @@ const addManualKeyframe = async () => {
 };
 
 const handleKeyDown = (e: KeyboardEvent) => {
-  if (e.key === "Escape" && isDrawingPolygon.value) {
-    cancelPolygonDrawing();
+  if (e.key === "Escape" && polygonTool.isDrawing.value) {
+    polygonTool.cancelDrawing();
     return;
   }
 
-  if (e.key === "Escape" && isDrawingPolyline.value) {
-    cancelPolylineDrawing();
+  if (e.key === "Escape" && skeletonTool.isDrawing.value) {
+    skeletonTool.cancelDrawing();
     return;
   }
 
@@ -2442,7 +2498,7 @@ const handleKeyDown = (e: KeyboardEvent) => {
     (selectedTrackId.value ||
       selectedBboxTrackId.value ||
       selectedPolygonTrackId.value ||
-      selectedPolylineTrackId.value)
+      selectedSkeletonTrackId.value)
   ) {
     handleToggleInterpolation();
   }
@@ -2452,7 +2508,7 @@ const handleKeyDown = (e: KeyboardEvent) => {
     (selectedTrackId.value ||
       selectedBboxTrackId.value ||
       selectedPolygonTrackId.value ||
-      selectedPolylineTrackId.value)
+      selectedSkeletonTrackId.value)
   ) {
     handleJumpToPreviousKeyframe();
   }
@@ -2462,7 +2518,7 @@ const handleKeyDown = (e: KeyboardEvent) => {
     (selectedTrackId.value ||
       selectedBboxTrackId.value ||
       selectedPolygonTrackId.value ||
-      selectedPolylineTrackId.value)
+      selectedSkeletonTrackId.value)
   ) {
     handleJumpToNextKeyframe();
   }
@@ -2472,7 +2528,7 @@ const handleKeyDown = (e: KeyboardEvent) => {
       selectedTrackId.value ||
       selectedBboxTrackId.value ||
       selectedPolygonTrackId.value ||
-      selectedPolylineTrackId.value
+      selectedSkeletonTrackId.value
     ) {
       e.preventDefault();
       handleDeleteSelected();
@@ -2518,9 +2574,9 @@ watch(selectedBboxTrackId, () => {
 const startRangeResize = (
   e: MouseEvent,
   trackId: string,
-  trackType: 'brush' | 'bbox' | 'polygon' | 'polyline',
+  trackType: "brush" | "bbox" | "polygon" | "skeleton",
   rangeIndex: number,
-  edge: 'left' | 'right',
+  edge: "left" | "right",
   currentStartFrame: number,
   currentEndFrame: number
 ) => {
@@ -2533,13 +2589,15 @@ const startRangeResize = (
   resizeRangeIndex.value = rangeIndex;
   resizeEdge.value = edge;
   resizeStartX.value = e.clientX;
-  resizeStartFrame.value = edge === 'left' ? currentStartFrame : currentEndFrame;
+  resizeStartFrame.value =
+    edge === "left" ? currentStartFrame : currentEndFrame;
 };
 
 const handleRangeResize = (e: MouseEvent) => {
-  if (!isResizingRange.value || !resizeTrackId.value || !resizeTrackType.value) return;
+  if (!isResizingRange.value || !resizeTrackId.value || !resizeTrackType.value)
+    return;
 
-  const timelineElement = document.querySelector('.track-timeline');
+  const timelineElement = document.querySelector(".track-timeline");
   if (!timelineElement) return;
 
   const rect = timelineElement.getBoundingClientRect();
@@ -2550,20 +2608,20 @@ const handleRangeResize = (e: MouseEvent) => {
   newFrame = Math.max(0, Math.min(newFrame, totalFrames.value));
 
   let track;
-  if (resizeTrackType.value === 'brush') {
+  if (resizeTrackType.value === "brush") {
     track = tracks.value.get(resizeTrackId.value);
-  } else if (resizeTrackType.value === 'bbox') {
+  } else if (resizeTrackType.value === "bbox") {
     track = bboxTracks.value.get(resizeTrackId.value);
-  } else if (resizeTrackType.value === 'polygon') {
+  } else if (resizeTrackType.value === "polygon") {
     track = polygonTracks.value.get(resizeTrackId.value);
-  } else if (resizeTrackType.value === 'polyline') {
-    track = polylineTracks.value.get(resizeTrackId.value);
+  } else if (resizeTrackType.value === "skeleton") {
+    track = skeletonTracks.value.get(resizeTrackId.value);
   }
 
   if (!track || !track.ranges[resizeRangeIndex.value]) return;
 
   const range = track.ranges[resizeRangeIndex.value]!;
-  if (resizeEdge.value === 'left') {
+  if (resizeEdge.value === "left") {
     const minFrame = 0;
     const maxFrame = range[1] - 1;
     newFrame = Math.max(minFrame, Math.min(newFrame, maxFrame));
@@ -2577,28 +2635,29 @@ const handleRangeResize = (e: MouseEvent) => {
 };
 
 const endRangeResize = async () => {
-  if (!isResizingRange.value || !resizeTrackId.value || !resizeTrackType.value) return;
+  if (!isResizingRange.value || !resizeTrackId.value || !resizeTrackType.value)
+    return;
 
   let track;
-  if (resizeTrackType.value === 'brush') {
+  if (resizeTrackType.value === "brush") {
     track = tracks.value.get(resizeTrackId.value);
     if (track) {
       await saveBrushTrack(track, videoFileName.value);
     }
-  } else if (resizeTrackType.value === 'bbox') {
+  } else if (resizeTrackType.value === "bbox") {
     track = bboxTracks.value.get(resizeTrackId.value);
     if (track) {
       await saveBboxTrack(track, videoFileName.value);
     }
-  } else if (resizeTrackType.value === 'polygon') {
+  } else if (resizeTrackType.value === "polygon") {
     track = polygonTracks.value.get(resizeTrackId.value);
     if (track) {
       await savePolygonTrack(track, videoFileName.value);
     }
-  } else if (resizeTrackType.value === 'polyline') {
-    track = polylineTracks.value.get(resizeTrackId.value);
+  } else if (resizeTrackType.value === "skeleton") {
+    track = skeletonTracks.value.get(resizeTrackId.value);
     if (track) {
-      await savePolylineTrack(track, videoFileName.value);
+      await saveSkeletonTrack(track, videoFileName.value);
     }
   }
 
@@ -2609,7 +2668,7 @@ const endRangeResize = async () => {
 };
 
 onMounted(async () => {
-  (Konva as any).pixelRatio = 1;
+  (Konva as any).pixelRatio = KONVA_PIXEL_RATIO;
 
   window.addEventListener("keydown", handleKeyDown);
   window.addEventListener("mousemove", handleRangeResize);
@@ -2619,7 +2678,7 @@ onMounted(async () => {
     await openBrushDB();
     await openBboxDB();
     await openPolygonDB();
-    await openPolylineDB();
+    await openSkeletonDB();
   } catch (error) {
     console.error("Failed to open IndexedDB:", error);
   }
@@ -2657,10 +2716,10 @@ watch(videoLoaded, async (loaded) => {
       );
       polygonTracks.value = loadedPolygonTracks;
 
-      const loadedPolylineTracks = await loadPolylineTracksForVideo(
+      const loadedSkeletonTracks = await loadSkeletonTracksForVideo(
         videoFileName.value
       );
-      polylineTracks.value = loadedPolylineTracks;
+      skeletonTracks.value = loadedSkeletonTracks;
     } catch (error) {
       console.error("Failed to load tracks:", error);
     }
@@ -2956,11 +3015,6 @@ h2 {
   border-color: #0000ff;
 }
 
-.timeline-segment-bar.polyline {
-  background: rgba(255, 0, 255, 0.25);
-  border-color: #ff00ff;
-}
-
 .timeline-segment-bar.selected {
   box-shadow: 0 0 0 2px rgba(100, 108, 255, 0.3);
 }
@@ -3161,7 +3215,7 @@ h2 {
 .brush-controls,
 .bbox-controls,
 .polygon-controls,
-.polyline-controls,
+.skeleton-controls,
 .opacity-controls {
   display: flex;
   gap: 15px;
@@ -3174,7 +3228,7 @@ h2 {
 .brush-controls label,
 .bbox-controls label,
 .polygon-controls label,
-.polyline-controls label,
+.skeleton-controls label,
 .opacity-controls label {
   display: flex;
   align-items: center;
