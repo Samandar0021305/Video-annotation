@@ -1,4 +1,4 @@
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref, computed, onMounted, onUnmounted } from "vue";
 import Konva from "konva";
 
 export function useVideoPlayer() {
@@ -10,11 +10,16 @@ export function useVideoPlayer() {
 
   const videoSize = ref({ width: 0, height: 0 });
   const currentFrame = ref(0);
-  const videoFPS = ref(30);
+  const secondsPerFrame = ref(1);
+  const videoFPS = computed(() => 1 / secondsPerFrame.value);
   const currentTime = ref(0);
   const videoDuration = ref(0);
 
   const videoLayerRef = ref<any>(null);
+
+  const setSecondsPerFrame = (value: number) => {
+    secondsPerFrame.value = Math.max(0.033, Math.min(30, value));
+  };
 
   const updateCurrentFrame = () => {
     currentTime.value = videoElement.value.currentTime;
@@ -151,6 +156,7 @@ export function useVideoPlayer() {
     isPlaying,
     videoSize,
     currentFrame,
+    secondsPerFrame,
     videoFPS,
     currentTime,
     videoDuration,
@@ -162,5 +168,6 @@ export function useVideoPlayer() {
     seekToTime,
     nextFrame,
     previousFrame,
+    setSecondsPerFrame,
   };
 }

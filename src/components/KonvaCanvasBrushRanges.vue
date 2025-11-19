@@ -58,6 +58,20 @@
           </button>
         </div>
 
+        <div class="frame-duration-control">
+          <label>Sec/Frame: {{ secondsPerFrame.toFixed(2) }}s</label>
+          <input
+            type="range"
+            min="0.033"
+            max="10"
+            step="0.01"
+            :value="secondsPerFrame"
+            @input="handleFrameDurationChange"
+            class="frame-duration-slider"
+          />
+          <span class="fps-display">({{ videoFPS.toFixed(2) }} fps)</span>
+        </div>
+
         <div class="tool-selector">
           <button
             @click="currentTool = 'pan'"
@@ -748,6 +762,8 @@ const {
   currentTime,
   videoDuration,
   videoFPS,
+  secondsPerFrame,
+  setSecondsPerFrame,
   videoLayerRef,
   loadVideoFromUrl,
   togglePlayPause,
@@ -1040,6 +1056,31 @@ const selectPolylineTrack = (trackId: string) => {
   selectedBboxTrackId.value = null;
   selectedPolygonTrackId.value = null;
   updateTransformerSelection();
+};
+
+const handleFrameDurationChange = (e: Event) => {
+  const target = e.target as HTMLInputElement;
+  const newValue = parseFloat(target.value);
+
+  const hasAnyTracks =
+    tracks.value.size > 0 ||
+    bboxTracks.value.size > 0 ||
+    polygonTracks.value.size > 0 ||
+    polylineTracks.value.size > 0;
+
+  if (hasAnyTracks) {
+    const confirmChange = window.confirm(
+      'Changing frame duration will affect existing annotations. ' +
+      'Keyframes will remain at the same frame numbers but represent different times. ' +
+      'Continue?'
+    );
+    if (!confirmChange) {
+      target.value = secondsPerFrame.value.toString();
+      return;
+    }
+  }
+
+  setSecondsPerFrame(newValue);
 };
 
 const jumpToFrame = (frame: number) => {
@@ -3037,6 +3078,33 @@ h2 {
 .control-btn.small {
   padding: 6px 12px;
   font-size: 12px;
+}
+
+.frame-duration-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+}
+
+.frame-duration-control label {
+  font-size: 12px;
+  white-space: nowrap;
+  min-width: 100px;
+}
+
+.frame-duration-slider {
+  width: 100px;
+  height: 4px;
+  cursor: pointer;
+}
+
+.fps-display {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.6);
+  white-space: nowrap;
 }
 
 .frame-navigation {
