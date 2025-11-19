@@ -231,20 +231,21 @@
             <input
               type="checkbox"
               :checked="
-                selectedTrack?.interpolationEnabled ||
-                selectedBboxTrack?.interpolationEnabled ||
-                selectedPolygonTrack?.interpolationEnabled ||
-                selectedPolylineTrack?.interpolationEnabled
+                (selectedTrack && selectedTrack.interpolationEnabled) ||
+                (selectedBboxTrack && selectedBboxTrack.interpolationEnabled) ||
+                (selectedPolygonTrack && selectedPolygonTrack.interpolationEnabled) ||
+                (selectedPolylineTrack && selectedPolylineTrack.interpolationEnabled) ||
+                false
               "
               @change="handleToggleInterpolation"
             />
             <span>
               Interpolation
               {{
-                selectedTrack?.interpolationEnabled ||
-                selectedBboxTrack?.interpolationEnabled ||
-                selectedPolygonTrack?.interpolationEnabled ||
-                selectedPolylineTrack?.interpolationEnabled
+                (selectedTrack && selectedTrack.interpolationEnabled) ||
+                (selectedBboxTrack && selectedBboxTrack.interpolationEnabled) ||
+                (selectedPolygonTrack && selectedPolygonTrack.interpolationEnabled) ||
+                (selectedPolylineTrack && selectedPolylineTrack.interpolationEnabled)
                   ? "ON"
                   : "OFF"
               }}
@@ -319,7 +320,16 @@
                   width:
                     ((range[1] - range[0]) / (totalFrames || 1)) * 100 + '%',
                 }"
-              ></div>
+              >
+                <div
+                  class="resize-handle left"
+                  @mousedown="startRangeResize($event, trackId, 'brush', rangeIndex, 'left', range[0], range[1])"
+                ></div>
+                <div
+                  class="resize-handle right"
+                  @mousedown="startRangeResize($event, trackId, 'brush', rangeIndex, 'right', range[0], range[1])"
+                ></div>
+              </div>
 
               <div
                 v-for="frameNum in Array.from(track.keyframes.keys())"
@@ -374,7 +384,16 @@
                   backgroundColor: track.color + '40',
                   borderColor: track.color,
                 }"
-              ></div>
+              >
+                <div
+                  class="resize-handle left"
+                  @mousedown="startRangeResize($event, trackId, 'bbox', rangeIndex, 'left', range[0], range[1])"
+                ></div>
+                <div
+                  class="resize-handle right"
+                  @mousedown="startRangeResize($event, trackId, 'bbox', rangeIndex, 'right', range[0], range[1])"
+                ></div>
+              </div>
 
               <div
                 v-for="frameNum in Array.from(track.keyframes.keys())"
@@ -430,7 +449,16 @@
                   backgroundColor: track.color + '40',
                   borderColor: track.color,
                 }"
-              ></div>
+              >
+                <div
+                  class="resize-handle left"
+                  @mousedown="startRangeResize($event, trackId, 'polygon', rangeIndex, 'left', range[0], range[1])"
+                ></div>
+                <div
+                  class="resize-handle right"
+                  @mousedown="startRangeResize($event, trackId, 'polygon', rangeIndex, 'right', range[0], range[1])"
+                ></div>
+              </div>
 
               <div
                 v-for="frameNum in Array.from(track.keyframes.keys())"
@@ -486,7 +514,16 @@
                   backgroundColor: track.color + '40',
                   borderColor: track.color,
                 }"
-              ></div>
+              >
+                <div
+                  class="resize-handle left"
+                  @mousedown="startRangeResize($event, trackId, 'polyline', rangeIndex, 'left', range[0], range[1])"
+                ></div>
+                <div
+                  class="resize-handle right"
+                  @mousedown="startRangeResize($event, trackId, 'polyline', rangeIndex, 'right', range[0], range[1])"
+                ></div>
+              </div>
 
               <div
                 v-for="frameNum in Array.from(track.keyframes.keys())"
@@ -894,6 +931,14 @@ const previewPolygonLine = ref<Konva.Line | null>(null);
 const isDrawingPolyline = ref(false);
 const currentPolylinePoints = ref<PolylinePoint[]>([]);
 const previewPolylineLine = ref<Konva.Line | null>(null);
+
+const isResizingRange = ref(false);
+const resizeTrackId = ref<string | null>(null);
+const resizeTrackType = ref<'brush' | 'bbox' | 'polygon' | 'polyline' | null>(null);
+const resizeRangeIndex = ref(0);
+const resizeEdge = ref<'left' | 'right' | null>(null);
+const resizeStartX = ref(0);
+const resizeStartFrame = ref(0);
 
 const toolClasses = ref<ToolClass[]>([
   { value: 0, name: "Red", color: "#ff0000", markup_type: "segment" },
@@ -2429,10 +2474,105 @@ watch(selectedBboxTrackId, () => {
   });
 });
 
+const startRangeResize = (
+  e: MouseEvent,
+  trackId: string,
+  trackType: 'brush' | 'bbox' | 'polygon' | 'polyline',
+  rangeIndex: number,
+  edge: 'left' | 'right',
+  currentStartFrame: number,
+  currentEndFrame: number
+) => {
+  e.stopPropagation();
+  e.preventDefault();
+
+  isResizingRange.value = true;
+  resizeTrackId.value = trackId;
+  resizeTrackType.value = trackType;
+  resizeRangeIndex.value = rangeIndex;
+  resizeEdge.value = edge;
+  resizeStartX.value = e.clientX;
+  resizeStartFrame.value = edge === 'left' ? currentStartFrame : currentEndFrame;
+};
+
+const handleRangeResize = (e: MouseEvent) => {
+  if (!isResizingRange.value || !resizeTrackId.value || !resizeTrackType.value) return;
+
+  const timelineElement = document.querySelector('.track-timeline');
+  if (!timelineElement) return;
+
+  const rect = timelineElement.getBoundingClientRect();
+  const deltaX = e.clientX - resizeStartX.value;
+  const framesDelta = Math.round((deltaX / rect.width) * totalFrames.value);
+
+  let newFrame = resizeStartFrame.value + framesDelta;
+  newFrame = Math.max(0, Math.min(newFrame, totalFrames.value));
+
+  let track;
+  if (resizeTrackType.value === 'brush') {
+    track = tracks.value.get(resizeTrackId.value);
+  } else if (resizeTrackType.value === 'bbox') {
+    track = bboxTracks.value.get(resizeTrackId.value);
+  } else if (resizeTrackType.value === 'polygon') {
+    track = polygonTracks.value.get(resizeTrackId.value);
+  } else if (resizeTrackType.value === 'polyline') {
+    track = polylineTracks.value.get(resizeTrackId.value);
+  }
+
+  if (!track || !track.ranges[resizeRangeIndex.value]) return;
+
+  const range = track.ranges[resizeRangeIndex.value]!;
+  if (resizeEdge.value === 'left') {
+    const minFrame = 0;
+    const maxFrame = range[1] - 1;
+    newFrame = Math.max(minFrame, Math.min(newFrame, maxFrame));
+    range[0] = newFrame;
+  } else {
+    const minFrame = range[0] + 1;
+    const maxFrame = totalFrames.value;
+    newFrame = Math.max(minFrame, Math.min(newFrame, maxFrame));
+    range[1] = newFrame;
+  }
+};
+
+const endRangeResize = async () => {
+  if (!isResizingRange.value || !resizeTrackId.value || !resizeTrackType.value) return;
+
+  let track;
+  if (resizeTrackType.value === 'brush') {
+    track = tracks.value.get(resizeTrackId.value);
+    if (track) {
+      await saveBrushTrack(track, videoFileName.value);
+    }
+  } else if (resizeTrackType.value === 'bbox') {
+    track = bboxTracks.value.get(resizeTrackId.value);
+    if (track) {
+      await saveBboxTrack(track, videoFileName.value);
+    }
+  } else if (resizeTrackType.value === 'polygon') {
+    track = polygonTracks.value.get(resizeTrackId.value);
+    if (track) {
+      await savePolygonTrack(track, videoFileName.value);
+    }
+  } else if (resizeTrackType.value === 'polyline') {
+    track = polylineTracks.value.get(resizeTrackId.value);
+    if (track) {
+      await savePolylineTrack(track, videoFileName.value);
+    }
+  }
+
+  isResizingRange.value = false;
+  resizeTrackId.value = null;
+  resizeTrackType.value = null;
+  resizeEdge.value = null;
+};
+
 onMounted(async () => {
   (Konva as any).pixelRatio = 1;
 
   window.addEventListener("keydown", handleKeyDown);
+  window.addEventListener("mousemove", handleRangeResize);
+  window.addEventListener("mouseup", endRangeResize);
 
   try {
     await openBrushDB();
@@ -2452,6 +2592,8 @@ onBeforeUnmount(() => {
     segmentationBrush.value.destroy();
   }
   window.removeEventListener("keydown", handleKeyDown);
+  window.removeEventListener("mousemove", handleRangeResize);
+  window.removeEventListener("mouseup", endRangeResize);
 });
 
 watch(videoLoaded, async (loaded) => {
@@ -2780,6 +2922,33 @@ h2 {
 
 .timeline-segment-bar.selected {
   box-shadow: 0 0 0 2px rgba(100, 108, 255, 0.3);
+}
+
+.resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+  z-index: 10;
+}
+
+.resize-handle.left {
+  left: -4px;
+  border-radius: 4px 0 0 4px;
+}
+
+.resize-handle.right {
+  right: -4px;
+  border-radius: 0 4px 4px 0;
+}
+
+.resize-handle:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.resize-handle:active {
+  background: rgba(255, 255, 255, 0.8);
 }
 
 .keyframe-diamond {
