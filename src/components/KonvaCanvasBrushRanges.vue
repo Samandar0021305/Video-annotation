@@ -1697,6 +1697,7 @@ const handleStageMouseUp = async (e: Konva.KonvaEventObject<MouseEvent>) => {
     const offscreenCanvas = segmentationBrush.value.getOffscreenCanvas();
     const { width: workingWidth, height: workingHeight } =
       workingResolution.value;
+
     brushImageConfig.value = {
       image: offscreenCanvas,
       x: 0,
@@ -1705,6 +1706,14 @@ const handleStageMouseUp = async (e: Konva.KonvaEventObject<MouseEvent>) => {
       height: workingHeight,
       listening: false,
     };
+
+    await nextTick();
+
+    if (brushImageRef.value) {
+      const imageNode = brushImageRef.value.getNode();
+      imageNode.image(offscreenCanvas);
+    }
+
     drawingLayerRef.value.getNode().batchDraw();
     segmentationBrush.value.clearTempCanvas();
   }
