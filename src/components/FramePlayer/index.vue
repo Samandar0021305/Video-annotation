@@ -24,8 +24,23 @@
         <button :class="{ active: mode === 'bbox' }" @click="setMode('bbox')">
           BBox
         </button>
-        <button :class="{ active: mode === 'select' }" @click="setMode('select')">
+        <button
+          :class="{ active: mode === 'select' }"
+          @click="setMode('select')"
+        >
           Select
+        </button>
+        <button
+          :class="{ active: mode === 'polygon' }"
+          @click="setMode('polygon')"
+        >
+          Polygon
+        </button>
+        <button
+          :class="{ active: mode === 'skeleton' }"
+          @click="setMode('skeleton')"
+        >
+          Skeleton
         </button>
       </div>
 
@@ -59,11 +74,14 @@
 
       <div class="control-group">
         <button @click="clearCurrentFrame">Clear Frame</button>
-        <button
-          v-if="selectedBboxId"
-          @click="deleteSelectedBbox"
-        >
+        <button v-if="selectedBboxId" @click="deleteSelectedBbox">
           Delete BBox
+        </button>
+        <button v-if="selectedPolygonId" @click="deleteSelectedPolygon">
+          Delete Polygon
+        </button>
+        <button v-if="selectedSkeletonId" @click="deleteSelectedSkeleton">
+          Delete Skeleton
         </button>
       </div>
     </div>
@@ -105,6 +123,7 @@
           @mousemove="handleMouseMove"
           @mouseup="handleMouseUp"
           @mouseleave="handleMouseLeave"
+          @dblclick="handleDoubleClick"
         >
           <v-layer ref="backgroundLayerRef">
             <v-image :config="imageConfig" />
@@ -143,6 +162,89 @@
             </v-group>
           </v-layer>
 
+          <v-layer ref="polygonLayerRef">
+            <template v-for="polygon in currentFramePolygons" :key="polygon.id">
+              <v-line
+                :config="{
+                  id: polygon.id,
+                  x: 0,
+                  y: 0,
+                  points: polygon.points.flatMap((p) => [p.x, p.y]),
+                  fill: polygon.color + '30',
+                  stroke: polygon.color,
+                  strokeWidth: 2,
+                  closed: true,
+                  draggable: mode === 'select',
+                  name: 'polygon',
+                }"
+                @click="handlePolygonClick"
+                @dragend="handlePolygonDragEnd"
+              />
+              <v-circle
+                v-for="(point, pointIdx) in polygon.points"
+                :key="`${polygon.id}-pt-${pointIdx}`"
+                :config="{
+                  x: point.x,
+                  y: point.y,
+                  radius: 6,
+                  fill: polygon.color,
+                  stroke:
+                    selectedPolygonId === polygon.id ? '#fff' : polygon.color,
+                  strokeWidth: selectedPolygonId === polygon.id ? 2 : 1,
+                  draggable: mode === 'select',
+                  name: 'polygonVertex',
+                }"
+                @dragmove="(e: any) => handlePolygonVertexDragMove(e, polygon.id, pointIdx)"
+                @dragend="(e: any) => handlePolygonVertexDragEnd(e, polygon.id, pointIdx)"
+                @click="() => handlePolygonVertexClick(polygon.id)"
+              />
+            </template>
+          </v-layer>
+
+          <v-layer ref="skeletonLayerRef">
+            <template
+              v-for="skeleton in currentFrameSkeletons"
+              :key="skeleton.id"
+            >
+              <v-line
+                :config="{
+                  id: skeleton.id,
+                  x: 0,
+                  y: 0,
+                  points: skeleton.points.flatMap((p) => [p.x, p.y]),
+                  stroke: skeleton.color,
+                  strokeWidth: 2,
+                  lineCap: 'round',
+                  lineJoin: 'round',
+                  draggable: mode === 'select',
+                  name: 'skeleton',
+                }"
+                @click="handleSkeletonClick"
+                @dragend="handleSkeletonDragEnd"
+              />
+              <v-circle
+                v-for="(point, pointIdx) in skeleton.points"
+                :key="`${skeleton.id}-kp-${pointIdx}`"
+                :config="{
+                  x: point.x,
+                  y: point.y,
+                  radius: 6,
+                  fill: skeleton.color,
+                  stroke:
+                    selectedSkeletonId === skeleton.id
+                      ? '#fff'
+                      : skeleton.color,
+                  strokeWidth: selectedSkeletonId === skeleton.id ? 2 : 1,
+                  draggable: mode === 'select',
+                  name: 'skeletonKeypoint',
+                }"
+                @dragmove="(e: any) => handleSkeletonKeypointDragMove(e, skeleton.id, pointIdx)"
+                @dragend="(e: any) => handleSkeletonKeypointDragEnd(e, skeleton.id, pointIdx)"
+                @click="() => handleSkeletonKeypointClick(skeleton.id)"
+              />
+            </template>
+          </v-layer>
+
           <v-layer
             ref="brushLayerRef"
             :config="{ imageSmoothingEnabled: false }"
@@ -161,11 +263,15 @@ import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import Konva from "konva";
 import { KonvaBrush } from "./KonvaBrush";
 import type { BoundingBox } from "../../types/boundingBox";
+import type { Polygon, PolygonPoint } from "../../types/polygon";
+import type { Skeleton, SkeletonPoint } from "../../types/skeleton";
 
 const stageRef = ref<any>(null);
 const backgroundLayerRef = ref<any>(null);
 const annotationLayerRef = ref<any>(null);
 const bboxLayerRef = ref<any>(null);
+const polygonLayerRef = ref<any>(null);
+const skeletonLayerRef = ref<any>(null);
 const brushLayerRef = ref<any>(null);
 const cursorLayerRef = ref<any>(null);
 const containerRef = ref<HTMLDivElement | null>(null);
@@ -176,9 +282,13 @@ const currentFrame = ref(0);
 const currentImage = ref<HTMLImageElement | null>(null);
 const brush = ref<KonvaBrush | null>(null);
 
-const mode = ref<"brush" | "eraser" | "pan" | "bbox" | "select">("brush");
+const mode = ref<
+  "brush" | "eraser" | "pan" | "bbox" | "select" | "polygon" | "skeleton"
+>("brush");
 const brushSize = ref(20);
 const bboxColor = ref("#FF0000");
+const polygonColor = ref("#00FF00");
+const skeletonColor = ref("#0000FF");
 const opacity = ref(1);
 const zoomLevel = ref(1);
 const fps = ref(9);
@@ -198,6 +308,20 @@ const selectedBboxId = ref<string | null>(null);
 const bboxStartPos = ref<{ x: number; y: number } | null>(null);
 const bboxPreview = ref<Konva.Rect | null>(null);
 const transformerRef = ref<Konva.Transformer | null>(null);
+
+const framePolygons = ref<Map<number, Polygon[]>>(new Map());
+const selectedPolygonId = ref<string | null>(null);
+const isDrawingPolygon = ref(false);
+const currentPolygonPoints = ref<PolygonPoint[]>([]);
+const polygonPreviewLine = ref<Konva.Line | null>(null);
+const polygonPreviewCircles = ref<Konva.Circle[]>([]);
+
+const frameSkeletons = ref<Map<number, Skeleton[]>>(new Map());
+const selectedSkeletonId = ref<string | null>(null);
+const isDrawingSkeleton = ref(false);
+const currentSkeletonPoints = ref<SkeletonPoint[]>([]);
+const skeletonPreviewLine = ref<Konva.Line | null>(null);
+const skeletonPreviewCircles = ref<Konva.Circle[]>([]);
 
 const MAX_WIDTH = 1200;
 const MAX_HEIGHT = 800;
@@ -247,6 +371,14 @@ const hasDrawing = computed(() => {
 
 const currentFrameBboxes = computed(() => {
   return frameBboxes.value.get(currentFrame.value) || [];
+});
+
+const currentFramePolygons = computed(() => {
+  return framePolygons.value.get(currentFrame.value) || [];
+});
+
+const currentFrameSkeletons = computed(() => {
+  return frameSkeletons.value.get(currentFrame.value) || [];
 });
 
 const loadImage = (url: string): Promise<HTMLImageElement> => {
@@ -395,7 +527,16 @@ const startTimelineDrag = (e: MouseEvent) => {
   document.addEventListener("mouseup", handleUp);
 };
 
-const setMode = (newMode: "brush" | "eraser" | "pan" | "bbox" | "select") => {
+const setMode = (
+  newMode:
+    | "brush"
+    | "eraser"
+    | "pan"
+    | "bbox"
+    | "select"
+    | "polygon"
+    | "skeleton"
+) => {
   mode.value = newMode;
   const stage = stageRef.value?.getStage();
   if (!stage) return;
@@ -408,7 +549,7 @@ const setMode = (newMode: "brush" | "eraser" | "pan" | "bbox" | "select") => {
 
   if (newMode === "pan") {
     stage.container().style.cursor = "grab";
-  } else if (newMode === "bbox") {
+  } else if (newMode === "bbox" || newMode === "polygon") {
     stage.container().style.cursor = "crosshair";
   } else if (newMode === "select") {
     stage.container().style.cursor = "default";
@@ -418,8 +559,12 @@ const setMode = (newMode: "brush" | "eraser" | "pan" | "bbox" | "select") => {
 
   if (newMode === "eraser" && brush.value) {
     brush.value.setDeleteMode(true);
-  } else if ((newMode === "brush") && brush.value) {
+  } else if (newMode === "brush" && brush.value) {
     brush.value.changeColor("#FF0000");
+  }
+
+  if (newMode !== "polygon" && isDrawingPolygon.value) {
+    cancelPolygonDrawing();
   }
 };
 
@@ -658,6 +803,575 @@ const deleteSelectedBbox = () => {
   updateTransformerSelection();
 };
 
+const createPolygonPreviewCircle = (x: number, y: number): Konva.Circle => {
+  return new Konva.Circle({
+    x,
+    y,
+    radius: 6,
+    fill: polygonColor.value,
+    stroke: "#fff",
+    strokeWidth: 2,
+    listening: false,
+  });
+};
+
+const clearPolygonPreviewCircles = () => {
+  for (const circle of polygonPreviewCircles.value) {
+    circle.destroy();
+  }
+  polygonPreviewCircles.value = [];
+};
+
+const startPolygonDrawing = (pos: { x: number; y: number }) => {
+  isDrawingPolygon.value = true;
+  currentPolygonPoints.value = [{ x: pos.x, y: pos.y }];
+
+  const layer = polygonLayerRef.value?.getNode();
+  if (!layer) return;
+
+  polygonPreviewLine.value = new Konva.Line({
+    points: [pos.x, pos.y],
+    stroke: polygonColor.value,
+    strokeWidth: 2,
+    dash: [5, 5],
+    closed: true,
+    fill: polygonColor.value + "30",
+    listening: false,
+  });
+  layer.add(polygonPreviewLine.value);
+
+  const circle = createPolygonPreviewCircle(pos.x, pos.y);
+  layer.add(circle);
+  polygonPreviewCircles.value.push(circle);
+
+  layer.batchDraw();
+};
+
+const addPolygonPoint = (pos: { x: number; y: number }) => {
+  const firstPoint = currentPolygonPoints.value[0];
+  if (!firstPoint) return;
+
+  const distance = Math.sqrt(
+    Math.pow(pos.x - firstPoint.x, 2) + Math.pow(pos.y - firstPoint.y, 2)
+  );
+
+  if (distance < 15 && currentPolygonPoints.value.length >= 3) {
+    completePolygonDrawing();
+  } else {
+    currentPolygonPoints.value.push({ x: pos.x, y: pos.y });
+
+    const layer = polygonLayerRef.value?.getNode();
+    if (!layer) return;
+
+    const circle = createPolygonPreviewCircle(pos.x, pos.y);
+    layer.add(circle);
+    polygonPreviewCircles.value.push(circle);
+
+    updatePolygonPreview();
+  }
+};
+
+const updatePolygonPreview = () => {
+  if (!polygonPreviewLine.value || !polygonLayerRef.value) return;
+
+  const points: number[] = [];
+  for (const p of currentPolygonPoints.value) {
+    points.push(p.x, p.y);
+  }
+
+  polygonPreviewLine.value.points(points);
+  polygonLayerRef.value.getNode().batchDraw();
+};
+
+const updatePolygonPreviewWithMouse = (pos: { x: number; y: number }) => {
+  if (!polygonPreviewLine.value || !polygonLayerRef.value) return;
+
+  const points: number[] = [];
+  for (const p of currentPolygonPoints.value) {
+    points.push(p.x, p.y);
+  }
+  points.push(pos.x, pos.y);
+
+  polygonPreviewLine.value.points(points);
+  polygonLayerRef.value.getNode().batchDraw();
+};
+
+const completePolygonDrawing = () => {
+  if (currentPolygonPoints.value.length < 3) {
+    cancelPolygonDrawing();
+    return;
+  }
+
+  const polygon: Polygon = {
+    id: `polygon_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+    points: [...currentPolygonPoints.value],
+    color: polygonColor.value,
+    classId: 0,
+  };
+
+  if (polygonPreviewLine.value) {
+    polygonPreviewLine.value.destroy();
+    polygonPreviewLine.value = null;
+  }
+
+  clearPolygonPreviewCircles();
+
+  const currentPolygons = framePolygons.value.get(currentFrame.value) || [];
+  framePolygons.value.set(currentFrame.value, [...currentPolygons, polygon]);
+
+  console.log("Polygon completed and saved:", polygon.id);
+  console.log(
+    "Total polygons on frame",
+    currentFrame.value,
+    ":",
+    currentPolygons.length + 1
+  );
+
+  selectedPolygonId.value = polygon.id;
+  isDrawingPolygon.value = false;
+  currentPolygonPoints.value = [];
+
+  if (polygonLayerRef.value) {
+    polygonLayerRef.value.getNode().batchDraw();
+  }
+};
+
+const cancelPolygonDrawing = () => {
+  if (polygonPreviewLine.value) {
+    polygonPreviewLine.value.destroy();
+    polygonPreviewLine.value = null;
+  }
+  clearPolygonPreviewCircles();
+  isDrawingPolygon.value = false;
+  currentPolygonPoints.value = [];
+  if (polygonLayerRef.value) {
+    polygonLayerRef.value.getNode().batchDraw();
+  }
+};
+
+const handlePolygonClick = (e: any) => {
+  if (mode.value !== "select") return;
+
+  const line = e.target;
+  if (line && line.id()) {
+    selectedPolygonId.value = line.id();
+    selectedBboxId.value = null;
+  }
+};
+
+const handlePolygonDragEnd = (e: any) => {
+  const line = e.target;
+  const polygonId = line.id();
+
+  const currentPolygons = framePolygons.value.get(currentFrame.value);
+  if (!currentPolygons) return;
+
+  const polygonIndex = currentPolygons.findIndex((p) => p.id === polygonId);
+  if (polygonIndex === -1) return;
+
+  const oldPolygon = currentPolygons[polygonIndex];
+  if (!oldPolygon) return;
+
+  const dx = line.x();
+  const dy = line.y();
+
+  const updatedPoints = oldPolygon.points.map((p) => ({
+    x: p.x + dx,
+    y: p.y + dy,
+  }));
+
+  line.x(0);
+  line.y(0);
+
+  const updatedPolygon: Polygon = {
+    id: oldPolygon.id,
+    points: updatedPoints,
+    color: oldPolygon.color,
+    classId: oldPolygon.classId,
+    label: oldPolygon.label,
+  };
+
+  currentPolygons[polygonIndex] = updatedPolygon;
+  framePolygons.value.set(currentFrame.value, [...currentPolygons]);
+};
+
+const handlePolygonVertexClick = (polygonId: string) => {
+  if (mode.value !== "select") return;
+  selectedPolygonId.value = polygonId;
+  selectedBboxId.value = null;
+};
+
+const handlePolygonVertexDragMove = (
+  e: any,
+  polygonId: string,
+  pointIdx: number
+) => {
+  const circle = e.target;
+  if (!polygonLayerRef.value) return;
+
+  const currentPolygons = framePolygons.value.get(currentFrame.value);
+  if (!currentPolygons) return;
+
+  const polygon = currentPolygons.find((p) => p.id === polygonId);
+  if (!polygon) return;
+
+  const layer = polygonLayerRef.value.getNode();
+  const line = layer.findOne(`#${polygonId}`);
+  if (!line) return;
+
+  const points = [...polygon.points];
+  points[pointIdx] = {
+    x: circle.x(),
+    y: circle.y(),
+  };
+
+  const flatPoints: number[] = [];
+  for (const p of points) {
+    flatPoints.push(p.x, p.y);
+  }
+  line.points(flatPoints);
+
+  layer.batchDraw();
+};
+
+const handlePolygonVertexDragEnd = (
+  e: any,
+  polygonId: string,
+  pointIdx: number
+) => {
+  const circle = e.target;
+
+  const currentPolygons = framePolygons.value.get(currentFrame.value);
+  if (!currentPolygons) return;
+
+  const polygonIndex = currentPolygons.findIndex((p) => p.id === polygonId);
+  if (polygonIndex === -1) return;
+
+  const oldPolygon = currentPolygons[polygonIndex];
+  if (!oldPolygon) return;
+
+  const updatedPoints = oldPolygon.points.map((p, i) =>
+    i === pointIdx ? { x: circle.x(), y: circle.y() } : p
+  );
+
+  const updatedPolygon: Polygon = {
+    id: oldPolygon.id,
+    points: updatedPoints,
+    color: oldPolygon.color,
+    classId: oldPolygon.classId,
+    label: oldPolygon.label,
+  };
+
+  currentPolygons[polygonIndex] = updatedPolygon;
+  framePolygons.value.set(currentFrame.value, [...currentPolygons]);
+};
+
+const deleteSelectedPolygon = () => {
+  if (!selectedPolygonId.value) return;
+
+  const currentPolygons = framePolygons.value.get(currentFrame.value);
+  if (!currentPolygons) return;
+
+  const filtered = currentPolygons.filter(
+    (p) => p.id !== selectedPolygonId.value
+  );
+
+  if (filtered.length > 0) {
+    framePolygons.value.set(currentFrame.value, filtered);
+  } else {
+    framePolygons.value.delete(currentFrame.value);
+  }
+
+  selectedPolygonId.value = null;
+};
+
+const SKELETON_MERGE_THRESHOLD = 5;
+
+const createSkeletonPreviewCircle = (x: number, y: number): Konva.Circle => {
+  return new Konva.Circle({
+    x,
+    y,
+    radius: 6,
+    fill: skeletonColor.value,
+    stroke: "#fff",
+    strokeWidth: 2,
+    listening: false,
+  });
+};
+
+const clearSkeletonPreviewCircles = () => {
+  for (const circle of skeletonPreviewCircles.value) {
+    circle.destroy();
+  }
+  skeletonPreviewCircles.value = [];
+};
+
+const shouldMergeWithExistingPoint = (pos: {
+  x: number;
+  y: number;
+}): boolean => {
+  for (const existingPoint of currentSkeletonPoints.value) {
+    const distance = Math.sqrt(
+      Math.pow(pos.x - existingPoint.x, 2) +
+        Math.pow(pos.y - existingPoint.y, 2)
+    );
+    if (distance < SKELETON_MERGE_THRESHOLD) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const startSkeletonDrawing = (pos: { x: number; y: number }) => {
+  isDrawingSkeleton.value = true;
+  currentSkeletonPoints.value = [{ x: pos.x, y: pos.y }];
+
+  const layer = skeletonLayerRef.value?.getNode();
+  if (!layer) return;
+
+  skeletonPreviewLine.value = new Konva.Line({
+    points: [pos.x, pos.y],
+    stroke: skeletonColor.value,
+    strokeWidth: 2,
+    dash: [5, 5],
+    lineCap: "round",
+    lineJoin: "round",
+    listening: false,
+  });
+  layer.add(skeletonPreviewLine.value);
+
+  const circle = createSkeletonPreviewCircle(pos.x, pos.y);
+  layer.add(circle);
+  skeletonPreviewCircles.value.push(circle);
+
+  layer.batchDraw();
+};
+
+const addSkeletonPoint = (pos: { x: number; y: number }) => {
+  if (shouldMergeWithExistingPoint(pos)) {
+    return;
+  }
+
+  currentSkeletonPoints.value.push({ x: pos.x, y: pos.y });
+
+  const layer = skeletonLayerRef.value?.getNode();
+  if (!layer) return;
+
+  const circle = createSkeletonPreviewCircle(pos.x, pos.y);
+  layer.add(circle);
+  skeletonPreviewCircles.value.push(circle);
+
+  updateSkeletonPreview();
+};
+
+const updateSkeletonPreview = () => {
+  if (!skeletonPreviewLine.value || !skeletonLayerRef.value) return;
+
+  const points: number[] = [];
+  for (const p of currentSkeletonPoints.value) {
+    points.push(p.x, p.y);
+  }
+
+  skeletonPreviewLine.value.points(points);
+  skeletonLayerRef.value.getNode().batchDraw();
+};
+
+const updateSkeletonPreviewWithMouse = (pos: { x: number; y: number }) => {
+  if (!skeletonPreviewLine.value || !skeletonLayerRef.value) return;
+
+  const points: number[] = [];
+  for (const p of currentSkeletonPoints.value) {
+    points.push(p.x, p.y);
+  }
+  points.push(pos.x, pos.y);
+
+  skeletonPreviewLine.value.points(points);
+  skeletonLayerRef.value.getNode().batchDraw();
+};
+
+const completeSkeletonDrawing = () => {
+  if (currentSkeletonPoints.value.length < 2) {
+    cancelSkeletonDrawing();
+    return;
+  }
+
+  const skeleton: Skeleton = {
+    id: `skeleton_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+    points: [...currentSkeletonPoints.value],
+    color: skeletonColor.value,
+    classId: 0,
+  };
+
+  if (skeletonPreviewLine.value) {
+    skeletonPreviewLine.value.destroy();
+    skeletonPreviewLine.value = null;
+  }
+
+  clearSkeletonPreviewCircles();
+
+  const currentSkeletons = frameSkeletons.value.get(currentFrame.value) || [];
+  frameSkeletons.value.set(currentFrame.value, [...currentSkeletons, skeleton]);
+
+  selectedSkeletonId.value = skeleton.id;
+  isDrawingSkeleton.value = false;
+  currentSkeletonPoints.value = [];
+
+  if (skeletonLayerRef.value) {
+    skeletonLayerRef.value.getNode().batchDraw();
+  }
+};
+
+const cancelSkeletonDrawing = () => {
+  if (skeletonPreviewLine.value) {
+    skeletonPreviewLine.value.destroy();
+    skeletonPreviewLine.value = null;
+  }
+  clearSkeletonPreviewCircles();
+  isDrawingSkeleton.value = false;
+  currentSkeletonPoints.value = [];
+  if (skeletonLayerRef.value) {
+    skeletonLayerRef.value.getNode().batchDraw();
+  }
+};
+
+const handleSkeletonClick = (e: any) => {
+  if (mode.value !== "select") return;
+
+  const line = e.target;
+  if (line && line.id()) {
+    selectedSkeletonId.value = line.id();
+    selectedBboxId.value = null;
+    selectedPolygonId.value = null;
+  }
+};
+
+const handleSkeletonDragEnd = (e: any) => {
+  const line = e.target;
+  const skeletonId = line.id();
+
+  const currentSkeletons = frameSkeletons.value.get(currentFrame.value);
+  if (!currentSkeletons) return;
+
+  const skeletonIndex = currentSkeletons.findIndex((s) => s.id === skeletonId);
+  if (skeletonIndex === -1) return;
+
+  const oldSkeleton = currentSkeletons[skeletonIndex];
+  if (!oldSkeleton) return;
+
+  const dx = line.x();
+  const dy = line.y();
+
+  const updatedPoints = oldSkeleton.points.map((p) => ({
+    x: p.x + dx,
+    y: p.y + dy,
+  }));
+
+  line.x(0);
+  line.y(0);
+
+  const updatedSkeleton: Skeleton = {
+    id: oldSkeleton.id,
+    points: updatedPoints,
+    color: oldSkeleton.color,
+    classId: oldSkeleton.classId,
+    label: oldSkeleton.label,
+  };
+
+  currentSkeletons[skeletonIndex] = updatedSkeleton;
+  frameSkeletons.value.set(currentFrame.value, [...currentSkeletons]);
+};
+
+const handleSkeletonKeypointClick = (skeletonId: string) => {
+  if (mode.value !== "select") return;
+  selectedSkeletonId.value = skeletonId;
+  selectedBboxId.value = null;
+  selectedPolygonId.value = null;
+};
+
+const handleSkeletonKeypointDragMove = (
+  e: any,
+  skeletonId: string,
+  pointIdx: number
+) => {
+  const circle = e.target;
+  if (!skeletonLayerRef.value) return;
+
+  const currentSkeletons = frameSkeletons.value.get(currentFrame.value);
+  if (!currentSkeletons) return;
+
+  const skeleton = currentSkeletons.find((s) => s.id === skeletonId);
+  if (!skeleton) return;
+
+  const layer = skeletonLayerRef.value.getNode();
+  const line = layer.findOne(`#${skeletonId}`);
+  if (!line) return;
+
+  const points = [...skeleton.points];
+  points[pointIdx] = {
+    x: circle.x(),
+    y: circle.y(),
+  };
+
+  const flatPoints: number[] = [];
+  for (const p of points) {
+    flatPoints.push(p.x, p.y);
+  }
+  line.points(flatPoints);
+
+  layer.batchDraw();
+};
+
+const handleSkeletonKeypointDragEnd = (
+  e: any,
+  skeletonId: string,
+  pointIdx: number
+) => {
+  const circle = e.target;
+
+  const currentSkeletons = frameSkeletons.value.get(currentFrame.value);
+  if (!currentSkeletons) return;
+
+  const skeletonIndex = currentSkeletons.findIndex((s) => s.id === skeletonId);
+  if (skeletonIndex === -1) return;
+
+  const oldSkeleton = currentSkeletons[skeletonIndex];
+  if (!oldSkeleton) return;
+
+  const updatedPoints = oldSkeleton.points.map((p, i) =>
+    i === pointIdx ? { x: circle.x(), y: circle.y() } : p
+  );
+
+  const updatedSkeleton: Skeleton = {
+    id: oldSkeleton.id,
+    points: updatedPoints,
+    color: oldSkeleton.color,
+    classId: oldSkeleton.classId,
+    label: oldSkeleton.label,
+  };
+
+  currentSkeletons[skeletonIndex] = updatedSkeleton;
+  frameSkeletons.value.set(currentFrame.value, [...currentSkeletons]);
+};
+
+const deleteSelectedSkeleton = () => {
+  if (!selectedSkeletonId.value) return;
+
+  const currentSkeletons = frameSkeletons.value.get(currentFrame.value);
+  if (!currentSkeletons) return;
+
+  const filtered = currentSkeletons.filter(
+    (s) => s.id !== selectedSkeletonId.value
+  );
+
+  if (filtered.length > 0) {
+    frameSkeletons.value.set(currentFrame.value, filtered);
+  } else {
+    frameSkeletons.value.delete(currentFrame.value);
+  }
+
+  selectedSkeletonId.value = null;
+};
+
 const handleMouseDown = (e: any) => {
   const stage = stageRef.value?.getStage();
   if (!stage) return;
@@ -669,6 +1383,30 @@ const handleMouseDown = (e: any) => {
     isPanning.value = true;
     lastPanPoint.value = screenPos;
     stage.container().style.cursor = "grabbing";
+    return;
+  }
+
+  if (mode.value === "polygon") {
+    const logicalPos = getLogicalPointerPosition();
+    if (!logicalPos) return;
+
+    if (!isDrawingPolygon.value) {
+      startPolygonDrawing(logicalPos);
+    } else {
+      addPolygonPoint(logicalPos);
+    }
+    return;
+  }
+
+  if (mode.value === "skeleton") {
+    const logicalPos = getLogicalPointerPosition();
+    if (!logicalPos) return;
+
+    if (!isDrawingSkeleton.value) {
+      startSkeletonDrawing(logicalPos);
+    } else {
+      addSkeletonPoint(logicalPos);
+    }
     return;
   }
 
@@ -684,12 +1422,17 @@ const handleMouseDown = (e: any) => {
     const target = e.target;
     if (target === stage || target.getClassName() === "Image") {
       selectedBboxId.value = null;
+      selectedPolygonId.value = null;
+      selectedSkeletonId.value = null;
       updateTransformerSelection();
     }
     return;
   }
 
-  if ((mode.value === "brush" || mode.value === "eraser") && brush.value?.isLoaded()) {
+  if (
+    (mode.value === "brush" || mode.value === "eraser") &&
+    brush.value?.isLoaded()
+  ) {
     const logicalPos = getLogicalPointerPosition();
     if (!logicalPos) return;
 
@@ -726,6 +1469,20 @@ const handleMouseMove = () => {
     return;
   }
 
+  if (mode.value === "polygon" && isDrawingPolygon.value) {
+    const logicalPos = getLogicalPointerPosition();
+    if (!logicalPos) return;
+    updatePolygonPreviewWithMouse(logicalPos);
+    return;
+  }
+
+  if (mode.value === "skeleton" && isDrawingSkeleton.value) {
+    const logicalPos = getLogicalPointerPosition();
+    if (!logicalPos) return;
+    updateSkeletonPreviewWithMouse(logicalPos);
+    return;
+  }
+
   if (mode.value === "bbox" && isDrawing.value) {
     const logicalPos = getLogicalPointerPosition();
     if (!logicalPos) return;
@@ -733,14 +1490,25 @@ const handleMouseMove = () => {
     return;
   }
 
-  if (mode.value !== "pan" && mode.value !== "bbox" && mode.value !== "select" && brush.value) {
+  if (
+    mode.value !== "pan" &&
+    mode.value !== "bbox" &&
+    mode.value !== "select" &&
+    mode.value !== "polygon" &&
+    mode.value !== "skeleton" &&
+    brush.value
+  ) {
     const logicalPos = getLogicalPointerPosition();
     if (logicalPos) {
       updateCursor(logicalPos);
     }
   }
 
-  if (isDrawing.value && (mode.value === "brush" || mode.value === "eraser") && brush.value) {
+  if (
+    isDrawing.value &&
+    (mode.value === "brush" || mode.value === "eraser") &&
+    brush.value
+  ) {
     const logicalPos = getLogicalPointerPosition();
     if (!logicalPos) return;
 
@@ -763,7 +1531,13 @@ const handleMouseUp = () => {
   const stage = stageRef.value?.getStage();
   if (stage && isPanning.value) {
     stage.container().style.cursor =
-      mode.value === "pan" ? "grab" : (mode.value === "bbox" ? "crosshair" : (mode.value === "select" ? "default" : "none"));
+      mode.value === "pan"
+        ? "grab"
+        : mode.value === "bbox"
+        ? "crosshair"
+        : mode.value === "select"
+        ? "default"
+        : "none";
   }
 
   isPanning.value = false;
@@ -818,6 +1592,13 @@ const handleMouseLeave = () => {
     cursorLayerRef.value?.getNode().batchDraw();
   }
 
+  if (mode.value === "polygon" && isDrawingPolygon.value) {
+    if (polygonPreviewLine.value) {
+      updatePolygonPreview();
+    }
+    return;
+  }
+
   if (mode.value === "bbox" && isDrawing.value && bboxPreview.value) {
     bboxPreview.value.destroy();
     bboxPreview.value = null;
@@ -828,6 +1609,19 @@ const handleMouseLeave = () => {
   }
 
   handleMouseUp();
+};
+
+const handleDoubleClick = () => {
+  if (mode.value === "polygon" && isDrawingPolygon.value) {
+    if (currentPolygonPoints.value.length >= 3) {
+      completePolygonDrawing();
+    }
+  }
+  if (mode.value === "skeleton" && isDrawingSkeleton.value) {
+    if (currentSkeletonPoints.value.length >= 2) {
+      completeSkeletonDrawing();
+    }
+  }
 };
 
 const handleKeyDown = (_e: KeyboardEvent) => {
@@ -945,12 +1739,19 @@ const resetZoom = () => {
 
 const clearCurrentFrame = () => {
   frameCanvases.value.delete(currentFrame.value);
+  frameBboxes.value.delete(currentFrame.value);
+  framePolygons.value.delete(currentFrame.value);
+  frameSkeletons.value.delete(currentFrame.value);
 
   const annotationLayer = annotationLayerRef.value?.getNode();
   if (annotationLayer) {
     annotationLayer.destroyChildren();
     annotationLayer.batchDraw();
   }
+
+  selectedBboxId.value = null;
+  selectedPolygonId.value = null;
+  selectedSkeletonId.value = null;
 };
 
 onMounted(async () => {
@@ -1003,7 +1804,12 @@ watch(zoomLevel, () => {
 
 watch(currentFrame, () => {
   selectedBboxId.value = null;
+  selectedPolygonId.value = null;
   updateTransformerSelection();
+
+  if (isDrawingPolygon.value) {
+    cancelPolygonDrawing();
+  }
 });
 
 watch(opacity, () => {
@@ -1080,6 +1886,13 @@ watch(opacity, () => {
   border-radius: 4px;
   height: 32px;
   width: 60px;
+}
+
+.control-group .drawing-hint {
+  margin-left: 10px;
+  color: #007bff;
+  font-size: 13px;
+  font-style: italic;
 }
 
 .frame-info {
