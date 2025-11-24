@@ -57,7 +57,7 @@
 
       <div class="control-group">
         <label>FPS: {{ fps }}</label>
-        <input type="range" min="1" max="60" v-model.number="fps" />
+        <input type="range" min="0.25" max="30" step="0.25" v-model.number="fps" />
       </div>
 
       <div v-if="mode === 'bbox'" class="control-group">
@@ -87,7 +87,7 @@
     </div>
 
     <div class="frame-info">
-      Frame: {{ currentFrame + 1 }} / {{ totalFrames }}
+      Second: {{ currentSecond }} / {{ totalFrames }}
       <span v-if="hasDrawing" class="draw-indicator">✏️</span>
     </div>
 
@@ -352,7 +352,11 @@ const getFrames = (): string[] => {
 };
 
 const frames = getFrames();
-const totalFrames = frames.length;
+const physicalFrames = frames.length;
+
+const totalFrames = computed(() => {
+  return Math.ceil(physicalFrames / fps.value);
+});
 
 const imageConfig = computed(() => ({
   image: currentImage.value,
@@ -361,8 +365,12 @@ const imageConfig = computed(() => ({
 }));
 
 const progressPercent = computed(() => {
-  if (totalFrames === 0) return 0;
-  return (currentFrame.value / (totalFrames - 1)) * 100;
+  if (physicalFrames === 0) return 0;
+  return (currentFrame.value / (physicalFrames - 1)) * 100;
+});
+
+const currentSecond = computed(() => {
+  return Math.floor(currentFrame.value / fps.value) + 1;
 });
 
 const hasDrawing = computed(() => {
@@ -422,7 +430,7 @@ const createOffscreenCanvas = (img: HTMLImageElement): HTMLCanvasElement => {
 };
 
 const renderFrame = async (frameIndex: number) => {
-  if (frameIndex < 0 || frameIndex >= totalFrames) return;
+  if (frameIndex < 0 || frameIndex >= physicalFrames) return;
 
   let img = frameImages.value.get(frameIndex);
 
@@ -455,7 +463,7 @@ const animate = async (timestamp: number) => {
   if (elapsed >= frameInterval) {
     let nextFrameIndex = currentFrame.value + 1;
 
-    if (nextFrameIndex >= totalFrames) {
+    if (nextFrameIndex >= physicalFrames) {
       nextFrameIndex = 0;
     }
 
@@ -479,14 +487,21 @@ const togglePlay = () => {
 };
 
 const nextFrame = async () => {
-  const next = (currentFrame.value + 1) % totalFrames;
-  await renderFrame(next);
+  const next = currentFrame.value + Math.floor(fps.value);
+  if (next >= physicalFrames) {
+    await renderFrame(0);
+  } else {
+    await renderFrame(next);
+  }
 };
 
 const previousFrame = async () => {
-  const prev =
-    currentFrame.value - 1 < 0 ? totalFrames - 1 : currentFrame.value - 1;
-  await renderFrame(prev);
+  const prev = currentFrame.value - Math.floor(fps.value);
+  if (prev < 0) {
+    await renderFrame(physicalFrames - 1);
+  } else {
+    await renderFrame(prev);
+  }
 };
 
 const handleTimelineClick = (e: MouseEvent) => {
@@ -495,9 +510,9 @@ const handleTimelineClick = (e: MouseEvent) => {
   const rect = timelineRef.value.getBoundingClientRect();
   const x = e.clientX - rect.left;
   const percent = x / rect.width;
-  const targetFrame = Math.floor(percent * (totalFrames - 1));
+  const targetFrame = Math.floor(percent * (physicalFrames - 1));
 
-  renderFrame(Math.max(0, Math.min(targetFrame, totalFrames - 1)));
+  renderFrame(Math.max(0, Math.min(targetFrame, physicalFrames - 1)));
 };
 
 let isTimelineDragging = false;
@@ -512,7 +527,7 @@ const startTimelineDrag = (e: MouseEvent) => {
     const rect = timelineRef.value.getBoundingClientRect();
     const x = moveEvent.clientX - rect.left;
     const percent = Math.max(0, Math.min(1, x / rect.width));
-    const targetFrame = Math.floor(percent * (totalFrames - 1));
+    const targetFrame = Math.floor(percent * (physicalFrames - 1));
 
     renderFrame(targetFrame);
   };
@@ -1776,7 +1791,7 @@ onMounted(async () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     setupTransformer();
 
-    for (let i = 1; i < Math.min(30, totalFrames); i++) {
+    for (let i = 1; i < Math.min(30, physicalFrames); i++) {
       loadImage(frames[i]!).then((img) => frameImages.value.set(i, img));
     }
 
