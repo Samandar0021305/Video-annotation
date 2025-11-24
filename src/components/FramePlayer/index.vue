@@ -87,7 +87,7 @@
     </div>
 
     <div class="frame-info">
-      Second: {{ currentSecond }} / {{ totalFrames }}
+      Second: {{ currentSecond }} / {{ totalSeconds }} (Frame: {{ currentFrame + 1 }} / {{ physicalFrames }})
       <span v-if="hasDrawing" class="draw-indicator">✏️</span>
     </div>
 
@@ -354,7 +354,7 @@ const getFrames = (): string[] => {
 const frames = getFrames();
 const physicalFrames = frames.length;
 
-const totalFrames = computed(() => {
+const totalSeconds = computed(() => {
   return Math.ceil(physicalFrames / fps.value);
 });
 
@@ -461,7 +461,7 @@ const animate = async (timestamp: number) => {
   const elapsed = timestamp - lastFrameTime;
 
   if (elapsed >= frameInterval) {
-    let nextFrameIndex = currentFrame.value + 1;
+    let nextFrameIndex = currentFrame.value + Math.floor(fps.value);
 
     if (nextFrameIndex >= physicalFrames) {
       nextFrameIndex = 0;
