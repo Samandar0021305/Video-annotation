@@ -66,19 +66,6 @@
         <button @click="zoomOut">-</button>
         <button @click="resetZoom">Reset</button>
       </div>
-
-      <div class="control-group">
-        <button @click="clearCurrentFrame">Clear Frame</button>
-        <button v-if="selectedBboxId" @click="deleteSelectedBbox">
-          Delete BBox
-        </button>
-        <button v-if="selectedPolygonId" @click="deleteSelectedPolygon">
-          Delete Polygon
-        </button>
-        <button v-if="selectedSkeletonId" @click="deleteSelectedSkeleton">
-          Delete Skeleton
-        </button>
-      </div>
     </div>
 
     <div class="frame-info">
@@ -259,9 +246,12 @@ import { useRouter } from "vue-router";
 import Konva from "konva";
 import { KonvaBrush } from "./KonvaBrush";
 import { useFramesStore } from "../../stores/framesStore";
+import { BBoxTool } from "../../utils/bboxUtils";
+import { PolygonTool } from "../../utils/polygonUtils";
+import { SkeletonTool } from "../../utils/skeletonUtils";
 import type { BoundingBox } from "../../types/boundingBox";
-import type { Polygon, PolygonPoint } from "../../types/polygon";
-import type { Skeleton, SkeletonPoint } from "../../types/skeleton";
+import type { Polygon } from "../../types/polygon";
+import type { Skeleton } from "../../types/skeleton";
 
 const router = useRouter();
 const framesStore = useFramesStore();
@@ -304,23 +294,17 @@ const frameCanvases = ref<Map<number, HTMLCanvasElement>>(new Map());
 
 const frameBboxes = ref<Map<number, BoundingBox[]>>(new Map());
 const selectedBboxId = ref<string | null>(null);
-const bboxStartPos = ref<{ x: number; y: number } | null>(null);
-const bboxPreview = ref<Konva.Rect | null>(null);
-const transformerRef = ref<Konva.Transformer | null>(null);
 
 const framePolygons = ref<Map<number, Polygon[]>>(new Map());
 const selectedPolygonId = ref<string | null>(null);
-const isDrawingPolygon = ref(false);
-const currentPolygonPoints = ref<PolygonPoint[]>([]);
-const polygonPreviewLine = ref<Konva.Line | null>(null);
-const polygonPreviewCircles = ref<Konva.Circle[]>([]);
 
 const frameSkeletons = ref<Map<number, Skeleton[]>>(new Map());
 const selectedSkeletonId = ref<string | null>(null);
-const isDrawingSkeleton = ref(false);
-const currentSkeletonPoints = ref<SkeletonPoint[]>([]);
-const skeletonPreviewLine = ref<Konva.Line | null>(null);
-const skeletonPreviewCircles = ref<Konva.Circle[]>([]);
+
+// Tool instances
+let bboxTool: BBoxTool | null = null;
+let polygonTool: PolygonTool | null = null;
+let skeletonTool: SkeletonTool | null = null;
 
 const MAX_WIDTH = 1200;
 const MAX_HEIGHT = 800;
@@ -333,7 +317,7 @@ const stageConfig = ref({
   height: 600,
 });
 
-const frames = computed(() => framesStore.allFrames.map(f => f.imageUrl));
+const frames = computed(() => framesStore.allFrames.map((f) => f.imageUrl));
 const physicalFrames = computed(() => framesStore.totalFrames);
 
 const imageConfig = computed(() => ({
@@ -551,8 +535,12 @@ const setMode = (
     brush.value.changeColor("#FF0000");
   }
 
-  if (newMode !== "polygon" && isDrawingPolygon.value) {
+  if (newMode !== "polygon" && polygonTool?.isDrawingActive()) {
     cancelPolygonDrawing();
+  }
+
+  if (newMode !== "skeleton" && skeletonTool?.isDrawingActive()) {
+    cancelSkeletonDrawing();
   }
 };
 
@@ -576,121 +564,34 @@ const getLogicalPointerPosition = () => {
 
 const setupTransformer = () => {
   if (!bboxLayerRef.value) return;
-
   const layer = bboxLayerRef.value.getNode();
-
-  transformerRef.value = new Konva.Transformer({
-    keepRatio: false,
-    enabledAnchors: [
-      "top-left",
-      "top-center",
-      "top-right",
-      "middle-left",
-      "middle-right",
-      "bottom-left",
-      "bottom-center",
-      "bottom-right",
-    ],
-    boundBoxFunc: (_oldBox, newBox) => {
-      if (newBox.width < 10) newBox.width = 10;
-      if (newBox.height < 10) newBox.height = 10;
-      return newBox;
-    },
-    rotationSnaps: [0, 45, 90, 135, 180, 225, 270, 315],
-  });
-
-  layer.add(transformerRef.value);
+  bboxTool = new BBoxTool(layer);
+  bboxTool.setupTransformer();
 };
 
 const updateTransformerSelection = () => {
-  if (!transformerRef.value || !bboxLayerRef.value) return;
-
-  if (!selectedBboxId.value) {
-    transformerRef.value.nodes([]);
-    bboxLayerRef.value.getNode().batchDraw();
-    return;
-  }
-
-  const layer = bboxLayerRef.value.getNode();
-  const group = layer.findOne(`#${selectedBboxId.value}`);
-
-  if (group) {
-    transformerRef.value.nodes([group]);
-  } else {
-    transformerRef.value.nodes([]);
-  }
-
-  layer.batchDraw();
+  if (!bboxTool) return;
+  bboxTool.updateTransformerSelection(selectedBboxId.value);
 };
 
 const startBboxDrawing = (pos: { x: number; y: number }) => {
-  bboxStartPos.value = pos;
-  const layer = bboxLayerRef.value?.getNode();
-  if (!layer) return;
-
-  bboxPreview.value = new Konva.Rect({
-    x: pos.x,
-    y: pos.y,
-    width: 0,
-    height: 0,
-    stroke: bboxColor.value,
-    strokeWidth: 2,
-    dash: [5, 5],
-    listening: false,
-  });
-
-  layer.add(bboxPreview.value);
-  layer.batchDraw();
+  if (!bboxTool) return;
+  bboxTool.startDrawing(pos, bboxColor.value);
 };
 
 const updateBboxPreview = (pos: { x: number; y: number }) => {
-  if (!bboxPreview.value || !bboxStartPos.value || !bboxLayerRef.value) return;
-
-  const width = pos.x - bboxStartPos.value.x;
-  const height = pos.y - bboxStartPos.value.y;
-
-  bboxPreview.value.setAttrs({
-    x: width < 0 ? pos.x : bboxStartPos.value.x,
-    y: height < 0 ? pos.y : bboxStartPos.value.y,
-    width: Math.abs(width),
-    height: Math.abs(height),
-  });
-
-  bboxLayerRef.value.getNode().batchDraw();
+  if (!bboxTool) return;
+  bboxTool.updatePreview(pos);
 };
 
 const finishBboxDrawing = () => {
-  if (!bboxPreview.value || !bboxStartPos.value) return;
+  if (!bboxTool) return;
 
-  const width = bboxPreview.value.width();
-  const height = bboxPreview.value.height();
-
-  if (width < 10 || height < 10) {
-    bboxPreview.value.destroy();
-    bboxPreview.value = null;
-    bboxStartPos.value = null;
-    bboxLayerRef.value?.getNode().batchDraw();
-    return;
-  }
-
-  const bbox: BoundingBox = {
-    id: `bbox_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
-    x: bboxPreview.value.x(),
-    y: bboxPreview.value.y(),
-    width: width,
-    height: height,
-    rotation: 0,
-    color: bboxColor.value,
-    classId: 0,
-  };
+  const bbox = bboxTool.finishDrawing(bboxColor.value);
+  if (!bbox) return;
 
   const currentBboxes = frameBboxes.value.get(currentFrame.value) || [];
   frameBboxes.value.set(currentFrame.value, [...currentBboxes, bbox]);
-
-  bboxPreview.value.destroy();
-  bboxPreview.value = null;
-  bboxStartPos.value = null;
-  bboxLayerRef.value?.getNode().batchDraw();
 };
 
 const handleBboxClick = (e: any) => {
@@ -704,237 +605,69 @@ const handleBboxClick = (e: any) => {
 };
 
 const handleBboxDragEnd = (e: any) => {
-  const group = e.target;
-  const bboxId = group.id();
+  if (!bboxTool) return;
 
   const currentBboxes = frameBboxes.value.get(currentFrame.value);
   if (!currentBboxes) return;
 
-  const bboxIndex = currentBboxes.findIndex((b) => b.id === bboxId);
-  if (bboxIndex === -1) return;
-
-  const oldBbox = currentBboxes[bboxIndex];
-  if (!oldBbox) return;
-
-  const updatedBbox: BoundingBox = {
-    id: oldBbox.id,
-    x: group.x(),
-    y: group.y(),
-    width: oldBbox.width,
-    height: oldBbox.height,
-    rotation: oldBbox.rotation,
-    color: oldBbox.color,
-    classId: oldBbox.classId,
-    label: oldBbox.label,
-  };
-
-  currentBboxes[bboxIndex] = updatedBbox;
-  frameBboxes.value.set(currentFrame.value, [...currentBboxes]);
+  const updatedBboxes = bboxTool.handleDragEnd(e, currentBboxes);
+  frameBboxes.value.set(currentFrame.value, updatedBboxes);
 };
 
 const handleBboxTransformEnd = () => {
-  const nodes = transformerRef.value?.nodes();
-  if (!nodes || nodes.length === 0) return;
-
-  const group = nodes[0] as Konva.Group;
-  const bboxId = group.id();
+  if (!bboxTool) return;
 
   const currentBboxes = frameBboxes.value.get(currentFrame.value);
   if (!currentBboxes) return;
 
-  const bboxIndex = currentBboxes.findIndex((b) => b.id === bboxId);
-  if (bboxIndex === -1) return;
-
-  const oldBbox = currentBboxes[bboxIndex];
-  if (!oldBbox) return;
-
-  const rect = group.findOne("Rect");
-  if (!rect) return;
-
-  const scaleX = group.scaleX();
-  const scaleY = group.scaleY();
-
-  const updatedBbox: BoundingBox = {
-    id: oldBbox.id,
-    x: group.x(),
-    y: group.y(),
-    width: rect.width() * scaleX,
-    height: rect.height() * scaleY,
-    rotation: group.rotation(),
-    color: oldBbox.color,
-    classId: oldBbox.classId,
-    label: oldBbox.label,
-  };
-
-  group.scaleX(1);
-  group.scaleY(1);
-
-  currentBboxes[bboxIndex] = updatedBbox;
-  frameBboxes.value.set(currentFrame.value, [...currentBboxes]);
+  const updatedBboxes = bboxTool.handleTransformEnd(currentBboxes);
+  frameBboxes.value.set(currentFrame.value, updatedBboxes);
 };
 
-const deleteSelectedBbox = () => {
-  if (!selectedBboxId.value) return;
-
-  const currentBboxes = frameBboxes.value.get(currentFrame.value);
-  if (!currentBboxes) return;
-
-  const filtered = currentBboxes.filter((b) => b.id !== selectedBboxId.value);
-
-  if (filtered.length > 0) {
-    frameBboxes.value.set(currentFrame.value, filtered);
-  } else {
-    frameBboxes.value.delete(currentFrame.value);
-  }
-
-  selectedBboxId.value = null;
-  updateTransformerSelection();
-};
-
-const createPolygonPreviewCircle = (x: number, y: number): Konva.Circle => {
-  return new Konva.Circle({
-    x,
-    y,
-    radius: 6,
-    fill: polygonColor.value,
-    stroke: "#fff",
-    strokeWidth: 2,
-    listening: false,
-  });
-};
-
-const clearPolygonPreviewCircles = () => {
-  for (const circle of polygonPreviewCircles.value) {
-    circle.destroy();
-  }
-  polygonPreviewCircles.value = [];
+const setupPolygonTool = () => {
+  if (!polygonLayerRef.value) return;
+  const layer = polygonLayerRef.value.getNode();
+  polygonTool = new PolygonTool(layer);
 };
 
 const startPolygonDrawing = (pos: { x: number; y: number }) => {
-  isDrawingPolygon.value = true;
-  currentPolygonPoints.value = [{ x: pos.x, y: pos.y }];
-
-  const layer = polygonLayerRef.value?.getNode();
-  if (!layer) return;
-
-  polygonPreviewLine.value = new Konva.Line({
-    points: [pos.x, pos.y],
-    stroke: polygonColor.value,
-    strokeWidth: 2,
-    dash: [5, 5],
-    closed: true,
-    fill: polygonColor.value + "30",
-    listening: false,
-  });
-  layer.add(polygonPreviewLine.value);
-
-  const circle = createPolygonPreviewCircle(pos.x, pos.y);
-  layer.add(circle);
-  polygonPreviewCircles.value.push(circle);
-
-  layer.batchDraw();
+  if (!polygonTool) return;
+  polygonTool.startDrawing(pos, polygonColor.value);
 };
 
 const addPolygonPoint = (pos: { x: number; y: number }) => {
-  const firstPoint = currentPolygonPoints.value[0];
-  if (!firstPoint) return;
-
-  const distance = Math.sqrt(
-    Math.pow(pos.x - firstPoint.x, 2) + Math.pow(pos.y - firstPoint.y, 2)
-  );
-
-  if (distance < 15 && currentPolygonPoints.value.length >= 3) {
+  if (!polygonTool) return;
+  const shouldComplete = polygonTool.addPoint(pos, polygonColor.value);
+  if (shouldComplete) {
     completePolygonDrawing();
-  } else {
-    currentPolygonPoints.value.push({ x: pos.x, y: pos.y });
-
-    const layer = polygonLayerRef.value?.getNode();
-    if (!layer) return;
-
-    const circle = createPolygonPreviewCircle(pos.x, pos.y);
-    layer.add(circle);
-    polygonPreviewCircles.value.push(circle);
-
-    updatePolygonPreview();
   }
 };
 
 const updatePolygonPreview = () => {
-  if (!polygonPreviewLine.value || !polygonLayerRef.value) return;
-
-  const points: number[] = [];
-  for (const p of currentPolygonPoints.value) {
-    points.push(p.x, p.y);
-  }
-
-  polygonPreviewLine.value.points(points);
-  polygonLayerRef.value.getNode().batchDraw();
+  if (!polygonTool) return;
+  polygonTool.updatePreview();
 };
 
 const updatePolygonPreviewWithMouse = (pos: { x: number; y: number }) => {
-  if (!polygonPreviewLine.value || !polygonLayerRef.value) return;
-
-  const points: number[] = [];
-  for (const p of currentPolygonPoints.value) {
-    points.push(p.x, p.y);
-  }
-  points.push(pos.x, pos.y);
-
-  polygonPreviewLine.value.points(points);
-  polygonLayerRef.value.getNode().batchDraw();
+  if (!polygonTool) return;
+  polygonTool.updatePreviewWithMouse(pos);
 };
 
 const completePolygonDrawing = () => {
-  if (currentPolygonPoints.value.length < 3) {
-    cancelPolygonDrawing();
-    return;
-  }
+  if (!polygonTool) return;
 
-  const polygon: Polygon = {
-    id: `polygon_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
-    points: [...currentPolygonPoints.value],
-    color: polygonColor.value,
-    classId: 0,
-  };
-
-  if (polygonPreviewLine.value) {
-    polygonPreviewLine.value.destroy();
-    polygonPreviewLine.value = null;
-  }
-
-  clearPolygonPreviewCircles();
+  const polygon = polygonTool.completeDrawing(polygonColor.value);
+  if (!polygon) return;
 
   const currentPolygons = framePolygons.value.get(currentFrame.value) || [];
   framePolygons.value.set(currentFrame.value, [...currentPolygons, polygon]);
 
-  console.log("Polygon completed and saved:", polygon.id);
-  console.log(
-    "Total polygons on frame",
-    currentFrame.value,
-    ":",
-    currentPolygons.length + 1
-  );
-
   selectedPolygonId.value = polygon.id;
-  isDrawingPolygon.value = false;
-  currentPolygonPoints.value = [];
-
-  if (polygonLayerRef.value) {
-    polygonLayerRef.value.getNode().batchDraw();
-  }
 };
 
 const cancelPolygonDrawing = () => {
-  if (polygonPreviewLine.value) {
-    polygonPreviewLine.value.destroy();
-    polygonPreviewLine.value = null;
-  }
-  clearPolygonPreviewCircles();
-  isDrawingPolygon.value = false;
-  currentPolygonPoints.value = [];
-  if (polygonLayerRef.value) {
-    polygonLayerRef.value.getNode().batchDraw();
-  }
+  if (!polygonTool) return;
+  polygonTool.cancelDrawing();
 };
 
 const handlePolygonClick = (e: any) => {
@@ -948,39 +681,13 @@ const handlePolygonClick = (e: any) => {
 };
 
 const handlePolygonDragEnd = (e: any) => {
-  const line = e.target;
-  const polygonId = line.id();
+  if (!polygonTool) return;
 
   const currentPolygons = framePolygons.value.get(currentFrame.value);
   if (!currentPolygons) return;
 
-  const polygonIndex = currentPolygons.findIndex((p) => p.id === polygonId);
-  if (polygonIndex === -1) return;
-
-  const oldPolygon = currentPolygons[polygonIndex];
-  if (!oldPolygon) return;
-
-  const dx = line.x();
-  const dy = line.y();
-
-  const updatedPoints = oldPolygon.points.map((p) => ({
-    x: p.x + dx,
-    y: p.y + dy,
-  }));
-
-  line.x(0);
-  line.y(0);
-
-  const updatedPolygon: Polygon = {
-    id: oldPolygon.id,
-    points: updatedPoints,
-    color: oldPolygon.color,
-    classId: oldPolygon.classId,
-    label: oldPolygon.label,
-  };
-
-  currentPolygons[polygonIndex] = updatedPolygon;
-  framePolygons.value.set(currentFrame.value, [...currentPolygons]);
+  const updatedPolygons = polygonTool.handleDragEnd(e, currentPolygons);
+  framePolygons.value.set(currentFrame.value, updatedPolygons);
 };
 
 const handlePolygonVertexClick = (polygonId: string) => {
@@ -994,32 +701,12 @@ const handlePolygonVertexDragMove = (
   polygonId: string,
   pointIdx: number
 ) => {
-  const circle = e.target;
-  if (!polygonLayerRef.value) return;
+  if (!polygonTool) return;
 
   const currentPolygons = framePolygons.value.get(currentFrame.value);
   if (!currentPolygons) return;
 
-  const polygon = currentPolygons.find((p) => p.id === polygonId);
-  if (!polygon) return;
-
-  const layer = polygonLayerRef.value.getNode();
-  const line = layer.findOne(`#${polygonId}`);
-  if (!line) return;
-
-  const points = [...polygon.points];
-  points[pointIdx] = {
-    x: circle.x(),
-    y: circle.y(),
-  };
-
-  const flatPoints: number[] = [];
-  for (const p of points) {
-    flatPoints.push(p.x, p.y);
-  }
-  line.points(flatPoints);
-
-  layer.batchDraw();
+  polygonTool.handleVertexDragMove(e, polygonId, pointIdx, currentPolygons);
 };
 
 const handlePolygonVertexDragEnd = (
@@ -1027,199 +714,56 @@ const handlePolygonVertexDragEnd = (
   polygonId: string,
   pointIdx: number
 ) => {
-  const circle = e.target;
+  if (!polygonTool) return;
 
   const currentPolygons = framePolygons.value.get(currentFrame.value);
   if (!currentPolygons) return;
 
-  const polygonIndex = currentPolygons.findIndex((p) => p.id === polygonId);
-  if (polygonIndex === -1) return;
-
-  const oldPolygon = currentPolygons[polygonIndex];
-  if (!oldPolygon) return;
-
-  const updatedPoints = oldPolygon.points.map((p, i) =>
-    i === pointIdx ? { x: circle.x(), y: circle.y() } : p
+  const updatedPolygons = polygonTool.handleVertexDragEnd(
+    e,
+    polygonId,
+    pointIdx,
+    currentPolygons
   );
-
-  const updatedPolygon: Polygon = {
-    id: oldPolygon.id,
-    points: updatedPoints,
-    color: oldPolygon.color,
-    classId: oldPolygon.classId,
-    label: oldPolygon.label,
-  };
-
-  currentPolygons[polygonIndex] = updatedPolygon;
-  framePolygons.value.set(currentFrame.value, [...currentPolygons]);
+  framePolygons.value.set(currentFrame.value, updatedPolygons);
 };
 
-const deleteSelectedPolygon = () => {
-  if (!selectedPolygonId.value) return;
-
-  const currentPolygons = framePolygons.value.get(currentFrame.value);
-  if (!currentPolygons) return;
-
-  const filtered = currentPolygons.filter(
-    (p) => p.id !== selectedPolygonId.value
-  );
-
-  if (filtered.length > 0) {
-    framePolygons.value.set(currentFrame.value, filtered);
-  } else {
-    framePolygons.value.delete(currentFrame.value);
-  }
-
-  selectedPolygonId.value = null;
-};
-
-const SKELETON_MERGE_THRESHOLD = 5;
-
-const createSkeletonPreviewCircle = (x: number, y: number): Konva.Circle => {
-  return new Konva.Circle({
-    x,
-    y,
-    radius: 6,
-    fill: skeletonColor.value,
-    stroke: "#fff",
-    strokeWidth: 2,
-    listening: false,
-  });
-};
-
-const clearSkeletonPreviewCircles = () => {
-  for (const circle of skeletonPreviewCircles.value) {
-    circle.destroy();
-  }
-  skeletonPreviewCircles.value = [];
-};
-
-const shouldMergeWithExistingPoint = (pos: {
-  x: number;
-  y: number;
-}): boolean => {
-  for (const existingPoint of currentSkeletonPoints.value) {
-    const distance = Math.sqrt(
-      Math.pow(pos.x - existingPoint.x, 2) +
-        Math.pow(pos.y - existingPoint.y, 2)
-    );
-    if (distance < SKELETON_MERGE_THRESHOLD) {
-      return true;
-    }
-  }
-  return false;
+const setupSkeletonTool = () => {
+  if (!skeletonLayerRef.value) return;
+  const layer = skeletonLayerRef.value.getNode();
+  skeletonTool = new SkeletonTool(layer);
 };
 
 const startSkeletonDrawing = (pos: { x: number; y: number }) => {
-  isDrawingSkeleton.value = true;
-  currentSkeletonPoints.value = [{ x: pos.x, y: pos.y }];
-
-  const layer = skeletonLayerRef.value?.getNode();
-  if (!layer) return;
-
-  skeletonPreviewLine.value = new Konva.Line({
-    points: [pos.x, pos.y],
-    stroke: skeletonColor.value,
-    strokeWidth: 2,
-    dash: [5, 5],
-    lineCap: "round",
-    lineJoin: "round",
-    listening: false,
-  });
-  layer.add(skeletonPreviewLine.value);
-
-  const circle = createSkeletonPreviewCircle(pos.x, pos.y);
-  layer.add(circle);
-  skeletonPreviewCircles.value.push(circle);
-
-  layer.batchDraw();
+  if (!skeletonTool) return;
+  skeletonTool.startDrawing(pos, skeletonColor.value);
 };
 
 const addSkeletonPoint = (pos: { x: number; y: number }) => {
-  if (shouldMergeWithExistingPoint(pos)) {
-    return;
-  }
-
-  currentSkeletonPoints.value.push({ x: pos.x, y: pos.y });
-
-  const layer = skeletonLayerRef.value?.getNode();
-  if (!layer) return;
-
-  const circle = createSkeletonPreviewCircle(pos.x, pos.y);
-  layer.add(circle);
-  skeletonPreviewCircles.value.push(circle);
-
-  updateSkeletonPreview();
-};
-
-const updateSkeletonPreview = () => {
-  if (!skeletonPreviewLine.value || !skeletonLayerRef.value) return;
-
-  const points: number[] = [];
-  for (const p of currentSkeletonPoints.value) {
-    points.push(p.x, p.y);
-  }
-
-  skeletonPreviewLine.value.points(points);
-  skeletonLayerRef.value.getNode().batchDraw();
+  if (!skeletonTool) return;
+  skeletonTool.addPoint(pos, skeletonColor.value);
 };
 
 const updateSkeletonPreviewWithMouse = (pos: { x: number; y: number }) => {
-  if (!skeletonPreviewLine.value || !skeletonLayerRef.value) return;
-
-  const points: number[] = [];
-  for (const p of currentSkeletonPoints.value) {
-    points.push(p.x, p.y);
-  }
-  points.push(pos.x, pos.y);
-
-  skeletonPreviewLine.value.points(points);
-  skeletonLayerRef.value.getNode().batchDraw();
+  if (!skeletonTool) return;
+  skeletonTool.updatePreviewWithMouse(pos);
 };
 
 const completeSkeletonDrawing = () => {
-  if (currentSkeletonPoints.value.length < 2) {
-    cancelSkeletonDrawing();
-    return;
-  }
+  if (!skeletonTool) return;
 
-  const skeleton: Skeleton = {
-    id: `skeleton_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
-    points: [...currentSkeletonPoints.value],
-    color: skeletonColor.value,
-    classId: 0,
-  };
-
-  if (skeletonPreviewLine.value) {
-    skeletonPreviewLine.value.destroy();
-    skeletonPreviewLine.value = null;
-  }
-
-  clearSkeletonPreviewCircles();
+  const skeleton = skeletonTool.completeDrawing(skeletonColor.value);
+  if (!skeleton) return;
 
   const currentSkeletons = frameSkeletons.value.get(currentFrame.value) || [];
   frameSkeletons.value.set(currentFrame.value, [...currentSkeletons, skeleton]);
 
   selectedSkeletonId.value = skeleton.id;
-  isDrawingSkeleton.value = false;
-  currentSkeletonPoints.value = [];
-
-  if (skeletonLayerRef.value) {
-    skeletonLayerRef.value.getNode().batchDraw();
-  }
 };
 
 const cancelSkeletonDrawing = () => {
-  if (skeletonPreviewLine.value) {
-    skeletonPreviewLine.value.destroy();
-    skeletonPreviewLine.value = null;
-  }
-  clearSkeletonPreviewCircles();
-  isDrawingSkeleton.value = false;
-  currentSkeletonPoints.value = [];
-  if (skeletonLayerRef.value) {
-    skeletonLayerRef.value.getNode().batchDraw();
-  }
+  if (!skeletonTool) return;
+  skeletonTool.cancelDrawing();
 };
 
 const handleSkeletonClick = (e: any) => {
@@ -1234,39 +778,13 @@ const handleSkeletonClick = (e: any) => {
 };
 
 const handleSkeletonDragEnd = (e: any) => {
-  const line = e.target;
-  const skeletonId = line.id();
+  if (!skeletonTool) return;
 
   const currentSkeletons = frameSkeletons.value.get(currentFrame.value);
   if (!currentSkeletons) return;
 
-  const skeletonIndex = currentSkeletons.findIndex((s) => s.id === skeletonId);
-  if (skeletonIndex === -1) return;
-
-  const oldSkeleton = currentSkeletons[skeletonIndex];
-  if (!oldSkeleton) return;
-
-  const dx = line.x();
-  const dy = line.y();
-
-  const updatedPoints = oldSkeleton.points.map((p) => ({
-    x: p.x + dx,
-    y: p.y + dy,
-  }));
-
-  line.x(0);
-  line.y(0);
-
-  const updatedSkeleton: Skeleton = {
-    id: oldSkeleton.id,
-    points: updatedPoints,
-    color: oldSkeleton.color,
-    classId: oldSkeleton.classId,
-    label: oldSkeleton.label,
-  };
-
-  currentSkeletons[skeletonIndex] = updatedSkeleton;
-  frameSkeletons.value.set(currentFrame.value, [...currentSkeletons]);
+  const updatedSkeletons = skeletonTool.handleDragEnd(e, currentSkeletons);
+  frameSkeletons.value.set(currentFrame.value, updatedSkeletons);
 };
 
 const handleSkeletonKeypointClick = (skeletonId: string) => {
@@ -1281,32 +799,12 @@ const handleSkeletonKeypointDragMove = (
   skeletonId: string,
   pointIdx: number
 ) => {
-  const circle = e.target;
-  if (!skeletonLayerRef.value) return;
+  if (!skeletonTool) return;
 
   const currentSkeletons = frameSkeletons.value.get(currentFrame.value);
   if (!currentSkeletons) return;
 
-  const skeleton = currentSkeletons.find((s) => s.id === skeletonId);
-  if (!skeleton) return;
-
-  const layer = skeletonLayerRef.value.getNode();
-  const line = layer.findOne(`#${skeletonId}`);
-  if (!line) return;
-
-  const points = [...skeleton.points];
-  points[pointIdx] = {
-    x: circle.x(),
-    y: circle.y(),
-  };
-
-  const flatPoints: number[] = [];
-  for (const p of points) {
-    flatPoints.push(p.x, p.y);
-  }
-  line.points(flatPoints);
-
-  layer.batchDraw();
+  skeletonTool.handleKeypointDragMove(e, skeletonId, pointIdx, currentSkeletons);
 };
 
 const handleSkeletonKeypointDragEnd = (
@@ -1314,50 +812,18 @@ const handleSkeletonKeypointDragEnd = (
   skeletonId: string,
   pointIdx: number
 ) => {
-  const circle = e.target;
+  if (!skeletonTool) return;
 
   const currentSkeletons = frameSkeletons.value.get(currentFrame.value);
   if (!currentSkeletons) return;
 
-  const skeletonIndex = currentSkeletons.findIndex((s) => s.id === skeletonId);
-  if (skeletonIndex === -1) return;
-
-  const oldSkeleton = currentSkeletons[skeletonIndex];
-  if (!oldSkeleton) return;
-
-  const updatedPoints = oldSkeleton.points.map((p, i) =>
-    i === pointIdx ? { x: circle.x(), y: circle.y() } : p
+  const updatedSkeletons = skeletonTool.handleKeypointDragEnd(
+    e,
+    skeletonId,
+    pointIdx,
+    currentSkeletons
   );
-
-  const updatedSkeleton: Skeleton = {
-    id: oldSkeleton.id,
-    points: updatedPoints,
-    color: oldSkeleton.color,
-    classId: oldSkeleton.classId,
-    label: oldSkeleton.label,
-  };
-
-  currentSkeletons[skeletonIndex] = updatedSkeleton;
-  frameSkeletons.value.set(currentFrame.value, [...currentSkeletons]);
-};
-
-const deleteSelectedSkeleton = () => {
-  if (!selectedSkeletonId.value) return;
-
-  const currentSkeletons = frameSkeletons.value.get(currentFrame.value);
-  if (!currentSkeletons) return;
-
-  const filtered = currentSkeletons.filter(
-    (s) => s.id !== selectedSkeletonId.value
-  );
-
-  if (filtered.length > 0) {
-    frameSkeletons.value.set(currentFrame.value, filtered);
-  } else {
-    frameSkeletons.value.delete(currentFrame.value);
-  }
-
-  selectedSkeletonId.value = null;
+  frameSkeletons.value.set(currentFrame.value, updatedSkeletons);
 };
 
 const handleMouseDown = (e: any) => {
@@ -1378,7 +844,7 @@ const handleMouseDown = (e: any) => {
     const logicalPos = getLogicalPointerPosition();
     if (!logicalPos) return;
 
-    if (!isDrawingPolygon.value) {
+    if (!polygonTool?.isDrawingActive()) {
       startPolygonDrawing(logicalPos);
     } else {
       addPolygonPoint(logicalPos);
@@ -1390,7 +856,7 @@ const handleMouseDown = (e: any) => {
     const logicalPos = getLogicalPointerPosition();
     if (!logicalPos) return;
 
-    if (!isDrawingSkeleton.value) {
+    if (!skeletonTool?.isDrawingActive()) {
       startSkeletonDrawing(logicalPos);
     } else {
       addSkeletonPoint(logicalPos);
@@ -1457,14 +923,14 @@ const handleMouseMove = () => {
     return;
   }
 
-  if (mode.value === "polygon" && isDrawingPolygon.value) {
+  if (mode.value === "polygon" && polygonTool?.isDrawingActive()) {
     const logicalPos = getLogicalPointerPosition();
     if (!logicalPos) return;
     updatePolygonPreviewWithMouse(logicalPos);
     return;
   }
 
-  if (mode.value === "skeleton" && isDrawingSkeleton.value) {
+  if (mode.value === "skeleton" && skeletonTool?.isDrawingActive()) {
     const logicalPos = getLogicalPointerPosition();
     if (!logicalPos) return;
     updateSkeletonPreviewWithMouse(logicalPos);
@@ -1580,19 +1046,16 @@ const handleMouseLeave = () => {
     cursorLayerRef.value?.getNode().batchDraw();
   }
 
-  if (mode.value === "polygon" && isDrawingPolygon.value) {
-    if (polygonPreviewLine.value) {
-      updatePolygonPreview();
-    }
+  if (mode.value === "polygon" && polygonTool?.isDrawingActive()) {
+    updatePolygonPreview();
     return;
   }
 
-  if (mode.value === "bbox" && isDrawing.value && bboxPreview.value) {
-    bboxPreview.value.destroy();
-    bboxPreview.value = null;
-    bboxStartPos.value = null;
+  if (mode.value === "bbox" && isDrawing.value) {
+    if (bboxTool) {
+      bboxTool.cancelDrawing();
+    }
     isDrawing.value = false;
-    bboxLayerRef.value?.getNode().batchDraw();
     return;
   }
 
@@ -1600,13 +1063,15 @@ const handleMouseLeave = () => {
 };
 
 const handleDoubleClick = () => {
-  if (mode.value === "polygon" && isDrawingPolygon.value) {
-    if (currentPolygonPoints.value.length >= 3) {
+  if (mode.value === "polygon" && polygonTool?.isDrawingActive()) {
+    const currentPoints = polygonTool.getCurrentPoints();
+    if (currentPoints.length >= 3) {
       completePolygonDrawing();
     }
   }
-  if (mode.value === "skeleton" && isDrawingSkeleton.value) {
-    if (currentSkeletonPoints.value.length >= 2) {
+  if (mode.value === "skeleton" && skeletonTool?.isDrawingActive()) {
+    const currentPoints = skeletonTool.getCurrentPoints();
+    if (currentPoints.length >= 2) {
       completeSkeletonDrawing();
     }
   }
@@ -1725,26 +1190,9 @@ const resetZoom = () => {
   zoomLevel.value = 1;
 };
 
-const clearCurrentFrame = () => {
-  frameCanvases.value.delete(currentFrame.value);
-  frameBboxes.value.delete(currentFrame.value);
-  framePolygons.value.delete(currentFrame.value);
-  frameSkeletons.value.delete(currentFrame.value);
-
-  const annotationLayer = annotationLayerRef.value?.getNode();
-  if (annotationLayer) {
-    annotationLayer.destroyChildren();
-    annotationLayer.batchDraw();
-  }
-
-  selectedBboxId.value = null;
-  selectedPolygonId.value = null;
-  selectedSkeletonId.value = null;
-};
-
 onMounted(async () => {
   if (!framesStore.hasFrames) {
-    router.push('/');
+    router.push("/");
     return;
   }
 
@@ -1768,6 +1216,8 @@ onMounted(async () => {
 
     await new Promise((resolve) => setTimeout(resolve, 100));
     setupTransformer();
+    setupPolygonTool();
+    setupSkeletonTool();
 
     for (let i = 1; i < Math.min(30, physicalFrames.value); i++) {
       loadImage(frames.value[i]!).then((img) => frameImages.value.set(i, img));
@@ -1800,7 +1250,7 @@ watch(currentFrame, () => {
   selectedPolygonId.value = null;
   updateTransformerSelection();
 
-  if (isDrawingPolygon.value) {
+  if (polygonTool?.isDrawingActive()) {
     cancelPolygonDrawing();
   }
 });
