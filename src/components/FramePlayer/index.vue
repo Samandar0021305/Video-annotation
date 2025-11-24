@@ -21,6 +21,12 @@
         <button :class="{ active: mode === 'pan' }" @click="setMode('pan')">
           Pan
         </button>
+        <button :class="{ active: mode === 'bbox' }" @click="setMode('bbox')">
+          BBox
+        </button>
+        <button :class="{ active: mode === 'select' }" @click="setMode('select')">
+          Select
+        </button>
       </div>
 
       <div v-if="mode === 'brush' || mode === 'eraser'" class="control-group">
@@ -39,6 +45,11 @@
         <input type="range" min="1" max="60" v-model.number="fps" />
       </div>
 
+      <div v-if="mode === 'bbox'" class="control-group">
+        <label>Color:</label>
+        <input type="color" v-model="bboxColor" class="color-picker" />
+      </div>
+
       <div class="control-group">
         <label>Zoom: {{ Math.round(zoomLevel * 100) }}%</label>
         <button @click="zoomIn">+</button>
@@ -48,6 +59,12 @@
 
       <div class="control-group">
         <button @click="clearCurrentFrame">Clear Frame</button>
+        <button
+          v-if="selectedBboxId"
+          @click="deleteSelectedBbox"
+        >
+          Delete BBox
+        </button>
       </div>
     </div>
 
@@ -98,6 +115,34 @@
             :config="{ imageSmoothingEnabled: false }"
           ></v-layer>
 
+          <v-layer ref="bboxLayerRef">
+            <v-group
+              v-for="bbox in currentFrameBboxes"
+              :key="bbox.id"
+              :config="{
+                id: bbox.id,
+                x: bbox.x,
+                y: bbox.y,
+                rotation: bbox.rotation,
+                draggable: mode === 'select',
+                name: 'boundingBox',
+              }"
+              @click="handleBboxClick"
+              @dragend="handleBboxDragEnd"
+              @transformend="handleBboxTransformEnd"
+            >
+              <v-rect
+                :config="{
+                  width: bbox.width,
+                  height: bbox.height,
+                  stroke: bbox.color,
+                  strokeWidth: 2,
+                  fill: bbox.color + '20',
+                }"
+              />
+            </v-group>
+          </v-layer>
+
           <v-layer
             ref="brushLayerRef"
             :config="{ imageSmoothingEnabled: false }"
@@ -115,10 +160,12 @@
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import Konva from "konva";
 import { KonvaBrush } from "./KonvaBrush";
+import type { BoundingBox } from "../../types/boundingBox";
 
 const stageRef = ref<any>(null);
 const backgroundLayerRef = ref<any>(null);
 const annotationLayerRef = ref<any>(null);
+const bboxLayerRef = ref<any>(null);
 const brushLayerRef = ref<any>(null);
 const cursorLayerRef = ref<any>(null);
 const containerRef = ref<HTMLDivElement | null>(null);
@@ -129,8 +176,9 @@ const currentFrame = ref(0);
 const currentImage = ref<HTMLImageElement | null>(null);
 const brush = ref<KonvaBrush | null>(null);
 
-const mode = ref<"brush" | "eraser" | "pan">("brush");
+const mode = ref<"brush" | "eraser" | "pan" | "bbox" | "select">("brush");
 const brushSize = ref(20);
+const bboxColor = ref("#FF0000");
 const opacity = ref(1);
 const zoomLevel = ref(1);
 const fps = ref(9);
@@ -144,6 +192,12 @@ const lastPanPoint = ref<{ x: number; y: number } | null>(null);
 
 const frameImages = ref<Map<number, HTMLImageElement>>(new Map());
 const frameCanvases = ref<Map<number, HTMLCanvasElement>>(new Map());
+
+const frameBboxes = ref<Map<number, BoundingBox[]>>(new Map());
+const selectedBboxId = ref<string | null>(null);
+const bboxStartPos = ref<{ x: number; y: number } | null>(null);
+const bboxPreview = ref<Konva.Rect | null>(null);
+const transformerRef = ref<Konva.Transformer | null>(null);
 
 const MAX_WIDTH = 1200;
 const MAX_HEIGHT = 800;
@@ -189,6 +243,10 @@ const progressPercent = computed(() => {
 
 const hasDrawing = computed(() => {
   return frameCanvases.value.has(currentFrame.value);
+});
+
+const currentFrameBboxes = computed(() => {
+  return frameBboxes.value.get(currentFrame.value) || [];
 });
 
 const loadImage = (url: string): Promise<HTMLImageElement> => {
@@ -337,25 +395,30 @@ const startTimelineDrag = (e: MouseEvent) => {
   document.addEventListener("mouseup", handleUp);
 };
 
-const setMode = (newMode: "brush" | "eraser" | "pan") => {
+const setMode = (newMode: "brush" | "eraser" | "pan" | "bbox" | "select") => {
   mode.value = newMode;
   const stage = stageRef.value?.getStage();
   if (!stage) return;
 
+  if (cursorShape.value) {
+    cursorShape.value.destroy();
+    cursorShape.value = null;
+    cursorLayerRef.value?.getNode().batchDraw();
+  }
+
   if (newMode === "pan") {
     stage.container().style.cursor = "grab";
-    if (cursorShape.value) {
-      cursorShape.value.destroy();
-      cursorShape.value = null;
-      cursorLayerRef.value?.getNode().batchDraw();
-    }
-  } else {
+  } else if (newMode === "bbox") {
+    stage.container().style.cursor = "crosshair";
+  } else if (newMode === "select") {
+    stage.container().style.cursor = "default";
+  } else if (newMode === "brush" || newMode === "eraser") {
     stage.container().style.cursor = "none";
   }
 
   if (newMode === "eraser" && brush.value) {
     brush.value.setDeleteMode(true);
-  } else if (brush.value) {
+  } else if ((newMode === "brush") && brush.value) {
     brush.value.changeColor("#FF0000");
   }
 };
@@ -378,9 +441,224 @@ const getLogicalPointerPosition = () => {
   return stage.getRelativePointerPosition();
 };
 
-const handleMouseDown = (e: any) => {
-  if (!brush.value || !brush.value.isLoaded()) return;
+const setupTransformer = () => {
+  if (!bboxLayerRef.value) return;
 
+  const layer = bboxLayerRef.value.getNode();
+
+  transformerRef.value = new Konva.Transformer({
+    keepRatio: false,
+    enabledAnchors: [
+      "top-left",
+      "top-center",
+      "top-right",
+      "middle-left",
+      "middle-right",
+      "bottom-left",
+      "bottom-center",
+      "bottom-right",
+    ],
+    boundBoxFunc: (_oldBox, newBox) => {
+      if (newBox.width < 10) newBox.width = 10;
+      if (newBox.height < 10) newBox.height = 10;
+      return newBox;
+    },
+    rotationSnaps: [0, 45, 90, 135, 180, 225, 270, 315],
+  });
+
+  layer.add(transformerRef.value);
+};
+
+const updateTransformerSelection = () => {
+  if (!transformerRef.value || !bboxLayerRef.value) return;
+
+  if (!selectedBboxId.value) {
+    transformerRef.value.nodes([]);
+    bboxLayerRef.value.getNode().batchDraw();
+    return;
+  }
+
+  const layer = bboxLayerRef.value.getNode();
+  const group = layer.findOne(`#${selectedBboxId.value}`);
+
+  if (group) {
+    transformerRef.value.nodes([group]);
+  } else {
+    transformerRef.value.nodes([]);
+  }
+
+  layer.batchDraw();
+};
+
+const startBboxDrawing = (pos: { x: number; y: number }) => {
+  bboxStartPos.value = pos;
+  const layer = bboxLayerRef.value?.getNode();
+  if (!layer) return;
+
+  bboxPreview.value = new Konva.Rect({
+    x: pos.x,
+    y: pos.y,
+    width: 0,
+    height: 0,
+    stroke: bboxColor.value,
+    strokeWidth: 2,
+    dash: [5, 5],
+    listening: false,
+  });
+
+  layer.add(bboxPreview.value);
+  layer.batchDraw();
+};
+
+const updateBboxPreview = (pos: { x: number; y: number }) => {
+  if (!bboxPreview.value || !bboxStartPos.value || !bboxLayerRef.value) return;
+
+  const width = pos.x - bboxStartPos.value.x;
+  const height = pos.y - bboxStartPos.value.y;
+
+  bboxPreview.value.setAttrs({
+    x: width < 0 ? pos.x : bboxStartPos.value.x,
+    y: height < 0 ? pos.y : bboxStartPos.value.y,
+    width: Math.abs(width),
+    height: Math.abs(height),
+  });
+
+  bboxLayerRef.value.getNode().batchDraw();
+};
+
+const finishBboxDrawing = () => {
+  if (!bboxPreview.value || !bboxStartPos.value) return;
+
+  const width = bboxPreview.value.width();
+  const height = bboxPreview.value.height();
+
+  if (width < 10 || height < 10) {
+    bboxPreview.value.destroy();
+    bboxPreview.value = null;
+    bboxStartPos.value = null;
+    bboxLayerRef.value?.getNode().batchDraw();
+    return;
+  }
+
+  const bbox: BoundingBox = {
+    id: `bbox_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+    x: bboxPreview.value.x(),
+    y: bboxPreview.value.y(),
+    width: width,
+    height: height,
+    rotation: 0,
+    color: bboxColor.value,
+    classId: 0,
+  };
+
+  const currentBboxes = frameBboxes.value.get(currentFrame.value) || [];
+  frameBboxes.value.set(currentFrame.value, [...currentBboxes, bbox]);
+
+  bboxPreview.value.destroy();
+  bboxPreview.value = null;
+  bboxStartPos.value = null;
+  bboxLayerRef.value?.getNode().batchDraw();
+};
+
+const handleBboxClick = (e: any) => {
+  if (mode.value !== "select") return;
+
+  const group = e.target.findAncestor("Group");
+  if (group) {
+    selectedBboxId.value = group.id();
+    updateTransformerSelection();
+  }
+};
+
+const handleBboxDragEnd = (e: any) => {
+  const group = e.target;
+  const bboxId = group.id();
+
+  const currentBboxes = frameBboxes.value.get(currentFrame.value);
+  if (!currentBboxes) return;
+
+  const bboxIndex = currentBboxes.findIndex((b) => b.id === bboxId);
+  if (bboxIndex === -1) return;
+
+  const oldBbox = currentBboxes[bboxIndex];
+  if (!oldBbox) return;
+
+  const updatedBbox: BoundingBox = {
+    id: oldBbox.id,
+    x: group.x(),
+    y: group.y(),
+    width: oldBbox.width,
+    height: oldBbox.height,
+    rotation: oldBbox.rotation,
+    color: oldBbox.color,
+    classId: oldBbox.classId,
+    label: oldBbox.label,
+  };
+
+  currentBboxes[bboxIndex] = updatedBbox;
+  frameBboxes.value.set(currentFrame.value, [...currentBboxes]);
+};
+
+const handleBboxTransformEnd = () => {
+  const nodes = transformerRef.value?.nodes();
+  if (!nodes || nodes.length === 0) return;
+
+  const group = nodes[0] as Konva.Group;
+  const bboxId = group.id();
+
+  const currentBboxes = frameBboxes.value.get(currentFrame.value);
+  if (!currentBboxes) return;
+
+  const bboxIndex = currentBboxes.findIndex((b) => b.id === bboxId);
+  if (bboxIndex === -1) return;
+
+  const oldBbox = currentBboxes[bboxIndex];
+  if (!oldBbox) return;
+
+  const rect = group.findOne("Rect");
+  if (!rect) return;
+
+  const scaleX = group.scaleX();
+  const scaleY = group.scaleY();
+
+  const updatedBbox: BoundingBox = {
+    id: oldBbox.id,
+    x: group.x(),
+    y: group.y(),
+    width: rect.width() * scaleX,
+    height: rect.height() * scaleY,
+    rotation: group.rotation(),
+    color: oldBbox.color,
+    classId: oldBbox.classId,
+    label: oldBbox.label,
+  };
+
+  group.scaleX(1);
+  group.scaleY(1);
+
+  currentBboxes[bboxIndex] = updatedBbox;
+  frameBboxes.value.set(currentFrame.value, [...currentBboxes]);
+};
+
+const deleteSelectedBbox = () => {
+  if (!selectedBboxId.value) return;
+
+  const currentBboxes = frameBboxes.value.get(currentFrame.value);
+  if (!currentBboxes) return;
+
+  const filtered = currentBboxes.filter((b) => b.id !== selectedBboxId.value);
+
+  if (filtered.length > 0) {
+    frameBboxes.value.set(currentFrame.value, filtered);
+  } else {
+    frameBboxes.value.delete(currentFrame.value);
+  }
+
+  selectedBboxId.value = null;
+  updateTransformerSelection();
+};
+
+const handleMouseDown = (e: any) => {
   const stage = stageRef.value?.getStage();
   if (!stage) return;
 
@@ -394,7 +672,24 @@ const handleMouseDown = (e: any) => {
     return;
   }
 
-  if (mode.value === "brush" || mode.value === "eraser") {
+  if (mode.value === "bbox") {
+    const logicalPos = getLogicalPointerPosition();
+    if (!logicalPos) return;
+    isDrawing.value = true;
+    startBboxDrawing(logicalPos);
+    return;
+  }
+
+  if (mode.value === "select") {
+    const target = e.target;
+    if (target === stage || target.getClassName() === "Image") {
+      selectedBboxId.value = null;
+      updateTransformerSelection();
+    }
+    return;
+  }
+
+  if ((mode.value === "brush" || mode.value === "eraser") && brush.value?.isLoaded()) {
     const logicalPos = getLogicalPointerPosition();
     if (!logicalPos) return;
 
@@ -431,14 +726,21 @@ const handleMouseMove = () => {
     return;
   }
 
-  if (mode.value !== "pan" && brush.value) {
+  if (mode.value === "bbox" && isDrawing.value) {
+    const logicalPos = getLogicalPointerPosition();
+    if (!logicalPos) return;
+    updateBboxPreview(logicalPos);
+    return;
+  }
+
+  if (mode.value !== "pan" && mode.value !== "bbox" && mode.value !== "select" && brush.value) {
     const logicalPos = getLogicalPointerPosition();
     if (logicalPos) {
       updateCursor(logicalPos);
     }
   }
 
-  if (isDrawing.value && brush.value) {
+  if (isDrawing.value && (mode.value === "brush" || mode.value === "eraser") && brush.value) {
     const logicalPos = getLogicalPointerPosition();
     if (!logicalPos) return;
 
@@ -461,13 +763,20 @@ const handleMouseUp = () => {
   const stage = stageRef.value?.getStage();
   if (stage && isPanning.value) {
     stage.container().style.cursor =
-      mode.value === "pan" ? "grab" : "none";
+      mode.value === "pan" ? "grab" : (mode.value === "bbox" ? "crosshair" : (mode.value === "select" ? "default" : "none"));
   }
 
   isPanning.value = false;
   lastPanPoint.value = null;
 
+  if (mode.value === "bbox" && isDrawing.value) {
+    isDrawing.value = false;
+    finishBboxDrawing();
+    return;
+  }
+
   if (!isDrawing.value || !brush.value || !currentImage.value) return;
+  if (mode.value !== "brush" && mode.value !== "eraser") return;
 
   const points = brush.value.endStroke();
   isDrawing.value = false;
@@ -508,6 +817,16 @@ const handleMouseLeave = () => {
     cursorShape.value = null;
     cursorLayerRef.value?.getNode().batchDraw();
   }
+
+  if (mode.value === "bbox" && isDrawing.value && bboxPreview.value) {
+    bboxPreview.value.destroy();
+    bboxPreview.value = null;
+    bboxStartPos.value = null;
+    isDrawing.value = false;
+    bboxLayerRef.value?.getNode().batchDraw();
+    return;
+  }
+
   handleMouseUp();
 };
 
@@ -653,6 +972,9 @@ onMounted(async () => {
 
     await initializeBrush();
 
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    setupTransformer();
+
     for (let i = 1; i < Math.min(30, totalFrames); i++) {
       loadImage(frames[i]!).then((img) => frameImages.value.set(i, img));
     }
@@ -677,6 +999,11 @@ watch(zoomLevel, () => {
       updateCursor(pos);
     }
   }
+});
+
+watch(currentFrame, () => {
+  selectedBboxId.value = null;
+  updateTransformerSelection();
 });
 
 watch(opacity, () => {
@@ -745,6 +1072,14 @@ watch(opacity, () => {
 
 .control-group input[type="range"] {
   width: 150px;
+}
+
+.control-group .color-picker {
+  cursor: pointer;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  height: 32px;
+  width: 60px;
 }
 
 .frame-info {
