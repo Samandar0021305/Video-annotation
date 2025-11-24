@@ -55,11 +55,6 @@
         />
       </div>
 
-      <div class="control-group">
-        <label>FPS: {{ fps }}</label>
-        <input type="range" min="0.25" max="30" step="0.25" v-model.number="fps" />
-      </div>
-
       <div v-if="mode === 'bbox'" class="control-group">
         <label>Color:</label>
         <input type="color" v-model="bboxColor" class="color-picker" />
@@ -87,7 +82,7 @@
     </div>
 
     <div class="frame-info">
-      Second: {{ currentSecond }} / {{ totalSeconds }} (Frame: {{ currentFrame + 1 }} / {{ physicalFrames }})
+      Frame: {{ currentFrame + 1 }} / {{ physicalFrames }}
       <span v-if="hasDrawing" class="draw-indicator">✏️</span>
     </div>
 
@@ -260,11 +255,16 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
+import { useRouter } from "vue-router";
 import Konva from "konva";
 import { KonvaBrush } from "./KonvaBrush";
+import { useFramesStore } from "../../stores/framesStore";
 import type { BoundingBox } from "../../types/boundingBox";
 import type { Polygon, PolygonPoint } from "../../types/polygon";
 import type { Skeleton, SkeletonPoint } from "../../types/skeleton";
+
+const router = useRouter();
+const framesStore = useFramesStore();
 
 const stageRef = ref<any>(null);
 const backgroundLayerRef = ref<any>(null);
@@ -291,7 +291,6 @@ const polygonColor = ref("#00FF00");
 const skeletonColor = ref("#0000FF");
 const opacity = ref(1);
 const zoomLevel = ref(1);
-const fps = ref(9);
 
 const isDrawing = ref(false);
 const isPanning = ref(false);
@@ -334,29 +333,8 @@ const stageConfig = ref({
   height: 600,
 });
 
-const getFrames = (): string[] => {
-  const frameList: string[] = [];
-  for (let i = 1; i <= 145; i++) {
-    const frameNumber = String(i).padStart(3, "0");
-    try {
-      const url = new URL(
-        `../../assets/Hakimi/ezgif-frame-${frameNumber}.jpg`,
-        import.meta.url
-      ).href;
-      frameList.push(url);
-    } catch (e) {
-      console.error(`Failed to load frame ${frameNumber}`);
-    }
-  }
-  return frameList;
-};
-
-const frames = getFrames();
-const physicalFrames = frames.length;
-
-const totalSeconds = computed(() => {
-  return Math.ceil(physicalFrames / fps.value);
-});
+const frames = computed(() => framesStore.allFrames.map(f => f.imageUrl));
+const physicalFrames = computed(() => framesStore.totalFrames);
 
 const imageConfig = computed(() => ({
   image: currentImage.value,
@@ -365,12 +343,8 @@ const imageConfig = computed(() => ({
 }));
 
 const progressPercent = computed(() => {
-  if (physicalFrames === 0) return 0;
-  return (currentFrame.value / (physicalFrames - 1)) * 100;
-});
-
-const currentSecond = computed(() => {
-  return Math.floor(currentFrame.value / fps.value) + 1;
+  if (physicalFrames.value === 0) return 0;
+  return (currentFrame.value / (physicalFrames.value - 1)) * 100;
 });
 
 const hasDrawing = computed(() => {
@@ -430,12 +404,12 @@ const createOffscreenCanvas = (img: HTMLImageElement): HTMLCanvasElement => {
 };
 
 const renderFrame = async (frameIndex: number) => {
-  if (frameIndex < 0 || frameIndex >= physicalFrames) return;
+  if (frameIndex < 0 || frameIndex >= physicalFrames.value) return;
 
   let img = frameImages.value.get(frameIndex);
 
   if (!img) {
-    img = await loadImage(frames[frameIndex]!);
+    img = await loadImage(frames.value[frameIndex]!);
     frameImages.value.set(frameIndex, img);
   }
 
@@ -457,13 +431,12 @@ const renderFrame = async (frameIndex: number) => {
 const animate = async (timestamp: number) => {
   if (!isPlaying.value) return;
 
-  const frameInterval = 1000 / fps.value;
+  const frameInterval = 1000 / 30; // Fixed at 30 FPS
   const elapsed = timestamp - lastFrameTime;
 
   if (elapsed >= frameInterval) {
-    let nextFrameIndex = currentFrame.value + Math.floor(fps.value);
-
-    if (nextFrameIndex >= physicalFrames) {
+    let nextFrameIndex = currentFrame.value + 1;
+    if (nextFrameIndex >= physicalFrames.value) {
       nextFrameIndex = 0;
     }
 
@@ -487,8 +460,8 @@ const togglePlay = () => {
 };
 
 const nextFrame = async () => {
-  const next = currentFrame.value + Math.floor(fps.value);
-  if (next >= physicalFrames) {
+  const next = currentFrame.value + 1;
+  if (next >= physicalFrames.value) {
     await renderFrame(0);
   } else {
     await renderFrame(next);
@@ -496,9 +469,9 @@ const nextFrame = async () => {
 };
 
 const previousFrame = async () => {
-  const prev = currentFrame.value - Math.floor(fps.value);
+  const prev = currentFrame.value - 1;
   if (prev < 0) {
-    await renderFrame(physicalFrames - 1);
+    await renderFrame(physicalFrames.value - 1);
   } else {
     await renderFrame(prev);
   }
@@ -510,9 +483,9 @@ const handleTimelineClick = (e: MouseEvent) => {
   const rect = timelineRef.value.getBoundingClientRect();
   const x = e.clientX - rect.left;
   const percent = x / rect.width;
-  const targetFrame = Math.floor(percent * (physicalFrames - 1));
+  const targetFrame = Math.floor(percent * (physicalFrames.value - 1));
 
-  renderFrame(Math.max(0, Math.min(targetFrame, physicalFrames - 1)));
+  renderFrame(Math.max(0, Math.min(targetFrame, physicalFrames.value - 1)));
 };
 
 let isTimelineDragging = false;
@@ -527,7 +500,7 @@ const startTimelineDrag = (e: MouseEvent) => {
     const rect = timelineRef.value.getBoundingClientRect();
     const x = moveEvent.clientX - rect.left;
     const percent = Math.max(0, Math.min(1, x / rect.width));
-    const targetFrame = Math.floor(percent * (physicalFrames - 1));
+    const targetFrame = Math.floor(percent * (physicalFrames.value - 1));
 
     renderFrame(targetFrame);
   };
@@ -1770,8 +1743,13 @@ const clearCurrentFrame = () => {
 };
 
 onMounted(async () => {
+  if (!framesStore.hasFrames) {
+    router.push('/');
+    return;
+  }
+
   try {
-    const firstImg = await loadImage(frames[0]!);
+    const firstImg = await loadImage(frames.value[0]!);
     frameImages.value.set(0, firstImg);
 
     const scale = Math.min(
@@ -1791,8 +1769,8 @@ onMounted(async () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     setupTransformer();
 
-    for (let i = 1; i < Math.min(30, physicalFrames); i++) {
-      loadImage(frames[i]!).then((img) => frameImages.value.set(i, img));
+    for (let i = 1; i < Math.min(30, physicalFrames.value); i++) {
+      loadImage(frames.value[i]!).then((img) => frameImages.value.set(i, img));
     }
 
     window.addEventListener("keydown", handleKeyDown);
