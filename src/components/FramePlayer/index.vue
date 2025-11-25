@@ -9,6 +9,9 @@
 
       <div class="control-group">
         <label>Mode:</label>
+        <button :class="{ active: mode === 'pan' }" @click="setMode('pan')">
+          Pan
+        </button>
         <button :class="{ active: mode === 'brush' }" @click="setMode('brush')">
           Brush
         </button>
@@ -18,9 +21,7 @@
         >
           Eraser
         </button>
-        <button :class="{ active: mode === 'pan' }" @click="setMode('pan')">
-          Pan
-        </button>
+
         <button :class="{ active: mode === 'bbox' }" @click="setMode('bbox')">
           BBox
         </button>
@@ -343,7 +344,7 @@ const brush = ref<KonvaBrush | null>(null);
 
 const mode = ref<
   "brush" | "eraser" | "pan" | "bbox" | "select" | "polygon" | "skeleton"
->("brush");
+>("pan");
 const brushSize = ref(20);
 const brushColor = ref("#FF0000");
 const bboxColor = ref("#FF0000");
@@ -352,6 +353,7 @@ const skeletonColor = ref("#0000FF");
 const opacity = ref(1);
 const zoomLevel = ref(1);
 const autoSuggest = ref(false);
+const dpr = window.devicePixelRatio || 1;
 
 const isDrawing = ref(false);
 const isPanning = ref(false);
@@ -1373,7 +1375,14 @@ const handleMouseUp = async () => {
 
       if (result.canvas && result.contours.length > 0) {
         const ctx = offscreenCanvas.getContext("2d")!;
-        ctx.drawImage(result.canvas, 0, 0);
+        // Draw at logical dimensions - the context already has DPR scaling applied
+        ctx.drawImage(
+          result.canvas,
+          0,
+          0,
+          stageConfig.value.width,
+          stageConfig.value.height
+        );
         break;
       }
     }
@@ -1405,7 +1414,7 @@ const handleMouseUp = async () => {
     try {
       const contours = await getSegmentationImageContoursForSaving(
         offscreenCanvas,
-        1,
+        1 / dpr,
         brushClasses.value
       );
 
