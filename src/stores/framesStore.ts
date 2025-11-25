@@ -1,5 +1,12 @@
 import { defineStore } from 'pinia';
 import type { ExtractedFrame } from '../types/video';
+import {
+  saveFramesToCache,
+  loadFramesFromCache,
+  clearFrameCache,
+  hasCachedFrames,
+  getCacheInfo,
+} from '../utils/frameCache';
 
 interface FramesState {
   frames: ExtractedFrame[];
@@ -10,6 +17,13 @@ interface FramesState {
     width: number;
     height: number;
   } | null;
+  isLoadingFromCache: boolean;
+  cacheInfo: {
+    frameCount: number;
+    cachedAt: Date | null;
+    fps: number;
+    duration: number;
+  } | null;
 }
 
 export const useFramesStore = defineStore('frames', {
@@ -18,6 +32,8 @@ export const useFramesStore = defineStore('frames', {
     currentFrameIndex: 0,
     fps: 30,
     videoMetadata: null,
+    isLoadingFromCache: false,
+    cacheInfo: null,
   }),
 
   getters: {
@@ -25,6 +41,7 @@ export const useFramesStore = defineStore('frames', {
     totalFrames: (state) => state.frames.length,
     currentFrame: (state) => state.frames[state.currentFrameIndex] || null,
     allFrames: (state) => state.frames,
+    hasCachedData: (state) => state.cacheInfo !== null && state.cacheInfo.frameCount > 0,
   },
 
   actions: {
@@ -64,6 +81,59 @@ export const useFramesStore = defineStore('frames', {
 
     getFrameByIndex(index: number): ExtractedFrame | null {
       return this.frames[index] || null;
+    },
+
+    async saveToCache(): Promise<boolean> {
+      if (this.frames.length === 0 || !this.videoMetadata) {
+        return false;
+      }
+
+      try {
+        await saveFramesToCache(this.frames, this.fps, this.videoMetadata);
+        await this.updateCacheInfo();
+        return true;
+      } catch (error) {
+        console.error('Failed to save frames to cache:', error);
+        return false;
+      }
+    },
+
+    async loadFromCache(): Promise<boolean> {
+      this.isLoadingFromCache = true;
+
+      try {
+        const cached = await loadFramesFromCache();
+
+        if (!cached) {
+          this.isLoadingFromCache = false;
+          return false;
+        }
+
+        this.frames = cached.frames;
+        this.fps = cached.fps;
+        this.videoMetadata = cached.metadata;
+        this.currentFrameIndex = 0;
+        this.isLoadingFromCache = false;
+
+        return true;
+      } catch (error) {
+        console.error('Failed to load frames from cache:', error);
+        this.isLoadingFromCache = false;
+        return false;
+      }
+    },
+
+    async clearCache(): Promise<void> {
+      await clearFrameCache();
+      this.cacheInfo = null;
+    },
+
+    async checkCache(): Promise<boolean> {
+      return await hasCachedFrames();
+    },
+
+    async updateCacheInfo(): Promise<void> {
+      this.cacheInfo = await getCacheInfo();
     },
   },
 });

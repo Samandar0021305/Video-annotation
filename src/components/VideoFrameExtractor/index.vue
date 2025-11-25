@@ -6,11 +6,16 @@
         :disabled="!hasFrames"
         @click="startAnnotation"
       >
-        Start Annotation →
+        Start Annotation
       </button>
     </div>
 
-    <div class="upload-section">
+    <div v-if="isLoadingCache" class="loading-section">
+      <div class="loading-spinner"></div>
+      <p>Loading cached frames...</p>
+    </div>
+
+    <div v-else class="upload-section">
       <div
         class="upload-area"
         :class="{ 'drag-over': isDragOver }"
@@ -96,6 +101,13 @@
         </p>
       </div>
 
+      <div v-if="isSavingCache" class="progress-section">
+        <div class="progress-bar-container">
+          <div class="progress-bar saving" style="width: 100%"></div>
+        </div>
+        <p class="progress-text">Saving to cache...</p>
+      </div>
+
       <div v-if="error" class="error-message">
         {{ error }}
       </div>
@@ -115,7 +127,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onUnmounted } from "vue";
+import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import FrameCard from "./FrameCard.vue";
 import { extractFrames, getVideoMetadata, cleanup } from "../../utils/ffmpeg";
@@ -139,6 +151,8 @@ const frames = ref<ExtractedFrame[]>([]);
 const isExtracting = ref(false);
 const isDragOver = ref(false);
 const error = ref<string>("");
+const isLoadingCache = ref(false);
+const isSavingCache = ref(false);
 
 const extractionProgress = ref<ExtractionProgress>({
   current: 0,
@@ -216,11 +230,16 @@ const startExtraction = async () => {
       width: videoMetadata.value?.width || 0,
       height: videoMetadata.value?.height || 0,
     });
+
+    isSavingCache.value = true;
+    await framesStore.saveToCache();
+    isSavingCache.value = false;
   } catch (err: any) {
     error.value = `Failed to extract frames: ${err.message || "Unknown error"}`;
     console.error("Extraction error:", err);
   } finally {
     isExtracting.value = false;
+    isSavingCache.value = false;
   }
 };
 
@@ -245,7 +264,29 @@ const clearFrames = () => {
     URL.revokeObjectURL(frame.imageUrl);
   });
   frames.value = [];
+  framesStore.clearFrames();
   extractionProgress.value = { current: 0, total: 0, percentage: 0 };
+};
+
+const loadFromCache = async () => {
+  isLoadingCache.value = true;
+
+  try {
+    const hasCached = await framesStore.checkCache();
+
+    if (hasCached) {
+      const loaded = await framesStore.loadFromCache();
+
+      if (loaded) {
+        frames.value = framesStore.allFrames;
+        await framesStore.updateCacheInfo();
+      }
+    }
+  } catch (err) {
+    console.error("Failed to load from cache:", err);
+  } finally {
+    isLoadingCache.value = false;
+  }
 };
 
 const formatDuration = (seconds: number): string => {
@@ -253,6 +294,11 @@ const formatDuration = (seconds: number): string => {
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, "0")}`;
 };
+
+onMounted(async () => {
+  await framesStore.updateCacheInfo();
+  await loadFromCache();
+});
 
 onUnmounted(() => {
   if (videoUrl.value) {
@@ -298,6 +344,40 @@ onUnmounted(() => {
   color: #a0a0a0;
   cursor: not-allowed;
   box-shadow: none;
+}
+
+.loading-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin-bottom: 40px;
+}
+
+.loading-spinner {
+  width: 48px;
+  height: 48px;
+  border: 4px solid #e5e7eb;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 16px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-section p {
+  color: #6b7280;
+  font-size: 16px;
+  font-weight: 500;
 }
 
 .upload-section {
@@ -470,6 +550,20 @@ onUnmounted(() => {
   background: linear-gradient(90deg, #3b82f6, #2563eb);
   transition: width 0.3s ease;
   border-radius: 6px;
+}
+
+.progress-bar.saving {
+  background: linear-gradient(90deg, #10b981, #059669);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
 }
 
 .progress-text {

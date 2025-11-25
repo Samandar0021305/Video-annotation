@@ -100,6 +100,16 @@
         <button @click="zoomOut">-</button>
         <button @click="resetZoom">Reset</button>
       </div>
+
+      <div class="control-group">
+        <button
+          @click="handleClearCache"
+          class="clear-cache-btn"
+          :disabled="isClearingCache"
+        >
+          {{ isClearingCache ? 'Clearing...' : 'Clear Cache' }}
+        </button>
+      </div>
     </div>
 
     <FramePlayerTimeline
@@ -317,6 +327,7 @@ const zoomLevel = ref(1);
 const isDrawing = ref(false);
 const isPanning = ref(false);
 const isPlaying = ref(false);
+const isClearingCache = ref(false);
 const cursorShape = ref<Konva.Circle | null>(null);
 
 const lastPanPoint = ref<{ x: number; y: number } | null>(null);
@@ -1315,6 +1326,17 @@ const handleJumpToPreviousKeyframe = () => {
   }
 };
 
+const handleClearCache = async () => {
+  isClearingCache.value = true;
+  try {
+    await framesStore.clearCache();
+    framesStore.clearFrames();
+    router.push("/");
+  } finally {
+    isClearingCache.value = false;
+  }
+};
+
 const updateCursor = (pos: { x: number; y: number }) => {
   if (!brush.value) return;
 
@@ -1424,12 +1446,7 @@ const resetZoom = () => {
   zoomLevel.value = 1;
 };
 
-onMounted(async () => {
-  if (!framesStore.hasFrames) {
-    router.push("/");
-    return;
-  }
-
+const initializePlayer = async () => {
   try {
     const firstImg = await loadImage(frames.value[0]!);
     frameImages.value.set(0, firstImg);
@@ -1459,6 +1476,26 @@ onMounted(async () => {
   } catch (error) {
     console.error("Failed to load first frame:", error);
   }
+};
+
+onMounted(async () => {
+  if (!framesStore.hasFrames) {
+    const hasCached = await framesStore.checkCache();
+
+    if (hasCached) {
+      const loaded = await framesStore.loadFromCache();
+
+      if (loaded) {
+        await initializePlayer();
+        return;
+      }
+    }
+
+    router.push("/");
+    return;
+  }
+
+  await initializePlayer();
 });
 
 onUnmounted(() => {
@@ -1582,6 +1619,16 @@ watch(opacity, () => {
 
 .delete-btn:hover:not(:disabled) {
   background: #c82333 !important;
+}
+
+.clear-cache-btn {
+  background: #6b7280 !important;
+  color: white !important;
+  border-color: #6b7280 !important;
+}
+
+.clear-cache-btn:hover:not(:disabled) {
+  background: #4b5563 !important;
 }
 
 .canvas-container {

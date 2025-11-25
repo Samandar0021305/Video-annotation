@@ -1,8 +1,9 @@
 <template>
   <div class="timeline-section">
     <div class="timeline-header">
-      <span class="frame-counter">{{ currentFrame + 1 }} / {{ totalFrames }}</span>
-      <span class="fps-info">{{ fps }} fps</span>
+      <span class="frame-counter"
+        >{{ currentFrame + 1 }} / {{ totalFrames }}</span
+      >
     </div>
 
     <div
@@ -17,7 +18,7 @@
           class="keyframe-status"
           :class="{ 'is-keyframe': isCurrentFrameKeyframe }"
         >
-          {{ isCurrentFrameKeyframe ? 'Keyframe' : 'Interpolated' }}
+          {{ isCurrentFrameKeyframe ? "Keyframe" : "Interpolated" }}
         </span>
         <label class="interpolation-toggle">
           <input
@@ -26,7 +27,7 @@
             @change="handleToggleInterpolation"
           />
           <span>
-            Interpolation {{ isInterpolationEnabled ? 'ON' : 'OFF' }}
+            Interpolation {{ isInterpolationEnabled ? "ON" : "OFF" }}
           </span>
         </label>
         <button
@@ -41,7 +42,11 @@
 
     <div class="timeline-tracks-container">
       <div
-        v-if="bboxTracks.size === 0 && polygonTracks.size === 0 && skeletonTracks.size === 0"
+        v-if="
+          bboxTracks.size === 0 &&
+          polygonTracks.size === 0 &&
+          skeletonTracks.size === 0
+        "
         class="timeline-empty"
       >
         No tracks yet. Draw with bbox, polygon, or skeleton tool to create one.
@@ -51,7 +56,9 @@
         v-for="[trackId, track] in Array.from(bboxTracks.entries())"
         :key="trackId"
         class="timeline-track-row"
-        :class="{ selected: selectedTrackId === trackId && selectedTrackType === 'bbox' }"
+        :class="{
+          selected: selectedTrackId === trackId && selectedTrackType === 'bbox',
+        }"
         @click="selectTrack(trackId, 'bbox')"
       >
         <div class="track-label">
@@ -72,7 +79,10 @@
             v-for="(range, rangeIndex) in track.ranges || []"
             :key="`${trackId}-bbox-range-${rangeIndex}`"
             class="timeline-segment-bar bbox"
-            :class="{ selected: selectedTrackId === trackId && selectedTrackType === 'bbox' }"
+            :class="{
+              selected:
+                selectedTrackId === trackId && selectedTrackType === 'bbox',
+            }"
             :style="{
               left: (range[0] / (totalFrames || 1)) * 100 + '%',
               width: ((range[1] - range[0]) / (totalFrames || 1)) * 100 + '%',
@@ -82,11 +92,31 @@
           >
             <div
               class="resize-handle left"
-              @mousedown.stop="startRangeResize($event, trackId, 'bbox', rangeIndex, 'left', range[0], range[1])"
+              @mousedown.stop="
+                startRangeResize(
+                  $event,
+                  trackId,
+                  'bbox',
+                  rangeIndex,
+                  'left',
+                  range[0],
+                  range[1]
+                )
+              "
             ></div>
             <div
               class="resize-handle right"
-              @mousedown.stop="startRangeResize($event, trackId, 'bbox', rangeIndex, 'right', range[0], range[1])"
+              @mousedown.stop="
+                startRangeResize(
+                  $event,
+                  trackId,
+                  'bbox',
+                  rangeIndex,
+                  'right',
+                  range[0],
+                  range[1]
+                )
+              "
             ></div>
           </div>
 
@@ -97,7 +127,10 @@
             class="keyframe-diamond"
             :class="{
               active: frameNum === currentFrame,
-              selected: selectedTrackId === trackId && selectedTrackType === 'bbox' && frameNum === currentFrame,
+              selected:
+                selectedTrackId === trackId &&
+                selectedTrackType === 'bbox' &&
+                frameNum === currentFrame,
             }"
             :style="{ left: (frameNum / (totalFrames || 1)) * 100 + '%' }"
             @click.stop="$emit('jump-to-frame', frameNum)"
@@ -111,7 +144,10 @@
         v-for="[trackId, track] in Array.from(polygonTracks.entries())"
         :key="trackId"
         class="timeline-track-row"
-        :class="{ selected: selectedTrackId === trackId && selectedTrackType === 'polygon' }"
+        :class="{
+          selected:
+            selectedTrackId === trackId && selectedTrackType === 'polygon',
+        }"
         @click="selectTrack(trackId, 'polygon')"
       >
         <div class="track-label">
@@ -132,7 +168,10 @@
             v-for="(range, rangeIndex) in track.ranges || []"
             :key="`${trackId}-polygon-range-${rangeIndex}`"
             class="timeline-segment-bar polygon"
-            :class="{ selected: selectedTrackId === trackId && selectedTrackType === 'polygon' }"
+            :class="{
+              selected:
+                selectedTrackId === trackId && selectedTrackType === 'polygon',
+            }"
             :style="{
               left: (range[0] / (totalFrames || 1)) * 100 + '%',
               width: ((range[1] - range[0]) / (totalFrames || 1)) * 100 + '%',
@@ -142,11 +181,31 @@
           >
             <div
               class="resize-handle left"
-              @mousedown.stop="startRangeResize($event, trackId, 'polygon', rangeIndex, 'left', range[0], range[1])"
+              @mousedown.stop="
+                startRangeResize(
+                  $event,
+                  trackId,
+                  'polygon',
+                  rangeIndex,
+                  'left',
+                  range[0],
+                  range[1]
+                )
+              "
             ></div>
             <div
               class="resize-handle right"
-              @mousedown.stop="startRangeResize($event, trackId, 'polygon', rangeIndex, 'right', range[0], range[1])"
+              @mousedown.stop="
+                startRangeResize(
+                  $event,
+                  trackId,
+                  'polygon',
+                  rangeIndex,
+                  'right',
+                  range[0],
+                  range[1]
+                )
+              "
             ></div>
           </div>
 
@@ -157,7 +216,10 @@
             class="keyframe-diamond"
             :class="{
               active: frameNum === currentFrame,
-              selected: selectedTrackId === trackId && selectedTrackType === 'polygon' && frameNum === currentFrame,
+              selected:
+                selectedTrackId === trackId &&
+                selectedTrackType === 'polygon' &&
+                frameNum === currentFrame,
             }"
             :style="{ left: (frameNum / (totalFrames || 1)) * 100 + '%' }"
             @click.stop="$emit('jump-to-frame', frameNum)"
@@ -171,7 +233,10 @@
         v-for="[trackId, track] in Array.from(skeletonTracks.entries())"
         :key="trackId"
         class="timeline-track-row"
-        :class="{ selected: selectedTrackId === trackId && selectedTrackType === 'skeleton' }"
+        :class="{
+          selected:
+            selectedTrackId === trackId && selectedTrackType === 'skeleton',
+        }"
         @click="selectTrack(trackId, 'skeleton')"
       >
         <div class="track-label">
@@ -192,7 +257,10 @@
             v-for="(range, rangeIndex) in track.ranges || []"
             :key="`${trackId}-skeleton-range-${rangeIndex}`"
             class="timeline-segment-bar skeleton"
-            :class="{ selected: selectedTrackId === trackId && selectedTrackType === 'skeleton' }"
+            :class="{
+              selected:
+                selectedTrackId === trackId && selectedTrackType === 'skeleton',
+            }"
             :style="{
               left: (range[0] / (totalFrames || 1)) * 100 + '%',
               width: ((range[1] - range[0]) / (totalFrames || 1)) * 100 + '%',
@@ -202,11 +270,31 @@
           >
             <div
               class="resize-handle left"
-              @mousedown.stop="startRangeResize($event, trackId, 'skeleton', rangeIndex, 'left', range[0], range[1])"
+              @mousedown.stop="
+                startRangeResize(
+                  $event,
+                  trackId,
+                  'skeleton',
+                  rangeIndex,
+                  'left',
+                  range[0],
+                  range[1]
+                )
+              "
             ></div>
             <div
               class="resize-handle right"
-              @mousedown.stop="startRangeResize($event, trackId, 'skeleton', rangeIndex, 'right', range[0], range[1])"
+              @mousedown.stop="
+                startRangeResize(
+                  $event,
+                  trackId,
+                  'skeleton',
+                  rangeIndex,
+                  'right',
+                  range[0],
+                  range[1]
+                )
+              "
             ></div>
           </div>
 
@@ -217,7 +305,10 @@
             class="keyframe-diamond"
             :class="{
               active: frameNum === currentFrame,
-              selected: selectedTrackId === trackId && selectedTrackType === 'skeleton' && frameNum === currentFrame,
+              selected:
+                selectedTrackId === trackId &&
+                selectedTrackType === 'skeleton' &&
+                frameNum === currentFrame,
             }"
             :style="{ left: (frameNum / (totalFrames || 1)) * 100 + '%' }"
             @click.stop="$emit('jump-to-frame', frameNum)"
@@ -242,12 +333,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onBeforeUnmount } from 'vue';
-import type { BoundingBoxTrack } from '../../types/boundingBox';
-import type { PolygonTrack } from '../../types/polygon';
-import type { SkeletonTrack } from '../../types/skeleton';
+import { computed, ref, onBeforeUnmount } from "vue";
+import type { BoundingBoxTrack } from "../../types/boundingBox";
+import type { PolygonTrack } from "../../types/polygon";
+import type { SkeletonTrack } from "../../types/skeleton";
 
-type TrackType = 'bbox' | 'polygon' | 'skeleton';
+type TrackType = "bbox" | "polygon" | "skeleton";
 
 const props = defineProps<{
   currentFrame: number;
@@ -259,11 +350,18 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  (e: 'jump-to-frame', frame: number): void;
-  (e: 'select-track', trackId: string, type: TrackType): void;
-  (e: 'toggle-interpolation', trackId: string, type: TrackType): void;
-  (e: 'add-keyframe', trackId: string, type: TrackType): void;
-  (e: 'update-range', trackId: string, type: TrackType, rangeIndex: number, start: number, end: number): void;
+  (e: "jump-to-frame", frame: number): void;
+  (e: "select-track", trackId: string, type: TrackType): void;
+  (e: "toggle-interpolation", trackId: string, type: TrackType): void;
+  (e: "add-keyframe", trackId: string, type: TrackType): void;
+  (
+    e: "update-range",
+    trackId: string,
+    type: TrackType,
+    rangeIndex: number,
+    start: number,
+    end: number
+  ): void;
 }>();
 
 const selectedTrackId = ref<string | null>(null);
@@ -274,7 +372,7 @@ const resizeState = ref<{
   trackId: string;
   type: TrackType;
   rangeIndex: number;
-  edge: 'left' | 'right';
+  edge: "left" | "right";
   initialStart: number;
   initialEnd: number;
   startX: number;
@@ -290,11 +388,11 @@ const isCurrentFrameKeyframe = computed(() => {
 
   let track: BoundingBoxTrack | PolygonTrack | SkeletonTrack | undefined;
 
-  if (selectedTrackType.value === 'bbox') {
+  if (selectedTrackType.value === "bbox") {
     track = props.bboxTracks.get(selectedTrackId.value);
-  } else if (selectedTrackType.value === 'polygon') {
+  } else if (selectedTrackType.value === "polygon") {
     track = props.polygonTracks.get(selectedTrackId.value);
-  } else if (selectedTrackType.value === 'skeleton') {
+  } else if (selectedTrackType.value === "skeleton") {
     track = props.skeletonTracks.get(selectedTrackId.value);
   }
 
@@ -306,42 +404,49 @@ const isInterpolationEnabled = computed(() => {
 
   let track: BoundingBoxTrack | PolygonTrack | SkeletonTrack | undefined;
 
-  if (selectedTrackType.value === 'bbox') {
+  if (selectedTrackType.value === "bbox") {
     track = props.bboxTracks.get(selectedTrackId.value);
-  } else if (selectedTrackType.value === 'polygon') {
+  } else if (selectedTrackType.value === "polygon") {
     track = props.polygonTracks.get(selectedTrackId.value);
-  } else if (selectedTrackType.value === 'skeleton') {
+  } else if (selectedTrackType.value === "skeleton") {
     track = props.skeletonTracks.get(selectedTrackId.value);
   }
 
   return track ? track.interpolationEnabled : false;
 });
 
-function isFrameInRanges(frame: number, ranges: Array<[number, number]>): boolean {
+function isFrameInRanges(
+  frame: number,
+  ranges: Array<[number, number]>
+): boolean {
   return ranges.some(([start, end]) => frame >= start && frame < end);
 }
 
 function selectTrack(trackId: string, type: TrackType) {
   selectedTrackId.value = trackId;
   selectedTrackType.value = type;
-  emit('select-track', trackId, type);
+  emit("select-track", trackId, type);
 }
 
 function handleToggleInterpolation() {
   if (selectedTrackId.value && selectedTrackType.value) {
-    emit('toggle-interpolation', selectedTrackId.value, selectedTrackType.value);
+    emit(
+      "toggle-interpolation",
+      selectedTrackId.value,
+      selectedTrackType.value
+    );
   }
 }
 
 function handleAddKeyframe() {
   if (selectedTrackId.value && selectedTrackType.value) {
-    emit('add-keyframe', selectedTrackId.value, selectedTrackType.value);
+    emit("add-keyframe", selectedTrackId.value, selectedTrackType.value);
   }
 }
 
 function handleScrubberInput(event: Event) {
   const target = event.target as HTMLInputElement;
-  emit('jump-to-frame', parseInt(target.value, 10));
+  emit("jump-to-frame", parseInt(target.value, 10));
 }
 
 function startRangeResize(
@@ -349,7 +454,7 @@ function startRangeResize(
   trackId: string,
   type: TrackType,
   rangeIndex: number,
-  edge: 'left' | 'right',
+  edge: "left" | "right",
   initialStart: number,
   initialEnd: number
 ) {
@@ -365,14 +470,14 @@ function startRangeResize(
     startX: event.clientX,
   };
 
-  document.addEventListener('mousemove', handleRangeResizeMove);
-  document.addEventListener('mouseup', handleRangeResizeEnd);
+  document.addEventListener("mousemove", handleRangeResizeMove);
+  document.addEventListener("mouseup", handleRangeResizeEnd);
 }
 
 function handleRangeResizeMove(event: MouseEvent) {
   if (!resizeState.value) return;
 
-  const timelineElement = document.querySelector('.track-timeline');
+  const timelineElement = document.querySelector(".track-timeline");
   if (!timelineElement) return;
 
   const rect = timelineElement.getBoundingClientRect();
@@ -382,16 +487,19 @@ function handleRangeResizeMove(event: MouseEvent) {
   let newStart = resizeState.value.initialStart;
   let newEnd = resizeState.value.initialEnd;
 
-  if (resizeState.value.edge === 'left') {
+  if (resizeState.value.edge === "left") {
     newStart = Math.max(0, resizeState.value.initialStart + deltaFrames);
     newStart = Math.min(newStart, newEnd - 1);
   } else {
-    newEnd = Math.min(props.totalFrames, resizeState.value.initialEnd + deltaFrames);
+    newEnd = Math.min(
+      props.totalFrames,
+      resizeState.value.initialEnd + deltaFrames
+    );
     newEnd = Math.max(newEnd, newStart + 1);
   }
 
   emit(
-    'update-range',
+    "update-range",
     resizeState.value.trackId,
     resizeState.value.type,
     resizeState.value.rangeIndex,
@@ -402,8 +510,8 @@ function handleRangeResizeMove(event: MouseEvent) {
 
 function handleRangeResizeEnd() {
   resizeState.value = null;
-  document.removeEventListener('mousemove', handleRangeResizeMove);
-  document.removeEventListener('mouseup', handleRangeResizeEnd);
+  document.removeEventListener("mousemove", handleRangeResizeMove);
+  document.removeEventListener("mouseup", handleRangeResizeEnd);
 }
 
 function clearSelection() {
@@ -412,8 +520,8 @@ function clearSelection() {
 }
 
 onBeforeUnmount(() => {
-  document.removeEventListener('mousemove', handleRangeResizeMove);
-  document.removeEventListener('mouseup', handleRangeResizeEnd);
+  document.removeEventListener("mousemove", handleRangeResizeMove);
+  document.removeEventListener("mouseup", handleRangeResizeEnd);
 });
 
 defineExpose({
