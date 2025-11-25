@@ -229,7 +229,7 @@ const startExtraction = async () => {
       duration: videoMetadata.value?.duration || 0,
       width: videoMetadata.value?.width || 0,
       height: videoMetadata.value?.height || 0,
-    });
+    }, selectedFile.value?.name || '');
 
     isSavingCache.value = true;
     await framesStore.saveToCache();

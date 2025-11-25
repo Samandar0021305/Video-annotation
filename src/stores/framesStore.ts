@@ -12,6 +12,7 @@ interface FramesState {
   frames: ExtractedFrame[];
   currentFrameIndex: number;
   fps: number;
+  videoFileName: string;
   videoMetadata: {
     duration: number;
     width: number;
@@ -31,6 +32,7 @@ export const useFramesStore = defineStore('frames', {
     frames: [],
     currentFrameIndex: 0,
     fps: 30,
+    videoFileName: '',
     videoMetadata: null,
     isLoadingFromCache: false,
     cacheInfo: null,
@@ -45,11 +47,18 @@ export const useFramesStore = defineStore('frames', {
   },
 
   actions: {
-    setFrames(frames: ExtractedFrame[], fps: number, metadata: any) {
+    setFrames(frames: ExtractedFrame[], fps: number, metadata: any, videoFileName?: string) {
       this.frames = frames;
       this.fps = fps;
       this.videoMetadata = metadata;
       this.currentFrameIndex = 0;
+      if (videoFileName) {
+        this.videoFileName = videoFileName;
+      }
+    },
+
+    setVideoFileName(fileName: string) {
+      this.videoFileName = fileName;
     },
 
     clearFrames() {
@@ -89,7 +98,7 @@ export const useFramesStore = defineStore('frames', {
       }
 
       try {
-        await saveFramesToCache(this.frames, this.fps, this.videoMetadata);
+        await saveFramesToCache(this.frames, this.fps, this.videoMetadata, this.videoFileName);
         await this.updateCacheInfo();
         return true;
       } catch (error) {
@@ -112,6 +121,7 @@ export const useFramesStore = defineStore('frames', {
         this.frames = cached.frames;
         this.fps = cached.fps;
         this.videoMetadata = cached.metadata;
+        this.videoFileName = cached.videoFileName || '';
         this.currentFrameIndex = 0;
         this.isLoadingFromCache = false;
 
