@@ -1,5 +1,5 @@
 import { ref, computed, type Ref } from 'vue';
-import type { Skeleton, SkeletonTrack, SkeletonPoint } from '../types/skeleton';
+import type { Skeleton, SkeletonTrack } from '../types/skeleton';
 
 function findSurroundingKeyframes(
   keyframes: Map<number, Skeleton>,
@@ -23,37 +23,6 @@ function findSurroundingKeyframes(
   return {
     before: beforeFrame !== null ? [beforeFrame, keyframes.get(beforeFrame)!] : null,
     after: afterFrame !== null ? [afterFrame, keyframes.get(afterFrame)!] : null
-  };
-}
-
-function interpolateSkeleton(
-  skeleton1: Skeleton,
-  skeleton2: Skeleton,
-  frame1: number,
-  frame2: number,
-  targetFrame: number
-): Skeleton {
-  // Can only interpolate if both skeletons have same number of points
-  if (skeleton1.points.length !== skeleton2.points.length) {
-    return skeleton1;
-  }
-
-  const t = (targetFrame - frame1) / (frame2 - frame1);
-
-  const interpolatedPoints: SkeletonPoint[] = skeleton1.points.map((p1, i) => {
-    const p2 = skeleton2.points[i]!;
-    return {
-      x: p1.x + (p2.x - p1.x) * t,
-      y: p1.y + (p2.y - p1.y) * t
-    };
-  });
-
-  return {
-    id: skeleton1.id,
-    points: interpolatedPoints,
-    label: skeleton1.label,
-    color: skeleton1.color,
-    classId: skeleton1.classId
   };
 }
 
@@ -124,23 +93,34 @@ export function useSkeletonTracks(currentFrame: Ref<number>) {
 
     if (!before && !after) return null;
     if (!before && after) return after[1];
-    if (before && !after) return before[1];
 
-    const [frame1, skeleton1] = before!;
-    const [frame2, skeleton2] = after!;
-
-    return interpolateSkeleton(skeleton1, skeleton2, frame1, frame2, frame);
+    return before![1];
   }
 
   function updateKeyframe(
     trackId: string,
     frame: number,
-    skeleton: Skeleton
+    skeleton: Skeleton,
+    autoSuggestEnabled: boolean = false
   ): void {
     const track = tracks.value.get(trackId);
     if (!track) return;
 
-    track.keyframes.set(frame, { ...skeleton, id: trackId });
+    if (autoSuggestEnabled) {
+      const originalSkeleton = getSkeletonAtFrame(trackId, frame);
+      track.keyframes.set(frame, { ...skeleton, id: trackId });
+
+      const nextFrame = frame + 1;
+      const isNextFrameInRange = track.ranges.some(
+        ([start, end]) => nextFrame >= start && nextFrame < end
+      );
+
+      if (originalSkeleton && !track.keyframes.has(nextFrame) && isNextFrameInRange) {
+        track.keyframes.set(nextFrame, { ...originalSkeleton, id: trackId });
+      }
+    } else {
+      track.keyframes.set(frame, { ...skeleton, id: trackId });
+    }
   }
 
   function toggleInterpolation(trackId: string): void {

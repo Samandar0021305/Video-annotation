@@ -120,6 +120,13 @@
           {{ isClearingCache ? "Clearing..." : "Clear Cache" }}
         </button>
       </div>
+
+      <div class="control-group">
+        <label class="auto-suggest-toggle">
+          <input type="checkbox" v-model="autoSuggest" />
+          <span>Auto Suggest {{ autoSuggest ? "ON" : "OFF" }}</span>
+        </label>
+      </div>
     </div>
 
     <FramePlayerTimeline
@@ -342,6 +349,7 @@ const polygonColor = ref("#00FF00");
 const skeletonColor = ref("#0000FF");
 const opacity = ref(1);
 const zoomLevel = ref(1);
+const autoSuggest = ref(false);
 
 const isDrawing = ref(false);
 const isPanning = ref(false);
@@ -765,7 +773,7 @@ const handleBboxDragEnd = (e: any) => {
     y: group.y(),
   };
 
-  updateBboxKeyframe(trackId, currentFrame.value, updatedBox);
+  updateBboxKeyframe(trackId, currentFrame.value, updatedBox, autoSuggest.value);
 };
 
 const handleBboxTransformEnd = () => {
@@ -798,7 +806,7 @@ const handleBboxTransformEnd = () => {
   rect.scaleX(1);
   rect.scaleY(1);
 
-  updateBboxKeyframe(selectedBboxTrackId.value, currentFrame.value, updatedBox);
+  updateBboxKeyframe(selectedBboxTrackId.value, currentFrame.value, updatedBox, autoSuggest.value);
 };
 
 const setupPolygonTool = () => {
@@ -886,7 +894,7 @@ const handlePolygonDragEnd = (e: any) => {
   line.x(0);
   line.y(0);
 
-  updatePolygonKeyframe(trackId, currentFrame.value, updatedPolygon);
+  updatePolygonKeyframe(trackId, currentFrame.value, updatedPolygon, autoSuggest.value);
 };
 
 const handlePolygonVertexClick = (polygonId: string) => {
@@ -936,7 +944,7 @@ const handlePolygonVertexDragEnd = (
     points: newPoints,
   };
 
-  updatePolygonKeyframe(polygonId, currentFrame.value, updatedPolygon);
+  updatePolygonKeyframe(polygonId, currentFrame.value, updatedPolygon, autoSuggest.value);
 };
 
 const setupSkeletonTool = () => {
@@ -1016,7 +1024,7 @@ const handleSkeletonDragEnd = (e: any) => {
   line.x(0);
   line.y(0);
 
-  updateSkeletonKeyframe(trackId, currentFrame.value, updatedSkeleton);
+  updateSkeletonKeyframe(trackId, currentFrame.value, updatedSkeleton, autoSuggest.value);
 };
 
 const handleSkeletonKeypointClick = (skeletonId: string) => {
@@ -1066,7 +1074,7 @@ const handleSkeletonKeypointDragEnd = (
     points: newPoints,
   };
 
-  updateSkeletonKeyframe(skeletonId, currentFrame.value, updatedSkeleton);
+  updateSkeletonKeyframe(skeletonId, currentFrame.value, updatedSkeleton, autoSuggest.value);
 };
 
 const handleMouseDown = (e: any) => {
@@ -1310,7 +1318,7 @@ const handleMouseUp = async () => {
 
       if (contours.length > 0) {
         if (selectedBrushTrackId.value) {
-          addBrushKeyframe(selectedBrushTrackId.value, currentFrame.value, contours);
+          addBrushKeyframe(selectedBrushTrackId.value, currentFrame.value, contours, autoSuggest.value);
         } else {
           const trackId = createBrushTrack(
             currentFrame.value,
@@ -1404,17 +1412,17 @@ const handleAddKeyframe = (trackId: string, type: TrackType) => {
   if (type === "bbox") {
     const currentBox = getBoxAtFrame(trackId, currentFrame.value);
     if (currentBox) {
-      updateBboxKeyframe(trackId, currentFrame.value, currentBox);
+      updateBboxKeyframe(trackId, currentFrame.value, currentBox, autoSuggest.value);
     }
   } else if (type === "polygon") {
     const currentPolygon = getPolygonAtFrame(trackId, currentFrame.value);
     if (currentPolygon) {
-      updatePolygonKeyframe(trackId, currentFrame.value, currentPolygon);
+      updatePolygonKeyframe(trackId, currentFrame.value, currentPolygon, autoSuggest.value);
     }
   } else if (type === "skeleton") {
     const currentSkeleton = getSkeletonAtFrame(trackId, currentFrame.value);
     if (currentSkeleton) {
-      updateSkeletonKeyframe(trackId, currentFrame.value, currentSkeleton);
+      updateSkeletonKeyframe(trackId, currentFrame.value, currentSkeleton, autoSuggest.value);
     }
   }
 };
@@ -1797,6 +1805,32 @@ watch(opacity, () => {
 
 .clear-cache-btn:hover:not(:disabled) {
   background: #4b5563 !important;
+}
+
+.auto-suggest-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 8px 12px;
+  background: #e9ecef;
+  border-radius: 4px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.auto-suggest-toggle:hover {
+  background: #dee2e6;
+}
+
+.auto-suggest-toggle input {
+  cursor: pointer;
+  width: 16px;
+  height: 16px;
+}
+
+.auto-suggest-toggle input:checked + span {
+  color: #28a745;
 }
 
 .canvas-container {
