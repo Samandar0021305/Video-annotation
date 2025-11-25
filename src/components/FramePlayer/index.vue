@@ -21,15 +21,8 @@
         >
           Eraser
         </button>
-
         <button :class="{ active: mode === 'bbox' }" @click="setMode('bbox')">
           BBox
-        </button>
-        <button
-          :class="{ active: mode === 'select' }"
-          @click="setMode('select')"
-        >
-          Select
         </button>
         <button
           :class="{ active: mode === 'polygon' }"
@@ -175,7 +168,7 @@
                 x: bbox.x,
                 y: bbox.y,
                 rotation: bbox.rotation,
-                draggable: mode === 'select',
+                draggable: mode === 'pan',
                 name: 'boundingBox',
                 opacity: opacity,
               }"
@@ -207,7 +200,7 @@
                   stroke: polygon.color,
                   strokeWidth: 2,
                   closed: true,
-                  draggable: mode === 'select',
+                  draggable: mode === 'pan',
                   name: 'polygon',
                   opacity: opacity,
                 }"
@@ -228,7 +221,7 @@
                       : polygon.color,
                   strokeWidth:
                     timelineRef?.selectedTrackId === polygon.id ? 2 : 1,
-                  draggable: mode === 'select',
+                  draggable: mode === 'pan',
                   name: 'polygonVertex',
                   opacity: opacity,
                 }"
@@ -254,7 +247,7 @@
                   strokeWidth: 2,
                   lineCap: 'round',
                   lineJoin: 'round',
-                  draggable: mode === 'select',
+                  draggable: mode === 'pan',
                   name: 'skeleton',
                   opacity: opacity,
                 }"
@@ -275,7 +268,7 @@
                       : skeleton.color,
                   strokeWidth:
                     timelineRef?.selectedTrackId === skeleton.id ? 2 : 1,
-                  draggable: mode === 'select',
+                  draggable: mode === 'pan',
                   name: 'skeletonKeypoint',
                   opacity: opacity,
                 }"
@@ -342,9 +335,9 @@ const currentFrame = ref(0);
 const currentImage = ref<HTMLImageElement | null>(null);
 const brush = ref<KonvaBrush | null>(null);
 
-const mode = ref<
-  "brush" | "eraser" | "pan" | "bbox" | "select" | "polygon" | "skeleton"
->("pan");
+const mode = ref<"brush" | "eraser" | "pan" | "bbox" | "polygon" | "skeleton">(
+  "pan"
+);
 const brushSize = ref(20);
 const brushColor = ref("#FF0000");
 const bboxColor = ref("#FF0000");
@@ -643,14 +636,7 @@ const jumpToFrame = async (frame: number) => {
 };
 
 const setMode = (
-  newMode:
-    | "brush"
-    | "eraser"
-    | "pan"
-    | "bbox"
-    | "select"
-    | "polygon"
-    | "skeleton"
+  newMode: "brush" | "eraser" | "pan" | "bbox" | "polygon" | "skeleton"
 ) => {
   mode.value = newMode;
   const stage = stageRef.value?.getStage();
@@ -663,11 +649,9 @@ const setMode = (
   }
 
   if (newMode === "pan") {
-    stage.container().style.cursor = "grab";
+    stage.container().style.cursor = "default";
   } else if (newMode === "bbox" || newMode === "polygon") {
     stage.container().style.cursor = "crosshair";
-  } else if (newMode === "select") {
-    stage.container().style.cursor = "default";
   } else if (newMode === "brush" || newMode === "eraser") {
     stage.container().style.cursor = "none";
   }
@@ -755,7 +739,7 @@ const finishBboxDrawing = () => {
 };
 
 const handleBboxClick = (e: any) => {
-  if (mode.value !== "select") return;
+  if (mode.value !== "pan") return;
 
   const group = e.target.findAncestor("Group");
   if (group) {
@@ -910,7 +894,7 @@ const cancelPolygonDrawing = () => {
 };
 
 const handlePolygonClick = (e: any) => {
-  if (mode.value !== "select") return;
+  if (mode.value !== "pan") return;
 
   const line = e.target;
   if (line && line.id()) {
@@ -961,7 +945,7 @@ const handlePolygonDragEnd = (e: any) => {
 };
 
 const handlePolygonVertexClick = (polygonId: string) => {
-  if (mode.value !== "select") return;
+  if (mode.value !== "pan") return;
   selectedPolygonTrackId.value = polygonId;
   selectedBboxTrackId.value = null;
   selectedSkeletonTrackId.value = null;
@@ -1063,7 +1047,7 @@ const cancelSkeletonDrawing = () => {
 };
 
 const handleSkeletonClick = (e: any) => {
-  if (mode.value !== "select") return;
+  if (mode.value !== "pan") return;
 
   const line = e.target;
   if (line && line.id()) {
@@ -1114,7 +1098,7 @@ const handleSkeletonDragEnd = (e: any) => {
 };
 
 const handleSkeletonKeypointClick = (skeletonId: string) => {
-  if (mode.value !== "select") return;
+  if (mode.value !== "pan") return;
   selectedSkeletonTrackId.value = skeletonId;
   selectedBboxTrackId.value = null;
   selectedPolygonTrackId.value = null;
@@ -1180,10 +1164,34 @@ const handleMouseDown = (e: any) => {
   if (!screenPos) return;
 
   if (mode.value === "pan" || e.evt.altKey) {
-    isPanning.value = true;
-    lastPanPoint.value = screenPos;
-    stage.container().style.cursor = "grabbing";
-    return;
+    const target = e.target;
+    // Check if clicking on an annotation shape - if so, don't start panning (allow selection)
+    const isClickOnAnnotation =
+      target !== stage &&
+      target.getClassName() !== "Image" &&
+      (target.findAncestor("Group") ||
+        target.name() === "polygon" ||
+        target.name() === "polygonVertex" ||
+        target.name() === "skeleton" ||
+        target.name() === "skeletonKeypoint" ||
+        target.name() === "boundingBox");
+
+    if (!isClickOnAnnotation) {
+      // Clicking on empty space - start panning
+      isPanning.value = true;
+      lastPanPoint.value = screenPos;
+      stage.container().style.cursor = "grabbing";
+      // Clear selection when clicking on empty space
+      selectedBboxTrackId.value = null;
+      selectedPolygonTrackId.value = null;
+      selectedSkeletonTrackId.value = null;
+      timelineRef.value?.clearSelection();
+      updateTransformerSelection();
+    }
+    // If clicking on annotation, don't return - let the click event propagate to annotation handlers
+    if (!isClickOnAnnotation) {
+      return;
+    }
   }
 
   if (mode.value === "polygon") {
@@ -1215,18 +1223,6 @@ const handleMouseDown = (e: any) => {
     if (!logicalPos) return;
     isDrawing.value = true;
     startBboxDrawing(logicalPos);
-    return;
-  }
-
-  if (mode.value === "select") {
-    const target = e.target;
-    if (target === stage || target.getClassName() === "Image") {
-      selectedBboxTrackId.value = null;
-      selectedPolygonTrackId.value = null;
-      selectedSkeletonTrackId.value = null;
-      timelineRef.value?.clearSelection();
-      updateTransformerSelection();
-    }
     return;
   }
 
@@ -1294,7 +1290,6 @@ const handleMouseMove = () => {
   if (
     mode.value !== "pan" &&
     mode.value !== "bbox" &&
-    mode.value !== "select" &&
     mode.value !== "polygon" &&
     mode.value !== "skeleton" &&
     brush.value
@@ -1333,11 +1328,9 @@ const handleMouseUp = async () => {
   if (stage && isPanning.value) {
     stage.container().style.cursor =
       mode.value === "pan"
-        ? "grab"
-        : mode.value === "bbox"
-        ? "crosshair"
-        : mode.value === "select"
         ? "default"
+        : mode.value === "bbox" || mode.value === "polygon"
+        ? "crosshair"
         : "none";
   }
 
