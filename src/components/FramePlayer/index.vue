@@ -272,6 +272,7 @@
                   name: 'skeletonKeypoint',
                   opacity: opacity,
                 }"
+                @dragstart="(e: any) => handleSkeletonKeypointDragStart(e, skeleton.id, pointIdx)"
                 @dragmove="(e: any) => handleSkeletonKeypointDragMove(e, skeleton.id, pointIdx)"
                 @dragend="(e: any) => handleSkeletonKeypointDragEnd(e, skeleton.id, pointIdx)"
                 @click="() => handleSkeletonKeypointClick(skeleton.id)"
@@ -462,16 +463,13 @@ const imageConfig = computed(() => ({
   height: stageConfig.value.height,
 }));
 
-// Track if polygon/skeleton drawing is active for template reactivity
 const isPolygonDrawing = ref(false);
 const isSkeletonDrawing = ref(false);
 
-// Allow polygon editing in polygon mode when not actively drawing
 const canEditPolygon = computed(() =>
   mode.value === 'pan' || (mode.value === 'polygon' && !isPolygonDrawing.value)
 );
 
-// Allow skeleton editing in skeleton mode when not actively drawing
 const canEditSkeleton = computed(() =>
   mode.value === 'pan' || (mode.value === 'skeleton' && !isSkeletonDrawing.value)
 );
@@ -911,7 +909,6 @@ const cancelPolygonDrawing = () => {
 };
 
 const handlePolygonClick = (e: any) => {
-  // Allow selection in pan mode, or in polygon mode when not actively drawing
   if (!canEditPolygon.value) return;
 
   const line = e.target;
@@ -963,7 +960,6 @@ const handlePolygonDragEnd = (e: any) => {
 };
 
 const handlePolygonVertexClick = (polygonId: string) => {
-  // Allow selection in pan mode, or in polygon mode when not actively drawing
   if (!canEditPolygon.value) return;
   selectedPolygonTrackId.value = polygonId;
   selectedBboxTrackId.value = null;
@@ -1069,7 +1065,6 @@ const cancelSkeletonDrawing = () => {
 };
 
 const handleSkeletonClick = (e: any) => {
-  // Allow selection in pan mode, or in skeleton mode when not actively drawing
   if (!canEditSkeleton.value) return;
 
   const line = e.target;
@@ -1121,12 +1116,124 @@ const handleSkeletonDragEnd = (e: any) => {
 };
 
 const handleSkeletonKeypointClick = (skeletonId: string) => {
-  // Allow selection in pan mode, or in skeleton mode when not actively drawing
   if (!canEditSkeleton.value) return;
   selectedSkeletonTrackId.value = skeletonId;
   selectedBboxTrackId.value = null;
   selectedPolygonTrackId.value = null;
   timelineRef.value?.selectTrack(skeletonId, "skeleton");
+};
+
+const SKELETON_SNAP_THRESHOLD = 10;
+const COLOCATED_EPSILON = 0.5;
+const snapIndicator = ref<Konva.Circle | null>(null);
+
+interface ColocatedPoint {
+  skeletonId: string;
+  pointIdx: number;
+}
+
+const colocatedPoints = ref<ColocatedPoint[]>([]);
+const dragStartPosition = ref<{ x: number; y: number } | null>(null);
+
+const findColocatedPoints = (
+  pos: { x: number; y: number },
+  primarySkeletonId: string,
+  primaryPointIdx: number
+): ColocatedPoint[] => {
+  const result: ColocatedPoint[] = [];
+  const allSkeletons = currentFrameSkeletons.value;
+
+  for (const skeleton of allSkeletons) {
+    for (let i = 0; i < skeleton.points.length; i++) {
+      if (skeleton.id === primarySkeletonId && i === primaryPointIdx) {
+        continue;
+      }
+
+      const point = skeleton.points[i];
+      if (!point) continue;
+
+      const distance = Math.sqrt(
+        Math.pow(pos.x - point.x, 2) + Math.pow(pos.y - point.y, 2)
+      );
+
+      if (distance < COLOCATED_EPSILON) {
+        result.push({ skeletonId: skeleton.id, pointIdx: i });
+      }
+    }
+  }
+
+  return result;
+};
+
+const findNearbySkeletonPoint = (
+  pos: { x: number; y: number },
+  excludeSkeletonId: string,
+  excludePointIdx: number
+): { x: number; y: number } | null => {
+  const allSkeletons = currentFrameSkeletons.value;
+
+  for (const skeleton of allSkeletons) {
+    for (let i = 0; i < skeleton.points.length; i++) {
+      if (skeleton.id === excludeSkeletonId && i === excludePointIdx) {
+        continue;
+      }
+
+      const isColocated = colocatedPoints.value.some(
+        cp => cp.skeletonId === skeleton.id && cp.pointIdx === i
+      );
+      if (isColocated) {
+        continue;
+      }
+
+      const point = skeleton.points[i];
+      if (!point) continue;
+
+      const distance = Math.sqrt(
+        Math.pow(pos.x - point.x, 2) + Math.pow(pos.y - point.y, 2)
+      );
+
+      if (distance < SKELETON_SNAP_THRESHOLD) {
+        return { x: point.x, y: point.y };
+      }
+    }
+  }
+
+  return null;
+};
+
+const colocatedCircleRefs = ref<Konva.Circle[]>([]);
+
+const handleSkeletonKeypointDragStart = (
+  _e: any,
+  skeletonId: string,
+  pointIdx: number
+) => {
+  const currentSkeleton = getSkeletonAtFrame(skeletonId, currentFrame.value);
+  if (!currentSkeleton) return;
+
+  const point = currentSkeleton.points[pointIdx];
+  if (!point) return;
+
+  dragStartPosition.value = { x: point.x, y: point.y };
+  colocatedPoints.value = findColocatedPoints(point, skeletonId, pointIdx);
+
+  const layer = skeletonLayerRef.value?.getNode();
+  if (!layer) return;
+
+  colocatedCircleRefs.value = [];
+  const allCircles = layer.find('.skeletonKeypoint') as Konva.Circle[];
+
+  for (const c of allCircles) {
+    const circlePos = { x: c.x(), y: c.y() };
+    const dist = Math.sqrt(
+      Math.pow(circlePos.x - point.x, 2) +
+      Math.pow(circlePos.y - point.y, 2)
+    );
+
+    if (dist < COLOCATED_EPSILON) {
+      colocatedCircleRefs.value.push(c);
+    }
+  }
 };
 
 const handleSkeletonKeypointDragMove = (
@@ -1138,17 +1245,58 @@ const handleSkeletonKeypointDragMove = (
   if (!currentSkeleton) return;
 
   const circle = e.target;
-  const newPoints = [...currentSkeleton.points];
-  newPoints[pointIdx] = { x: circle.x(), y: circle.y() };
+  const currentPos = { x: circle.x(), y: circle.y() };
 
   const layer = skeletonLayerRef.value?.getNode();
-  if (layer) {
-    const line = layer.findOne(`#${skeletonId}`);
-    if (line) {
-      line.points(newPoints.flatMap((p) => [p.x, p.y]));
-      layer.batchDraw();
+  if (!layer) return;
+
+  const newPoints = [...currentSkeleton.points];
+  newPoints[pointIdx] = currentPos;
+  const line = layer.findOne(`#${skeletonId}`);
+  if (line) {
+    line.points(newPoints.flatMap((p) => [p.x, p.y]));
+  }
+
+  for (const c of colocatedCircleRefs.value) {
+    if (c !== circle) {
+      c.x(currentPos.x);
+      c.y(currentPos.y);
     }
   }
+
+  for (const cp of colocatedPoints.value) {
+    const cpSkeleton = getSkeletonAtFrame(cp.skeletonId, currentFrame.value);
+    if (!cpSkeleton) continue;
+
+    const cpPoints = [...cpSkeleton.points];
+    cpPoints[cp.pointIdx] = currentPos;
+    const cpLine = layer.findOne(`#${cp.skeletonId}`);
+    if (cpLine) {
+      (cpLine as Konva.Line).points(cpPoints.flatMap((p) => [p.x, p.y]));
+    }
+  }
+
+  if (snapIndicator.value) {
+    snapIndicator.value.destroy();
+    snapIndicator.value = null;
+  }
+
+  const nearbyPoint = findNearbySkeletonPoint(currentPos, skeletonId, pointIdx);
+
+  if (nearbyPoint) {
+    snapIndicator.value = new Konva.Circle({
+      x: nearbyPoint.x,
+      y: nearbyPoint.y,
+      radius: 12,
+      stroke: "#00FF00",
+      strokeWidth: 3,
+      dash: [4, 4],
+      listening: false,
+    });
+    layer.add(snapIndicator.value);
+  }
+
+  layer.batchDraw();
 };
 
 const handleSkeletonKeypointDragEnd = (
@@ -1156,12 +1304,33 @@ const handleSkeletonKeypointDragEnd = (
   skeletonId: string,
   pointIdx: number
 ) => {
+  if (snapIndicator.value) {
+    snapIndicator.value.destroy();
+    snapIndicator.value = null;
+  }
+
   const currentSkeleton = getSkeletonAtFrame(skeletonId, currentFrame.value);
   if (!currentSkeleton) return;
 
   const circle = e.target;
+  let newX = circle.x();
+  let newY = circle.y();
+
+  const nearbyPoint = findNearbySkeletonPoint(
+    { x: newX, y: newY },
+    skeletonId,
+    pointIdx
+  );
+
+  if (nearbyPoint) {
+    newX = nearbyPoint.x;
+    newY = nearbyPoint.y;
+    circle.x(newX);
+    circle.y(newY);
+  }
+
   const newPoints = [...currentSkeleton.points];
-  newPoints[pointIdx] = { x: circle.x(), y: circle.y() };
+  newPoints[pointIdx] = { x: newX, y: newY };
 
   const updatedSkeleton: Skeleton = {
     ...currentSkeleton,
@@ -1174,10 +1343,37 @@ const handleSkeletonKeypointDragEnd = (
     updatedSkeleton,
     autoSuggest.value
   );
+
+  for (const cp of colocatedPoints.value) {
+    const cpSkeleton = getSkeletonAtFrame(cp.skeletonId, currentFrame.value);
+    if (!cpSkeleton) continue;
+
+    const cpPoints = [...cpSkeleton.points];
+    cpPoints[cp.pointIdx] = { x: newX, y: newY };
+
+    const updatedCpSkeleton: Skeleton = {
+      ...cpSkeleton,
+      points: cpPoints,
+    };
+
+    updateSkeletonKeyframe(
+      cp.skeletonId,
+      currentFrame.value,
+      updatedCpSkeleton,
+      autoSuggest.value
+    );
+  }
+
+  colocatedPoints.value = [];
+  colocatedCircleRefs.value = [];
+  dragStartPosition.value = null;
+
   saveAnnotations();
 
   const layer = skeletonLayerRef.value?.getNode();
-  if (layer) layer.batchDraw();
+  if (layer) {
+    layer.batchDraw();
+  }
 };
 
 const handleMouseDown = (e: any) => {
@@ -1189,7 +1385,6 @@ const handleMouseDown = (e: any) => {
 
   if (mode.value === "pan" || e.evt.altKey) {
     const target = e.target;
-    // Check if clicking on an annotation shape - if so, don't start panning (allow selection)
     const isClickOnAnnotation =
       target !== stage &&
       target.getClassName() !== "Image" &&
@@ -1201,18 +1396,15 @@ const handleMouseDown = (e: any) => {
         target.name() === "boundingBox");
 
     if (!isClickOnAnnotation) {
-      // Clicking on empty space - start panning
       isPanning.value = true;
       lastPanPoint.value = screenPos;
       stage.container().style.cursor = "grabbing";
-      // Clear selection when clicking on empty space
       selectedBboxTrackId.value = null;
       selectedPolygonTrackId.value = null;
       selectedSkeletonTrackId.value = null;
       timelineRef.value?.clearSelection();
       updateTransformerSelection();
     }
-    // If clicking on annotation, don't return - let the click event propagate to annotation handlers
     if (!isClickOnAnnotation) {
       return;
     }
@@ -1220,13 +1412,10 @@ const handleMouseDown = (e: any) => {
 
   if (mode.value === "polygon") {
     const target = e.target;
-    // Check if clicking on an existing polygon vertex - allow editing instead of starting new polygon
     const isClickOnPolygonVertex = target.name() === "polygonVertex";
     const isClickOnPolygon = target.name() === "polygon";
 
-    // If not actively drawing and clicking on existing polygon element, let click handlers handle it
     if (!polygonTool?.isDrawingActive() && (isClickOnPolygonVertex || isClickOnPolygon)) {
-      // Don't start new polygon - let the click event propagate to vertex/polygon handlers
       return;
     }
 
@@ -1243,13 +1432,10 @@ const handleMouseDown = (e: any) => {
 
   if (mode.value === "skeleton") {
     const target = e.target;
-    // Check if clicking on an existing skeleton keypoint - allow editing instead of starting new skeleton
     const isClickOnSkeletonKeypoint = target.name() === "skeletonKeypoint";
     const isClickOnSkeleton = target.name() === "skeleton";
 
-    // If not actively drawing and clicking on existing skeleton element, let click handlers handle it
     if (!skeletonTool?.isDrawingActive() && (isClickOnSkeletonKeypoint || isClickOnSkeleton)) {
-      // Don't start new skeleton - let the click event propagate to keypoint/skeleton handlers
       return;
     }
 
@@ -1414,7 +1600,6 @@ const handleMouseUp = async () => {
 
       if (result.canvas && result.contours.length > 0) {
         const ctx = offscreenCanvas.getContext("2d")!;
-        // Draw at logical dimensions - the context already has DPR scaling applied
         ctx.drawImage(
           result.canvas,
           0,
