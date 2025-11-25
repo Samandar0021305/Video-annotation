@@ -1,7 +1,7 @@
 import Konva from "konva";
 import type { Skeleton, SkeletonPoint } from "../types/skeleton";
 
-const SKELETON_MERGE_THRESHOLD = 5;
+const SKELETON_MERGE_THRESHOLD = 10;
 
 export class SkeletonTool {
   private layer: Konva.Layer | null = null;
