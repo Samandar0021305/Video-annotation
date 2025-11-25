@@ -360,11 +360,14 @@ const isPlaying = ref(false);
 const isClearingCache = ref(false);
 const isSaving = ref(false);
 const cursorShape = ref<Konva.Circle | null>(null);
+const drawingStartFrame = ref<number | null>(null);
 
 const lastPanPoint = ref<{ x: number; y: number } | null>(null);
 
 const frameImages = ref<Map<number, HTMLImageElement>>(new Map());
 const frameCanvases = ref<Map<number, HTMLCanvasElement>>(new Map());
+const annotationCanvases = ref<Map<number, HTMLCanvasElement>>(new Map());
+let currentAnnotationFrame = -1;
 
 const {
   tracks: bboxTracks,
@@ -374,8 +377,6 @@ const {
   updateKeyframe: updateBboxKeyframe,
   toggleInterpolation: toggleBboxInterpolation,
   deleteTrack: deleteBboxTrack,
-  jumpToNextKeyframe: jumpToNextBboxKeyframe,
-  jumpToPreviousKeyframe: jumpToPreviousBboxKeyframe,
 } = useBoundingBoxTracks(currentFrame);
 
 const {
@@ -386,8 +387,6 @@ const {
   updateKeyframe: updatePolygonKeyframe,
   toggleInterpolation: togglePolygonInterpolation,
   deleteTrack: deletePolygonTrack,
-  jumpToNextKeyframe: jumpToNextPolygonKeyframe,
-  jumpToPreviousKeyframe: jumpToPreviousPolygonKeyframe,
 } = usePolygonTracks(currentFrame);
 
 const {
@@ -398,20 +397,15 @@ const {
   updateKeyframe: updateSkeletonKeyframe,
   toggleInterpolation: toggleSkeletonInterpolation,
   deleteTrack: deleteSkeletonTrack,
-  jumpToNextKeyframe: jumpToNextSkeletonKeyframe,
-  jumpToPreviousKeyframe: jumpToPreviousSkeletonKeyframe,
 } = useSkeletonTracks(currentFrame);
 
 const {
   tracks: brushTracks,
   selectedTrackId: selectedBrushTrackId,
   createTrack: createBrushTrack,
-  addKeyframe: addBrushKeyframe,
   getContoursAtFrame,
   toggleInterpolation: toggleBrushInterpolation,
   deleteTrack: deleteBrushTrack,
-  jumpToNextKeyframe: jumpToNextBrushKeyframe,
-  jumpToPreviousKeyframe: jumpToPreviousBrushKeyframe,
 } = useBrushTracks(currentFrame);
 
 const brushClasses = computed(() => {
@@ -565,11 +559,15 @@ const renderFrame = async (frameIndex: number) => {
   currentImage.value = img;
   currentFrame.value = frameIndex;
 
+  if (isDrawing.value) {
+    return;
+  }
+
   const existingCanvas = frameCanvases.value.get(frameIndex);
   if (existingCanvas) {
-    updateAnnotationLayer(existingCanvas);
+    updateAnnotationLayer(existingCanvas, frameIndex);
   } else {
-    let brushCanvas: HTMLCanvasElement | null = null;
+    let combinedCanvas: HTMLCanvasElement | null = null;
 
     for (const [trackId] of brushTracks.value) {
       const result = await getContoursAtFrame(
@@ -582,18 +580,26 @@ const renderFrame = async (frameIndex: number) => {
       );
 
       if (result.canvas && result.contours.length > 0) {
-        brushCanvas = result.canvas;
-        break;
+        if (!combinedCanvas) {
+          combinedCanvas = document.createElement("canvas");
+          combinedCanvas.width = result.canvas.width;
+          combinedCanvas.height = result.canvas.height;
+        }
+        const ctx = combinedCanvas.getContext("2d")!;
+        ctx.drawImage(result.canvas, 0, 0);
       }
     }
 
-    if (brushCanvas) {
-      updateAnnotationLayer(brushCanvas);
+    if (combinedCanvas) {
+      updateAnnotationLayer(combinedCanvas, frameIndex);
     } else {
-      const brushGroup = brushAnnotationGroupRef.value?.getNode();
-      if (brushGroup) {
-        brushGroup.destroyChildren();
-        annotationsLayerRef.value?.getNode()?.batchDraw();
+      if (currentAnnotationFrame !== frameIndex) {
+        const brushGroup = brushAnnotationGroupRef.value?.getNode();
+        if (brushGroup) {
+          brushGroup.destroyChildren();
+          currentAnnotationFrame = frameIndex;
+          annotationsLayerRef.value?.getNode()?.batchDraw();
+        }
       }
     }
   }
@@ -1471,6 +1477,7 @@ const handleMouseDown = (e: any) => {
     if (!logicalPos) return;
 
     isDrawing.value = true;
+    drawingStartFrame.value = currentFrame.value;
     brush.value.startStroke(logicalPos);
 
     const brushLayer = brushPreviewGroupRef.value?.getNode();
@@ -1584,19 +1591,36 @@ const handleMouseUp = async () => {
   if (mode.value !== "brush" && mode.value !== "eraser") return;
 
   const points = brush.value.endStroke();
-  isDrawing.value = false;
 
-  if (points.length === 0) return;
+  if (points.length === 0) {
+    isDrawing.value = false;
+    drawingStartFrame.value = null;
+    return;
+  }
 
-  let offscreenCanvas = frameCanvases.value.get(currentFrame.value);
+  const targetFrame = drawingStartFrame.value ?? currentFrame.value;
+  drawingStartFrame.value = null;
 
-  if (!offscreenCanvas) {
-    offscreenCanvas = createOffscreenCanvas(currentImage.value);
+  const strokeCanvas = createOffscreenCanvas(currentImage.value);
+  const strokeCtx = strokeCanvas.getContext("2d")!;
+  strokeCtx.clearRect(0, 0, strokeCanvas.width, strokeCanvas.height);
+
+  if (mode.value === "eraser") {
+    strokeCtx.globalCompositeOperation = "destination-out";
+  } else {
+    strokeCtx.globalCompositeOperation = "source-over";
+  }
+
+  brush.value.renderToCanvas(strokeCanvas, points, 1);
+
+  let displayCanvas = frameCanvases.value.get(targetFrame);
+  if (!displayCanvas) {
+    displayCanvas = createOffscreenCanvas(currentImage.value);
 
     for (const [trackId] of brushTracks.value) {
       const result = await getContoursAtFrame(
         trackId,
-        currentFrame.value,
+        targetFrame,
         brushClasses.value,
         stageConfig.value.width,
         stageConfig.value.height,
@@ -1604,7 +1628,7 @@ const handleMouseUp = async () => {
       );
 
       if (result.canvas && result.contours.length > 0) {
-        const ctx = offscreenCanvas.getContext("2d")!;
+        const ctx = displayCanvas.getContext("2d")!;
         ctx.drawImage(
           result.canvas,
           0,
@@ -1612,24 +1636,21 @@ const handleMouseUp = async () => {
           stageConfig.value.width,
           stageConfig.value.height
         );
-        break;
       }
     }
 
-    frameCanvases.value.set(currentFrame.value, offscreenCanvas);
+    frameCanvases.value.set(targetFrame, displayCanvas);
   }
 
-  const ctx = offscreenCanvas.getContext("2d")!;
-  ctx.save();
-
+  const displayCtx = displayCanvas.getContext("2d")!;
+  displayCtx.save();
   if (mode.value === "eraser") {
-    ctx.globalCompositeOperation = "destination-out";
+    displayCtx.globalCompositeOperation = "destination-out";
   } else {
-    ctx.globalCompositeOperation = "source-over";
+    displayCtx.globalCompositeOperation = "source-over";
   }
-
-  brush.value.renderToCanvas(offscreenCanvas, points, 1);
-  ctx.restore();
+  displayCtx.drawImage(strokeCanvas, 0, 0);
+  displayCtx.restore();
 
   const brushGroup = brushPreviewGroupRef.value?.getNode();
   if (brushGroup) {
@@ -1637,40 +1658,34 @@ const handleMouseUp = async () => {
     interactiveLayerRef.value?.getNode()?.batchDraw();
   }
 
-  updateAnnotationLayer(offscreenCanvas);
+  annotationCanvases.value.delete(targetFrame);
+  updateAnnotationLayer(displayCanvas, targetFrame);
 
   if (mode.value === "brush") {
     try {
       const contours = await getSegmentationImageContoursForSaving(
-        offscreenCanvas,
+        strokeCanvas,
         1 / dpr,
         brushClasses.value
       );
 
       if (contours.length > 0) {
-        if (selectedBrushTrackId.value) {
-          addBrushKeyframe(
-            selectedBrushTrackId.value,
-            currentFrame.value,
-            contours,
-            autoSuggest.value
-          );
-        } else {
-          const trackId = createBrushTrack(
-            currentFrame.value,
-            contours,
-            undefined,
-            physicalFrames.value
-          );
-          selectedBrushTrackId.value = trackId;
-          timelineRef.value?.selectTrack(trackId, "brush");
-        }
+        const trackId = createBrushTrack(
+          targetFrame,
+          contours,
+          undefined,
+          physicalFrames.value
+        );
+        selectedBrushTrackId.value = null;
+        timelineRef.value?.selectTrack(trackId, "brush");
         saveAnnotations();
       }
     } catch (err) {
       console.error("Failed to extract contours:", err);
     }
   }
+
+  isDrawing.value = false;
 };
 
 const handleMouseLeave = () => {
@@ -1829,34 +1844,6 @@ const handleDeleteSelected = () => {
   saveAnnotations();
 };
 
-const handleJumpToNextKeyframe = () => {
-  const trackType = timelineRef.value?.selectedTrackType;
-
-  if (trackType === "bbox") {
-    jumpToNextBboxKeyframe(jumpToFrame);
-  } else if (trackType === "polygon") {
-    jumpToNextPolygonKeyframe(jumpToFrame);
-  } else if (trackType === "skeleton") {
-    jumpToNextSkeletonKeyframe(jumpToFrame);
-  } else if (trackType === "brush") {
-    jumpToNextBrushKeyframe(jumpToFrame);
-  }
-};
-
-const handleJumpToPreviousKeyframe = () => {
-  const trackType = timelineRef.value?.selectedTrackType;
-
-  if (trackType === "bbox") {
-    jumpToPreviousBboxKeyframe(jumpToFrame);
-  } else if (trackType === "polygon") {
-    jumpToPreviousPolygonKeyframe(jumpToFrame);
-  } else if (trackType === "skeleton") {
-    jumpToPreviousSkeletonKeyframe(jumpToFrame);
-  } else if (trackType === "brush") {
-    jumpToPreviousBrushKeyframe(jumpToFrame);
-  }
-};
-
 const handleClearCache = async () => {
   isClearingCache.value = true;
   try {
@@ -1914,17 +1901,26 @@ const updateCursor = (pos: { x: number; y: number }) => {
   interactiveLayerRef.value?.getNode()?.batchDraw();
 };
 
-const updateAnnotationLayer = (offscreenCanvas: HTMLCanvasElement) => {
+const updateAnnotationLayer = (offscreenCanvas: HTMLCanvasElement, frameNumber: number) => {
+  if (currentAnnotationFrame === frameNumber && annotationCanvases.value.has(frameNumber)) {
+    return;
+  }
+
   const brushGroup = brushAnnotationGroupRef.value?.getNode();
   if (!brushGroup) return;
 
   brushGroup.destroyChildren();
 
-  const snapshotCanvas = document.createElement("canvas");
-  snapshotCanvas.width = offscreenCanvas.width;
-  snapshotCanvas.height = offscreenCanvas.height;
+  let snapshotCanvas = annotationCanvases.value.get(frameNumber);
+  if (!snapshotCanvas) {
+    snapshotCanvas = document.createElement("canvas");
+    snapshotCanvas.width = offscreenCanvas.width;
+    snapshotCanvas.height = offscreenCanvas.height;
+    annotationCanvases.value.set(frameNumber, snapshotCanvas);
+  }
 
   const ctx = snapshotCanvas.getContext("2d", { alpha: true })!;
+  ctx.clearRect(0, 0, snapshotCanvas.width, snapshotCanvas.height);
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(offscreenCanvas, 0, 0);
 
@@ -1939,6 +1935,7 @@ const updateAnnotationLayer = (offscreenCanvas: HTMLCanvasElement) => {
   });
 
   brushGroup.add(konvaImage);
+  currentAnnotationFrame = frameNumber;
   annotationsLayerRef.value?.getNode()?.batchDraw();
 };
 
