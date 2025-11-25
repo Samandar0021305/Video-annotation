@@ -18,6 +18,7 @@ interface CachedMetadata {
   height: number;
   frameCount: number;
   cachedAt: number;
+  videoFileName?: string;
 }
 
 function openDB(): Promise<IDBDatabase> {
@@ -44,7 +45,8 @@ function openDB(): Promise<IDBDatabase> {
 export async function saveFramesToCache(
   frames: Array<{ id: string; imageUrl: string; frameNumber: number; timestamp: number }>,
   fps: number,
-  metadata: { duration: number; width: number; height: number }
+  metadata: { duration: number; width: number; height: number },
+  videoFileName?: string
 ): Promise<void> {
   const db = await openDB();
 
@@ -86,6 +88,7 @@ export async function saveFramesToCache(
     height: metadata.height,
     frameCount: frames.length,
     cachedAt: Date.now(),
+    videoFileName,
   };
 
   metadataStore.put(metadataEntry);
@@ -102,6 +105,7 @@ export async function loadFramesFromCache(): Promise<{
   frames: Array<{ id: string; imageUrl: string; frameNumber: number; timestamp: number }>;
   fps: number;
   metadata: { duration: number; width: number; height: number };
+  videoFileName?: string;
 } | null> {
   try {
     const db = await openDB();
@@ -152,6 +156,7 @@ export async function loadFramesFromCache(): Promise<{
         width: metadata.width,
         height: metadata.height,
       },
+      videoFileName: metadata.videoFileName,
     };
   } catch (error) {
     console.error('Failed to load frames from cache:', error);

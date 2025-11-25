@@ -304,6 +304,7 @@ import { useRouter } from "vue-router";
 import Konva from "konva";
 import { KonvaBrush } from "./KonvaBrush";
 import { useFramesStore } from "../../stores/framesStore";
+import { useAnnotationStore } from "../../stores/annotationStore";
 import { useBoundingBoxTracks } from "../../composables/useBoundingBoxTracks";
 import { usePolygonTracks } from "../../composables/usePolygonTracks";
 import { useSkeletonTracks } from "../../composables/useSkeletonTracks";
@@ -322,6 +323,7 @@ type TrackType = "bbox" | "polygon" | "skeleton" | "brush";
 
 const router = useRouter();
 const framesStore = useFramesStore();
+const annotationStore = useAnnotationStore();
 
 const stageRef = ref<any>(null);
 const backgroundLayerRef = ref<any>(null);
@@ -355,6 +357,7 @@ const isDrawing = ref(false);
 const isPanning = ref(false);
 const isPlaying = ref(false);
 const isClearingCache = ref(false);
+const isSaving = ref(false);
 const cursorShape = ref<Konva.Circle | null>(null);
 
 const lastPanPoint = ref<{ x: number; y: number } | null>(null);
@@ -742,6 +745,7 @@ const finishBboxDrawing = () => {
   );
   selectedBboxTrackId.value = trackId;
   timelineRef.value?.selectTrack(trackId, "bbox");
+  saveAnnotations();
 };
 
 const handleBboxClick = (e: any) => {
@@ -786,6 +790,7 @@ const handleBboxDragEnd = (e: any) => {
   group.scaleY(1);
 
   updateBboxKeyframe(trackId, currentFrame.value, updatedBox, autoSuggest.value);
+  saveAnnotations();
 
   nextTick(() => {
     updateTransformerSelection();
@@ -830,6 +835,7 @@ const handleBboxTransformEnd = () => {
   group.scaleY(1);
 
   updateBboxKeyframe(selectedBboxTrackId.value, currentFrame.value, updatedBox, autoSuggest.value);
+  saveAnnotations();
 
   nextTick(() => {
     updateTransformerSelection();
@@ -879,6 +885,7 @@ const completePolygonDrawing = () => {
   );
   selectedPolygonTrackId.value = trackId;
   timelineRef.value?.selectTrack(trackId, "polygon");
+  saveAnnotations();
 };
 
 const cancelPolygonDrawing = () => {
@@ -926,6 +933,7 @@ const handlePolygonDragEnd = (e: any) => {
   line.scaleY(1);
 
   updatePolygonKeyframe(trackId, currentFrame.value, updatedPolygon, autoSuggest.value);
+  saveAnnotations();
 
   const layer = polygonLayerRef.value?.getNode();
   if (layer) layer.batchDraw();
@@ -979,6 +987,7 @@ const handlePolygonVertexDragEnd = (
   };
 
   updatePolygonKeyframe(polygonId, currentFrame.value, updatedPolygon, autoSuggest.value);
+  saveAnnotations();
 
   const layer = polygonLayerRef.value?.getNode();
   if (layer) layer.batchDraw();
@@ -1019,6 +1028,7 @@ const completeSkeletonDrawing = () => {
   );
   selectedSkeletonTrackId.value = trackId;
   timelineRef.value?.selectTrack(trackId, "skeleton");
+  saveAnnotations();
 };
 
 const cancelSkeletonDrawing = () => {
@@ -1066,6 +1076,7 @@ const handleSkeletonDragEnd = (e: any) => {
   line.scaleY(1);
 
   updateSkeletonKeyframe(trackId, currentFrame.value, updatedSkeleton, autoSuggest.value);
+  saveAnnotations();
 
   const layer = skeletonLayerRef.value?.getNode();
   if (layer) layer.batchDraw();
@@ -1119,6 +1130,7 @@ const handleSkeletonKeypointDragEnd = (
   };
 
   updateSkeletonKeyframe(skeletonId, currentFrame.value, updatedSkeleton, autoSuggest.value);
+  saveAnnotations();
 
   const layer = skeletonLayerRef.value?.getNode();
   if (layer) layer.batchDraw();
@@ -1376,6 +1388,7 @@ const handleMouseUp = async () => {
           selectedBrushTrackId.value = trackId;
           timelineRef.value?.selectTrack(trackId, "brush");
         }
+        saveAnnotations();
       }
     } catch (err) {
       console.error("Failed to extract contours:", err);
@@ -1472,6 +1485,7 @@ const handleAddKeyframe = (trackId: string, type: TrackType) => {
       updateSkeletonKeyframe(trackId, currentFrame.value, currentSkeleton, autoSuggest.value);
     }
   }
+  saveAnnotations();
 };
 
 const handleUpdateRange = (
@@ -1494,6 +1508,7 @@ const handleUpdateRange = (
 
   if (track && track.ranges[rangeIndex]) {
     track.ranges[rangeIndex] = [start, end];
+    saveAnnotations();
   }
 };
 
@@ -1519,6 +1534,7 @@ const handleDeleteSelected = () => {
 
   timelineRef.value?.clearSelection();
   updateTransformerSelection();
+  saveAnnotations();
 };
 
 const handleJumpToNextKeyframe = () => {
@@ -1552,11 +1568,42 @@ const handleJumpToPreviousKeyframe = () => {
 const handleClearCache = async () => {
   isClearingCache.value = true;
   try {
+    const videoFileName = framesStore.videoFileName;
+    if (videoFileName) {
+      annotationStore.setVideoFileName(videoFileName);
+      await annotationStore.clearAll();
+    }
     await framesStore.clearCache();
     framesStore.clearFrames();
     router.push("/");
   } finally {
     isClearingCache.value = false;
+  }
+};
+
+const saveAnnotations = async () => {
+  if (isSaving.value) return;
+
+  const videoFileName = framesStore.videoFileName;
+  if (!videoFileName) {
+    console.error("No video file name available for saving");
+    return;
+  }
+
+  isSaving.value = true;
+  try {
+    annotationStore.setVideoFileName(videoFileName);
+    annotationStore.setAllTracks({
+      bbox: bboxTracks.value,
+      polygon: polygonTracks.value,
+      skeleton: skeletonTracks.value,
+      brush: brushTracks.value,
+    });
+    await annotationStore.save();
+  } catch (error) {
+    console.error("Failed to save annotations:", error);
+  } finally {
+    isSaving.value = false;
   }
 };
 
@@ -1701,6 +1748,36 @@ const initializePlayer = async () => {
   }
 };
 
+const loadAnnotationsFromStore = async () => {
+  let videoFileName = framesStore.videoFileName;
+
+  if (!videoFileName) {
+    videoFileName = annotationStore.videoFileName;
+  }
+
+  if (!videoFileName) {
+    console.warn("No video filename available, skipping annotation load. Please clear cache and re-extract video.");
+    return;
+  }
+
+  if (!framesStore.videoFileName) {
+    framesStore.setVideoFileName(videoFileName);
+  }
+
+  try {
+    await annotationStore.load(videoFileName);
+
+    bboxTracks.value = new Map(annotationStore.bboxTracks);
+    polygonTracks.value = new Map(annotationStore.polygonTracks);
+    skeletonTracks.value = new Map(annotationStore.skeletonTracks);
+    brushTracks.value = new Map(annotationStore.brushTracks);
+
+    await renderFrame(currentFrame.value);
+  } catch (error) {
+    console.error("Failed to load annotations:", error);
+  }
+};
+
 onMounted(async () => {
   if (!framesStore.hasFrames) {
     const hasCached = await framesStore.checkCache();
@@ -1710,6 +1787,7 @@ onMounted(async () => {
 
       if (loaded) {
         await initializePlayer();
+        await loadAnnotationsFromStore();
         return;
       }
     }
@@ -1719,6 +1797,7 @@ onMounted(async () => {
   }
 
   await initializePlayer();
+  await loadAnnotationsFromStore();
 });
 
 onUnmounted(() => {
