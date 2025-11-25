@@ -1,5 +1,5 @@
 import { ref, computed, type Ref } from 'vue';
-import type { Polygon, PolygonTrack, PolygonPoint } from '../types/polygon';
+import type { Polygon, PolygonTrack } from '../types/polygon';
 
 function findSurroundingKeyframes(
   keyframes: Map<number, Polygon>,
@@ -23,36 +23,6 @@ function findSurroundingKeyframes(
   return {
     before: beforeFrame !== null ? [beforeFrame, keyframes.get(beforeFrame)!] : null,
     after: afterFrame !== null ? [afterFrame, keyframes.get(afterFrame)!] : null
-  };
-}
-
-function interpolatePolygon(
-  poly1: Polygon,
-  poly2: Polygon,
-  frame1: number,
-  frame2: number,
-  targetFrame: number
-): Polygon {
-  if (poly1.points.length !== poly2.points.length) {
-    return poly1;
-  }
-
-  const t = (targetFrame - frame1) / (frame2 - frame1);
-
-  const interpolatedPoints: PolygonPoint[] = poly1.points.map((p1, i) => {
-    const p2 = poly2.points[i]!;
-    return {
-      x: p1.x + (p2.x - p1.x) * t,
-      y: p1.y + (p2.y - p1.y) * t
-    };
-  });
-
-  return {
-    id: poly1.id,
-    points: interpolatedPoints,
-    label: poly1.label,
-    color: poly1.color,
-    classId: poly1.classId
   };
 }
 
@@ -123,23 +93,34 @@ export function usePolygonTracks(currentFrame: Ref<number>) {
 
     if (!before && !after) return null;
     if (!before && after) return after[1];
-    if (before && !after) return before[1];
 
-    const [frame1, poly1] = before!;
-    const [frame2, poly2] = after!;
-
-    return interpolatePolygon(poly1, poly2, frame1, frame2, frame);
+    return before![1];
   }
 
   function updateKeyframe(
     trackId: string,
     frame: number,
-    polygon: Polygon
+    polygon: Polygon,
+    autoSuggestEnabled: boolean = false
   ): void {
     const track = tracks.value.get(trackId);
     if (!track) return;
 
-    track.keyframes.set(frame, { ...polygon, id: trackId });
+    if (autoSuggestEnabled) {
+      const originalPolygon = getPolygonAtFrame(trackId, frame);
+      track.keyframes.set(frame, { ...polygon, id: trackId });
+
+      const nextFrame = frame + 1;
+      const isNextFrameInRange = track.ranges.some(
+        ([start, end]) => nextFrame >= start && nextFrame < end
+      );
+
+      if (originalPolygon && !track.keyframes.has(nextFrame) && isNextFrameInRange) {
+        track.keyframes.set(nextFrame, { ...originalPolygon, id: trackId });
+      }
+    } else {
+      track.keyframes.set(frame, { ...polygon, id: trackId });
+    }
   }
 
   function toggleInterpolation(trackId: string): void {

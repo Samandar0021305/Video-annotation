@@ -26,35 +26,6 @@ function findSurroundingKeyframes(
   };
 }
 
-function interpolateRotation(r1: number, r2: number, t: number): number {
-  let diff = r2 - r1;
-  if (diff > 180) diff -= 360;
-  if (diff < -180) diff += 360;
-  return r1 + diff * t;
-}
-
-function interpolateBoundingBox(
-  box1: BoundingBox,
-  box2: BoundingBox,
-  frame1: number,
-  frame2: number,
-  targetFrame: number
-): BoundingBox {
-  const t = (targetFrame - frame1) / (frame2 - frame1);
-
-  return {
-    id: box1.id,
-    x: box1.x + (box2.x - box1.x) * t,
-    y: box1.y + (box2.y - box1.y) * t,
-    width: box1.width + (box2.width - box1.width) * t,
-    height: box1.height + (box2.height - box1.height) * t,
-    rotation: interpolateRotation(box1.rotation, box2.rotation, t),
-    label: box1.label,
-    color: box1.color,
-    classId: box1.classId
-  };
-}
-
 export function useBoundingBoxTracks(currentFrame: Ref<number>) {
   const tracks = ref<Map<string, BoundingBoxTrack>>(new Map());
   const selectedTrackId = ref<string | null>(null);
@@ -122,23 +93,34 @@ export function useBoundingBoxTracks(currentFrame: Ref<number>) {
 
     if (!before && !after) return null;
     if (!before && after) return after[1];
-    if (before && !after) return before[1];
 
-    const [frame1, box1] = before!;
-    const [frame2, box2] = after!;
-
-    return interpolateBoundingBox(box1, box2, frame1, frame2, frame);
+    return before![1];
   }
 
   function updateKeyframe(
     trackId: string,
     frame: number,
-    box: BoundingBox
+    box: BoundingBox,
+    autoSuggestEnabled: boolean = false
   ): void {
     const track = tracks.value.get(trackId);
     if (!track) return;
 
-    track.keyframes.set(frame, { ...box, id: trackId });
+    if (autoSuggestEnabled) {
+      const originalBox = getBoxAtFrame(trackId, frame);
+      track.keyframes.set(frame, { ...box, id: trackId });
+
+      const nextFrame = frame + 1;
+      const isNextFrameInRange = track.ranges.some(
+        ([start, end]) => nextFrame >= start && nextFrame < end
+      );
+
+      if (originalBox && !track.keyframes.has(nextFrame) && isNextFrameInRange) {
+        track.keyframes.set(nextFrame, { ...originalBox, id: trackId });
+      }
+    } else {
+      track.keyframes.set(frame, { ...box, id: trackId });
+    }
   }
 
   function toggleInterpolation(trackId: string): void {
