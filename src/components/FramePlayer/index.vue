@@ -8,23 +8,6 @@
       </div>
 
       <div class="control-group">
-        <button
-          @click="handleJumpToPreviousKeyframe"
-          class="keyframe-nav-btn"
-          :disabled="!timelineRef?.selectedTrackId"
-        >
-          ◄◄ Keyframe
-        </button>
-        <button
-          @click="handleJumpToNextKeyframe"
-          class="keyframe-nav-btn"
-          :disabled="!timelineRef?.selectedTrackId"
-        >
-          Keyframe ►►
-        </button>
-      </div>
-
-      <div class="control-group">
         <label>Mode:</label>
         <button :class="{ active: mode === 'brush' }" @click="setMode('brush')">
           Brush
@@ -105,6 +88,18 @@
       </div>
 
       <div class="control-group">
+        <label>Opacity: {{ Math.round(opacity * 100) }}%</label>
+        <input
+          type="range"
+          min="0.05"
+          max="1"
+          step="0.05"
+          v-model.number="opacity"
+          @input="handleOpacityChange"
+        />
+      </div>
+
+      <div class="control-group">
         <label>Zoom: {{ Math.round(zoomLevel * 100) }}%</label>
         <button @click="zoomIn">+</button>
         <button @click="zoomOut">-</button>
@@ -181,6 +176,7 @@
                 rotation: bbox.rotation,
                 draggable: mode === 'select',
                 name: 'boundingBox',
+                opacity: opacity,
               }"
               @click="handleBboxClick"
               @dragend="handleBboxDragEnd"
@@ -212,6 +208,7 @@
                   closed: true,
                   draggable: mode === 'select',
                   name: 'polygon',
+                  opacity: opacity,
                 }"
                 @click="handlePolygonClick"
                 @dragend="handlePolygonDragEnd"
@@ -232,6 +229,7 @@
                     timelineRef?.selectedTrackId === polygon.id ? 2 : 1,
                   draggable: mode === 'select',
                   name: 'polygonVertex',
+                  opacity: opacity,
                 }"
                 @dragmove="(e: any) => handlePolygonVertexDragMove(e, polygon.id, pointIdx)"
                 @dragend="(e: any) => handlePolygonVertexDragEnd(e, polygon.id, pointIdx)"
@@ -257,6 +255,7 @@
                   lineJoin: 'round',
                   draggable: mode === 'select',
                   name: 'skeleton',
+                  opacity: opacity,
                 }"
                 @click="handleSkeletonClick"
                 @dragend="handleSkeletonDragEnd"
@@ -277,6 +276,7 @@
                     timelineRef?.selectedTrackId === skeleton.id ? 2 : 1,
                   draggable: mode === 'select',
                   name: 'skeletonKeypoint',
+                  opacity: opacity,
                 }"
                 @dragmove="(e: any) => handleSkeletonKeypointDragMove(e, skeleton.id, pointIdx)"
                 @dragend="(e: any) => handleSkeletonKeypointDragEnd(e, skeleton.id, pointIdx)"
@@ -697,6 +697,10 @@ const handleBrushColorChange = () => {
   }
 };
 
+const handleOpacityChange = () => {
+  updateAllLayersOpacity();
+};
+
 const getStagePointerPosition = () => {
   const stage = stageRef.value?.getStage();
   if (!stage) return null;
@@ -789,7 +793,12 @@ const handleBboxDragEnd = (e: any) => {
   group.scaleX(1);
   group.scaleY(1);
 
-  updateBboxKeyframe(trackId, currentFrame.value, updatedBox, autoSuggest.value);
+  updateBboxKeyframe(
+    trackId,
+    currentFrame.value,
+    updatedBox,
+    autoSuggest.value
+  );
   saveAnnotations();
 
   nextTick(() => {
@@ -834,7 +843,12 @@ const handleBboxTransformEnd = () => {
   group.scaleX(1);
   group.scaleY(1);
 
-  updateBboxKeyframe(selectedBboxTrackId.value, currentFrame.value, updatedBox, autoSuggest.value);
+  updateBboxKeyframe(
+    selectedBboxTrackId.value,
+    currentFrame.value,
+    updatedBox,
+    autoSuggest.value
+  );
   saveAnnotations();
 
   nextTick(() => {
@@ -932,7 +946,12 @@ const handlePolygonDragEnd = (e: any) => {
   line.scaleX(1);
   line.scaleY(1);
 
-  updatePolygonKeyframe(trackId, currentFrame.value, updatedPolygon, autoSuggest.value);
+  updatePolygonKeyframe(
+    trackId,
+    currentFrame.value,
+    updatedPolygon,
+    autoSuggest.value
+  );
   saveAnnotations();
 
   const layer = polygonLayerRef.value?.getNode();
@@ -986,7 +1005,12 @@ const handlePolygonVertexDragEnd = (
     points: newPoints,
   };
 
-  updatePolygonKeyframe(polygonId, currentFrame.value, updatedPolygon, autoSuggest.value);
+  updatePolygonKeyframe(
+    polygonId,
+    currentFrame.value,
+    updatedPolygon,
+    autoSuggest.value
+  );
   saveAnnotations();
 
   const layer = polygonLayerRef.value?.getNode();
@@ -1075,7 +1099,12 @@ const handleSkeletonDragEnd = (e: any) => {
   line.scaleX(1);
   line.scaleY(1);
 
-  updateSkeletonKeyframe(trackId, currentFrame.value, updatedSkeleton, autoSuggest.value);
+  updateSkeletonKeyframe(
+    trackId,
+    currentFrame.value,
+    updatedSkeleton,
+    autoSuggest.value
+  );
   saveAnnotations();
 
   const layer = skeletonLayerRef.value?.getNode();
@@ -1129,7 +1158,12 @@ const handleSkeletonKeypointDragEnd = (
     points: newPoints,
   };
 
-  updateSkeletonKeyframe(skeletonId, currentFrame.value, updatedSkeleton, autoSuggest.value);
+  updateSkeletonKeyframe(
+    skeletonId,
+    currentFrame.value,
+    updatedSkeleton,
+    autoSuggest.value
+  );
   saveAnnotations();
 
   const layer = skeletonLayerRef.value?.getNode();
@@ -1377,7 +1411,12 @@ const handleMouseUp = async () => {
 
       if (contours.length > 0) {
         if (selectedBrushTrackId.value) {
-          addBrushKeyframe(selectedBrushTrackId.value, currentFrame.value, contours, autoSuggest.value);
+          addBrushKeyframe(
+            selectedBrushTrackId.value,
+            currentFrame.value,
+            contours,
+            autoSuggest.value
+          );
         } else {
           const trackId = createBrushTrack(
             currentFrame.value,
@@ -1472,17 +1511,32 @@ const handleAddKeyframe = (trackId: string, type: TrackType) => {
   if (type === "bbox") {
     const currentBox = getBoxAtFrame(trackId, currentFrame.value);
     if (currentBox) {
-      updateBboxKeyframe(trackId, currentFrame.value, currentBox, autoSuggest.value);
+      updateBboxKeyframe(
+        trackId,
+        currentFrame.value,
+        currentBox,
+        autoSuggest.value
+      );
     }
   } else if (type === "polygon") {
     const currentPolygon = getPolygonAtFrame(trackId, currentFrame.value);
     if (currentPolygon) {
-      updatePolygonKeyframe(trackId, currentFrame.value, currentPolygon, autoSuggest.value);
+      updatePolygonKeyframe(
+        trackId,
+        currentFrame.value,
+        currentPolygon,
+        autoSuggest.value
+      );
     }
   } else if (type === "skeleton") {
     const currentSkeleton = getSkeletonAtFrame(trackId, currentFrame.value);
     if (currentSkeleton) {
-      updateSkeletonKeyframe(trackId, currentFrame.value, currentSkeleton, autoSuggest.value);
+      updateSkeletonKeyframe(
+        trackId,
+        currentFrame.value,
+        currentSkeleton,
+        autoSuggest.value
+      );
     }
   }
   saveAnnotations();
@@ -1650,6 +1704,42 @@ const updateAnnotationLayer = (offscreenCanvas: HTMLCanvasElement) => {
   annotationLayer.batchDraw();
 };
 
+const updateAllLayersOpacity = () => {
+  const annotationLayer = annotationLayerRef.value?.getNode();
+  if (annotationLayer) {
+    annotationLayer.children?.forEach((child: any) => {
+      if (child.opacity) child.opacity(opacity.value);
+    });
+    annotationLayer.batchDraw();
+  }
+
+  const bboxLayer = bboxLayerRef.value?.getNode();
+  if (bboxLayer) {
+    bboxLayer.children?.forEach((child: any) => {
+      if (child.opacity && child.name() !== "transformer") {
+        child.opacity(opacity.value);
+      }
+    });
+    bboxLayer.batchDraw();
+  }
+
+  const polygonLayer = polygonLayerRef.value?.getNode();
+  if (polygonLayer) {
+    polygonLayer.children?.forEach((child: any) => {
+      if (child.opacity) child.opacity(opacity.value);
+    });
+    polygonLayer.batchDraw();
+  }
+
+  const skeletonLayer = skeletonLayerRef.value?.getNode();
+  if (skeletonLayer) {
+    skeletonLayer.children?.forEach((child: any) => {
+      if (child.opacity) child.opacity(opacity.value);
+    });
+    skeletonLayer.batchDraw();
+  }
+};
+
 const handleWheel = (e: WheelEvent) => {
   e.preventDefault();
 
@@ -1756,7 +1846,9 @@ const loadAnnotationsFromStore = async () => {
   }
 
   if (!videoFileName) {
-    console.warn("No video filename available, skipping annotation load. Please clear cache and re-extract video.");
+    console.warn(
+      "No video filename available, skipping annotation load. Please clear cache and re-extract video."
+    );
     return;
   }
 
