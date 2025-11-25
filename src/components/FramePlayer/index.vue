@@ -200,7 +200,7 @@
                   stroke: polygon.color,
                   strokeWidth: 2,
                   closed: true,
-                  draggable: mode === 'pan',
+                  draggable: canEditPolygon,
                   name: 'polygon',
                   opacity: opacity,
                 }"
@@ -221,7 +221,7 @@
                       : polygon.color,
                   strokeWidth:
                     timelineRef?.selectedTrackId === polygon.id ? 2 : 1,
-                  draggable: mode === 'pan',
+                  draggable: canEditPolygon,
                   name: 'polygonVertex',
                   opacity: opacity,
                 }"
@@ -247,7 +247,7 @@
                   strokeWidth: 2,
                   lineCap: 'round',
                   lineJoin: 'round',
-                  draggable: mode === 'pan',
+                  draggable: canEditSkeleton,
                   name: 'skeleton',
                   opacity: opacity,
                 }"
@@ -268,7 +268,7 @@
                       : skeleton.color,
                   strokeWidth:
                     timelineRef?.selectedTrackId === skeleton.id ? 2 : 1,
-                  draggable: mode === 'pan',
+                  draggable: canEditSkeleton,
                   name: 'skeletonKeypoint',
                   opacity: opacity,
                 }"
@@ -461,6 +461,20 @@ const imageConfig = computed(() => ({
   width: stageConfig.value.width,
   height: stageConfig.value.height,
 }));
+
+// Track if polygon/skeleton drawing is active for template reactivity
+const isPolygonDrawing = ref(false);
+const isSkeletonDrawing = ref(false);
+
+// Allow polygon editing in polygon mode when not actively drawing
+const canEditPolygon = computed(() =>
+  mode.value === 'pan' || (mode.value === 'polygon' && !isPolygonDrawing.value)
+);
+
+// Allow skeleton editing in skeleton mode when not actively drawing
+const canEditSkeleton = computed(() =>
+  mode.value === 'pan' || (mode.value === 'skeleton' && !isSkeletonDrawing.value)
+);
 
 const currentFrameBboxes = computed(() => {
   const result: BoundingBox[] = [];
@@ -851,6 +865,7 @@ const setupPolygonTool = () => {
 const startPolygonDrawing = (pos: { x: number; y: number }) => {
   if (!polygonTool) return;
   polygonTool.startDrawing(pos, polygonColor.value);
+  isPolygonDrawing.value = true;
 };
 
 const addPolygonPoint = (pos: { x: number; y: number }) => {
@@ -875,6 +890,7 @@ const completePolygonDrawing = () => {
   if (!polygonTool) return;
 
   const polygon = polygonTool.completeDrawing(polygonColor.value);
+  isPolygonDrawing.value = false;
   if (!polygon) return;
 
   const trackId = createPolygonTrack(
@@ -891,10 +907,12 @@ const completePolygonDrawing = () => {
 const cancelPolygonDrawing = () => {
   if (!polygonTool) return;
   polygonTool.cancelDrawing();
+  isPolygonDrawing.value = false;
 };
 
 const handlePolygonClick = (e: any) => {
-  if (mode.value !== "pan") return;
+  // Allow selection in pan mode, or in polygon mode when not actively drawing
+  if (!canEditPolygon.value) return;
 
   const line = e.target;
   if (line && line.id()) {
@@ -945,7 +963,8 @@ const handlePolygonDragEnd = (e: any) => {
 };
 
 const handlePolygonVertexClick = (polygonId: string) => {
-  if (mode.value !== "pan") return;
+  // Allow selection in pan mode, or in polygon mode when not actively drawing
+  if (!canEditPolygon.value) return;
   selectedPolygonTrackId.value = polygonId;
   selectedBboxTrackId.value = null;
   selectedSkeletonTrackId.value = null;
@@ -1012,6 +1031,7 @@ const setupSkeletonTool = () => {
 const startSkeletonDrawing = (pos: { x: number; y: number }) => {
   if (!skeletonTool) return;
   skeletonTool.startDrawing(pos, skeletonColor.value);
+  isSkeletonDrawing.value = true;
 };
 
 const addSkeletonPoint = (pos: { x: number; y: number }) => {
@@ -1028,6 +1048,7 @@ const completeSkeletonDrawing = () => {
   if (!skeletonTool) return;
 
   const skeleton = skeletonTool.completeDrawing(skeletonColor.value);
+  isSkeletonDrawing.value = false;
   if (!skeleton) return;
 
   const trackId = createSkeletonTrack(
@@ -1044,10 +1065,12 @@ const completeSkeletonDrawing = () => {
 const cancelSkeletonDrawing = () => {
   if (!skeletonTool) return;
   skeletonTool.cancelDrawing();
+  isSkeletonDrawing.value = false;
 };
 
 const handleSkeletonClick = (e: any) => {
-  if (mode.value !== "pan") return;
+  // Allow selection in pan mode, or in skeleton mode when not actively drawing
+  if (!canEditSkeleton.value) return;
 
   const line = e.target;
   if (line && line.id()) {
@@ -1098,7 +1121,8 @@ const handleSkeletonDragEnd = (e: any) => {
 };
 
 const handleSkeletonKeypointClick = (skeletonId: string) => {
-  if (mode.value !== "pan") return;
+  // Allow selection in pan mode, or in skeleton mode when not actively drawing
+  if (!canEditSkeleton.value) return;
   selectedSkeletonTrackId.value = skeletonId;
   selectedBboxTrackId.value = null;
   selectedPolygonTrackId.value = null;
@@ -1195,6 +1219,17 @@ const handleMouseDown = (e: any) => {
   }
 
   if (mode.value === "polygon") {
+    const target = e.target;
+    // Check if clicking on an existing polygon vertex - allow editing instead of starting new polygon
+    const isClickOnPolygonVertex = target.name() === "polygonVertex";
+    const isClickOnPolygon = target.name() === "polygon";
+
+    // If not actively drawing and clicking on existing polygon element, let click handlers handle it
+    if (!polygonTool?.isDrawingActive() && (isClickOnPolygonVertex || isClickOnPolygon)) {
+      // Don't start new polygon - let the click event propagate to vertex/polygon handlers
+      return;
+    }
+
     const logicalPos = getLogicalPointerPosition();
     if (!logicalPos) return;
 
@@ -1207,6 +1242,17 @@ const handleMouseDown = (e: any) => {
   }
 
   if (mode.value === "skeleton") {
+    const target = e.target;
+    // Check if clicking on an existing skeleton keypoint - allow editing instead of starting new skeleton
+    const isClickOnSkeletonKeypoint = target.name() === "skeletonKeypoint";
+    const isClickOnSkeleton = target.name() === "skeleton";
+
+    // If not actively drawing and clicking on existing skeleton element, let click handlers handle it
+    if (!skeletonTool?.isDrawingActive() && (isClickOnSkeletonKeypoint || isClickOnSkeleton)) {
+      // Don't start new skeleton - let the click event propagate to keypoint/skeleton handlers
+      return;
+    }
+
     const logicalPos = getLogicalPointerPosition();
     if (!logicalPos) return;
 
