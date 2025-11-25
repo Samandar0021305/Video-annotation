@@ -45,11 +45,12 @@
         v-if="
           bboxTracks.size === 0 &&
           polygonTracks.size === 0 &&
-          skeletonTracks.size === 0
+          skeletonTracks.size === 0 &&
+          brushTracks.size === 0
         "
         class="timeline-empty"
       >
-        No tracks yet. Draw with bbox, polygon, or skeleton tool to create one.
+        No tracks yet. Draw with bbox, polygon, skeleton, or brush tool to create one.
       </div>
 
       <div
@@ -317,6 +318,93 @@
           </div>
         </div>
       </div>
+
+      <div
+        v-for="[trackId, track] in Array.from(brushTracks.entries())"
+        :key="trackId"
+        class="timeline-track-row"
+        :class="{
+          selected:
+            selectedTrackId === trackId && selectedTrackType === 'brush',
+        }"
+        @click="selectTrack(trackId, 'brush')"
+      >
+        <div class="track-label">
+          <span class="track-icon">🖌️</span>
+          <span class="track-name">{{ trackId.substring(0, 12) }}...</span>
+          <span class="keyframe-count">{{ track.keyframes.size }} keys</span>
+        </div>
+
+        <div class="track-timeline">
+          <div
+            class="current-frame-line"
+            :style="{ left: currentFramePercentage + '%' }"
+          >
+            <div class="playhead"></div>
+          </div>
+
+          <div
+            v-for="(range, rangeIndex) in track.ranges || []"
+            :key="`${trackId}-brush-range-${rangeIndex}`"
+            class="timeline-segment-bar brush"
+            :class="{
+              selected:
+                selectedTrackId === trackId && selectedTrackType === 'brush',
+            }"
+            :style="{
+              left: (range[0] / (totalFrames || 1)) * 100 + '%',
+              width: ((range[1] - range[0]) / (totalFrames || 1)) * 100 + '%',
+            }"
+          >
+            <div
+              class="resize-handle left"
+              @mousedown.stop="
+                startRangeResize(
+                  $event,
+                  trackId,
+                  'brush',
+                  rangeIndex,
+                  'left',
+                  range[0],
+                  range[1]
+                )
+              "
+            ></div>
+            <div
+              class="resize-handle right"
+              @mousedown.stop="
+                startRangeResize(
+                  $event,
+                  trackId,
+                  'brush',
+                  rangeIndex,
+                  'right',
+                  range[0],
+                  range[1]
+                )
+              "
+            ></div>
+          </div>
+
+          <div
+            v-for="frameNum in Array.from(track.keyframes.keys())"
+            :key="`${trackId}-brush-${frameNum}`"
+            v-show="isFrameInRanges(frameNum, track.ranges || [])"
+            class="keyframe-diamond"
+            :class="{
+              active: frameNum === currentFrame,
+              selected:
+                selectedTrackId === trackId &&
+                selectedTrackType === 'brush' &&
+                frameNum === currentFrame,
+            }"
+            :style="{ left: (frameNum / (totalFrames || 1)) * 100 + '%' }"
+            @click.stop="$emit('jump-to-frame', frameNum)"
+          >
+            <div class="diamond-shape"></div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="timeline-scrubber-container">
@@ -337,8 +425,9 @@ import { computed, ref, onBeforeUnmount } from "vue";
 import type { BoundingBoxTrack } from "../../types/boundingBox";
 import type { PolygonTrack } from "../../types/polygon";
 import type { SkeletonTrack } from "../../types/skeleton";
+import type { BrushTrack } from "../../composables/useBrushTracks";
 
-type TrackType = "bbox" | "polygon" | "skeleton";
+type TrackType = "bbox" | "polygon" | "skeleton" | "brush";
 
 const props = defineProps<{
   currentFrame: number;
@@ -347,6 +436,7 @@ const props = defineProps<{
   bboxTracks: Map<string, BoundingBoxTrack>;
   polygonTracks: Map<string, PolygonTrack>;
   skeletonTracks: Map<string, SkeletonTrack>;
+  brushTracks: Map<string, BrushTrack>;
 }>();
 
 const emit = defineEmits<{
@@ -386,7 +476,12 @@ const currentFramePercentage = computed(() => {
 const isCurrentFrameKeyframe = computed(() => {
   if (!selectedTrackId.value || !selectedTrackType.value) return false;
 
-  let track: BoundingBoxTrack | PolygonTrack | SkeletonTrack | undefined;
+  let track:
+    | BoundingBoxTrack
+    | PolygonTrack
+    | SkeletonTrack
+    | BrushTrack
+    | undefined;
 
   if (selectedTrackType.value === "bbox") {
     track = props.bboxTracks.get(selectedTrackId.value);
@@ -394,6 +489,8 @@ const isCurrentFrameKeyframe = computed(() => {
     track = props.polygonTracks.get(selectedTrackId.value);
   } else if (selectedTrackType.value === "skeleton") {
     track = props.skeletonTracks.get(selectedTrackId.value);
+  } else if (selectedTrackType.value === "brush") {
+    track = props.brushTracks.get(selectedTrackId.value);
   }
 
   return track ? track.keyframes.has(props.currentFrame) : false;
@@ -402,7 +499,12 @@ const isCurrentFrameKeyframe = computed(() => {
 const isInterpolationEnabled = computed(() => {
   if (!selectedTrackId.value || !selectedTrackType.value) return false;
 
-  let track: BoundingBoxTrack | PolygonTrack | SkeletonTrack | undefined;
+  let track:
+    | BoundingBoxTrack
+    | PolygonTrack
+    | SkeletonTrack
+    | BrushTrack
+    | undefined;
 
   if (selectedTrackType.value === "bbox") {
     track = props.bboxTracks.get(selectedTrackId.value);
@@ -410,6 +512,8 @@ const isInterpolationEnabled = computed(() => {
     track = props.polygonTracks.get(selectedTrackId.value);
   } else if (selectedTrackType.value === "skeleton") {
     track = props.skeletonTracks.get(selectedTrackId.value);
+  } else if (selectedTrackType.value === "brush") {
+    track = props.brushTracks.get(selectedTrackId.value);
   }
 
   return track ? track.interpolationEnabled : false;
@@ -746,6 +850,11 @@ defineExpose({
 .timeline-segment-bar.skeleton {
   background: rgba(0, 0, 255, 0.25);
   border-color: #0000ff;
+}
+
+.timeline-segment-bar.brush {
+  background: rgba(255, 165, 0, 0.25);
+  border-color: #ffa500;
 }
 
 .timeline-segment-bar.selected {
