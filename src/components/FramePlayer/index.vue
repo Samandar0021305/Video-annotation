@@ -155,137 +155,140 @@
           </v-layer>
 
           <v-layer
-            ref="annotationLayerRef"
+            ref="annotationsLayerRef"
             :config="{ imageSmoothingEnabled: false }"
-          ></v-layer>
+          >
+            <v-group ref="brushAnnotationGroupRef"></v-group>
 
-          <v-layer ref="bboxLayerRef">
-            <v-group
-              v-for="bbox in currentFrameBboxes"
-              :key="bbox.id"
-              :config="{
-                id: bbox.id,
-                x: bbox.x,
-                y: bbox.y,
-                rotation: bbox.rotation,
-                draggable: mode === 'pan',
-                name: 'boundingBox',
-                opacity: opacity,
-              }"
-              @click="handleBboxClick"
-              @dragend="handleBboxDragEnd"
-              @transformend="handleBboxTransformEnd"
-            >
-              <v-rect
+            <v-group ref="bboxGroupRef">
+              <v-group
+                v-for="bbox in currentFrameBboxes"
+                :key="bbox.id"
                 :config="{
-                  width: bbox.width,
-                  height: bbox.height,
-                  stroke: bbox.color,
-                  strokeWidth: 2,
-                  fill: bbox.color + '20',
+                  id: bbox.id,
+                  x: bbox.x,
+                  y: bbox.y,
+                  rotation: bbox.rotation,
+                  draggable: mode === 'pan',
+                  name: 'boundingBox',
+                  opacity: opacity,
                 }"
-              />
+                @click="handleBboxClick"
+                @dragend="handleBboxDragEnd"
+                @transformend="handleBboxTransformEnd"
+              >
+                <v-rect
+                  :config="{
+                    width: bbox.width,
+                    height: bbox.height,
+                    stroke: bbox.color,
+                    strokeWidth: 2,
+                    fill: bbox.color + '20',
+                  }"
+                />
+              </v-group>
+            </v-group>
+
+            <v-group ref="polygonGroupRef">
+              <template v-for="polygon in currentFramePolygons" :key="polygon.id">
+                <v-line
+                  :config="{
+                    id: polygon.id,
+                    x: 0,
+                    y: 0,
+                    points: polygon.points.flatMap((p) => [p.x, p.y]),
+                    fill: polygon.color + '30',
+                    stroke: polygon.color,
+                    strokeWidth: 2,
+                    closed: true,
+                    draggable: canEditPolygon,
+                    name: 'polygon',
+                    opacity: opacity,
+                  }"
+                  @click="handlePolygonClick"
+                  @dragend="handlePolygonDragEnd"
+                />
+                <v-circle
+                  v-for="(point, pointIdx) in polygon.points"
+                  :key="`${polygon.id}-pt-${pointIdx}`"
+                  :config="{
+                    x: point.x,
+                    y: point.y,
+                    radius: 6,
+                    fill: polygon.color,
+                    stroke:
+                      timelineRef?.selectedTrackId === polygon.id
+                        ? '#fff'
+                        : polygon.color,
+                    strokeWidth:
+                      timelineRef?.selectedTrackId === polygon.id ? 2 : 1,
+                    draggable: canEditPolygon,
+                    name: 'polygonVertex',
+                    opacity: opacity,
+                  }"
+                  @dragmove="(e: any) => handlePolygonVertexDragMove(e, polygon.id, pointIdx)"
+                  @dragend="(e: any) => handlePolygonVertexDragEnd(e, polygon.id, pointIdx)"
+                  @click="() => handlePolygonVertexClick(polygon.id)"
+                />
+              </template>
+            </v-group>
+
+            <v-group ref="skeletonGroupRef">
+              <template
+                v-for="skeleton in currentFrameSkeletons"
+                :key="skeleton.id"
+              >
+                <v-line
+                  :config="{
+                    id: skeleton.id,
+                    x: 0,
+                    y: 0,
+                    points: skeleton.points.flatMap((p) => [p.x, p.y]),
+                    stroke: skeleton.color,
+                    strokeWidth: 2,
+                    lineCap: 'round',
+                    lineJoin: 'round',
+                    draggable: canEditSkeleton,
+                    name: 'skeleton',
+                    opacity: opacity,
+                  }"
+                  @click="handleSkeletonClick"
+                  @dragend="handleSkeletonDragEnd"
+                />
+                <v-circle
+                  v-for="(point, pointIdx) in skeleton.points"
+                  :key="`${skeleton.id}-kp-${pointIdx}`"
+                  :config="{
+                    x: point.x,
+                    y: point.y,
+                    radius: 6,
+                    fill: skeleton.color,
+                    stroke:
+                      timelineRef?.selectedTrackId === skeleton.id
+                        ? '#fff'
+                        : skeleton.color,
+                    strokeWidth:
+                      timelineRef?.selectedTrackId === skeleton.id ? 2 : 1,
+                    draggable: canEditSkeleton,
+                    name: 'skeletonKeypoint',
+                    opacity: opacity,
+                  }"
+                  @dragstart="(e: any) => handleSkeletonKeypointDragStart(e, skeleton.id, pointIdx)"
+                  @dragmove="(e: any) => handleSkeletonKeypointDragMove(e, skeleton.id, pointIdx)"
+                  @dragend="(e: any) => handleSkeletonKeypointDragEnd(e, skeleton.id, pointIdx)"
+                  @click="() => handleSkeletonKeypointClick(skeleton.id)"
+                />
+              </template>
             </v-group>
           </v-layer>
 
-          <v-layer ref="polygonLayerRef">
-            <template v-for="polygon in currentFramePolygons" :key="polygon.id">
-              <v-line
-                :config="{
-                  id: polygon.id,
-                  x: 0,
-                  y: 0,
-                  points: polygon.points.flatMap((p) => [p.x, p.y]),
-                  fill: polygon.color + '30',
-                  stroke: polygon.color,
-                  strokeWidth: 2,
-                  closed: true,
-                  draggable: canEditPolygon,
-                  name: 'polygon',
-                  opacity: opacity,
-                }"
-                @click="handlePolygonClick"
-                @dragend="handlePolygonDragEnd"
-              />
-              <v-circle
-                v-for="(point, pointIdx) in polygon.points"
-                :key="`${polygon.id}-pt-${pointIdx}`"
-                :config="{
-                  x: point.x,
-                  y: point.y,
-                  radius: 6,
-                  fill: polygon.color,
-                  stroke:
-                    timelineRef?.selectedTrackId === polygon.id
-                      ? '#fff'
-                      : polygon.color,
-                  strokeWidth:
-                    timelineRef?.selectedTrackId === polygon.id ? 2 : 1,
-                  draggable: canEditPolygon,
-                  name: 'polygonVertex',
-                  opacity: opacity,
-                }"
-                @dragmove="(e: any) => handlePolygonVertexDragMove(e, polygon.id, pointIdx)"
-                @dragend="(e: any) => handlePolygonVertexDragEnd(e, polygon.id, pointIdx)"
-                @click="() => handlePolygonVertexClick(polygon.id)"
-              />
-            </template>
+          <v-layer ref="interactiveLayerRef">
+            <v-group
+              ref="brushPreviewGroupRef"
+              :config="{ imageSmoothingEnabled: false }"
+            ></v-group>
+            <v-group ref="cursorGroupRef"></v-group>
           </v-layer>
-
-          <v-layer ref="skeletonLayerRef">
-            <template
-              v-for="skeleton in currentFrameSkeletons"
-              :key="skeleton.id"
-            >
-              <v-line
-                :config="{
-                  id: skeleton.id,
-                  x: 0,
-                  y: 0,
-                  points: skeleton.points.flatMap((p) => [p.x, p.y]),
-                  stroke: skeleton.color,
-                  strokeWidth: 2,
-                  lineCap: 'round',
-                  lineJoin: 'round',
-                  draggable: canEditSkeleton,
-                  name: 'skeleton',
-                  opacity: opacity,
-                }"
-                @click="handleSkeletonClick"
-                @dragend="handleSkeletonDragEnd"
-              />
-              <v-circle
-                v-for="(point, pointIdx) in skeleton.points"
-                :key="`${skeleton.id}-kp-${pointIdx}`"
-                :config="{
-                  x: point.x,
-                  y: point.y,
-                  radius: 6,
-                  fill: skeleton.color,
-                  stroke:
-                    timelineRef?.selectedTrackId === skeleton.id
-                      ? '#fff'
-                      : skeleton.color,
-                  strokeWidth:
-                    timelineRef?.selectedTrackId === skeleton.id ? 2 : 1,
-                  draggable: canEditSkeleton,
-                  name: 'skeletonKeypoint',
-                  opacity: opacity,
-                }"
-                @dragstart="(e: any) => handleSkeletonKeypointDragStart(e, skeleton.id, pointIdx)"
-                @dragmove="(e: any) => handleSkeletonKeypointDragMove(e, skeleton.id, pointIdx)"
-                @dragend="(e: any) => handleSkeletonKeypointDragEnd(e, skeleton.id, pointIdx)"
-                @click="() => handleSkeletonKeypointClick(skeleton.id)"
-              />
-            </template>
-          </v-layer>
-
-          <v-layer
-            ref="brushLayerRef"
-            :config="{ imageSmoothingEnabled: false }"
-          ></v-layer>
-
-          <v-layer ref="cursorLayerRef"></v-layer>
         </v-stage>
       </div>
       <div v-else class="loading">Loading frames...</div>
@@ -322,12 +325,14 @@ const annotationStore = useAnnotationStore();
 
 const stageRef = ref<any>(null);
 const backgroundLayerRef = ref<any>(null);
-const annotationLayerRef = ref<any>(null);
-const bboxLayerRef = ref<any>(null);
-const polygonLayerRef = ref<any>(null);
-const skeletonLayerRef = ref<any>(null);
-const brushLayerRef = ref<any>(null);
-const cursorLayerRef = ref<any>(null);
+const annotationsLayerRef = ref<any>(null);
+const interactiveLayerRef = ref<any>(null);
+const brushAnnotationGroupRef = ref<any>(null);
+const bboxGroupRef = ref<any>(null);
+const polygonGroupRef = ref<any>(null);
+const skeletonGroupRef = ref<any>(null);
+const brushPreviewGroupRef = ref<any>(null);
+const cursorGroupRef = ref<any>(null);
 const containerRef = ref<HTMLDivElement | null>(null);
 const timelineRef = ref<InstanceType<typeof FramePlayerTimeline> | null>(null);
 
@@ -585,10 +590,10 @@ const renderFrame = async (frameIndex: number) => {
     if (brushCanvas) {
       updateAnnotationLayer(brushCanvas);
     } else {
-      const annotationLayer = annotationLayerRef.value?.getNode();
-      if (annotationLayer) {
-        annotationLayer.destroyChildren();
-        annotationLayer.batchDraw();
+      const brushGroup = brushAnnotationGroupRef.value?.getNode();
+      if (brushGroup) {
+        brushGroup.destroyChildren();
+        annotationsLayerRef.value?.getNode()?.batchDraw();
       }
     }
   }
@@ -657,7 +662,7 @@ const setMode = (
   if (cursorShape.value) {
     cursorShape.value.destroy();
     cursorShape.value = null;
-    cursorLayerRef.value?.getNode().batchDraw();
+    interactiveLayerRef.value?.getNode()?.batchDraw();
   }
 
   if (newMode === "pan") {
@@ -712,8 +717,8 @@ const getLogicalPointerPosition = () => {
 };
 
 const setupTransformer = () => {
-  if (!bboxLayerRef.value) return;
-  const layer = bboxLayerRef.value.getNode();
+  if (!annotationsLayerRef.value) return;
+  const layer = annotationsLayerRef.value.getNode();
   bboxTool = new BBoxTool(layer);
   bboxTool.setupTransformer();
 };
@@ -813,7 +818,7 @@ const handleBboxTransformEnd = () => {
   );
   if (!currentBox) return;
 
-  const layer = bboxLayerRef.value?.getNode();
+  const layer = annotationsLayerRef.value?.getNode();
   if (!layer) return;
 
   const group = layer.findOne(`#${selectedBboxTrackId.value}`);
@@ -855,8 +860,8 @@ const handleBboxTransformEnd = () => {
 };
 
 const setupPolygonTool = () => {
-  if (!polygonLayerRef.value) return;
-  const layer = polygonLayerRef.value.getNode();
+  if (!annotationsLayerRef.value) return;
+  const layer = annotationsLayerRef.value.getNode();
   polygonTool = new PolygonTool(layer);
 };
 
@@ -955,7 +960,7 @@ const handlePolygonDragEnd = (e: any) => {
   );
   saveAnnotations();
 
-  const layer = polygonLayerRef.value?.getNode();
+  const layer = annotationsLayerRef.value?.getNode();
   if (layer) layer.batchDraw();
 };
 
@@ -979,7 +984,7 @@ const handlePolygonVertexDragMove = (
   const newPoints = [...currentPolygon.points];
   newPoints[pointIdx] = { x: circle.x(), y: circle.y() };
 
-  const layer = polygonLayerRef.value?.getNode();
+  const layer = annotationsLayerRef.value?.getNode();
   if (layer) {
     const line = layer.findOne(`#${polygonId}`);
     if (line) {
@@ -1014,13 +1019,13 @@ const handlePolygonVertexDragEnd = (
   );
   saveAnnotations();
 
-  const layer = polygonLayerRef.value?.getNode();
+  const layer = annotationsLayerRef.value?.getNode();
   if (layer) layer.batchDraw();
 };
 
 const setupSkeletonTool = () => {
-  if (!skeletonLayerRef.value) return;
-  const layer = skeletonLayerRef.value.getNode();
+  if (!annotationsLayerRef.value) return;
+  const layer = annotationsLayerRef.value.getNode();
   skeletonTool = new SkeletonTool(layer);
 };
 
@@ -1111,7 +1116,7 @@ const handleSkeletonDragEnd = (e: any) => {
   );
   saveAnnotations();
 
-  const layer = skeletonLayerRef.value?.getNode();
+  const layer = annotationsLayerRef.value?.getNode();
   if (layer) layer.batchDraw();
 };
 
@@ -1217,7 +1222,7 @@ const handleSkeletonKeypointDragStart = (
   dragStartPosition.value = { x: point.x, y: point.y };
   colocatedPoints.value = findColocatedPoints(point, skeletonId, pointIdx);
 
-  const layer = skeletonLayerRef.value?.getNode();
+  const layer = annotationsLayerRef.value?.getNode();
   if (!layer) return;
 
   colocatedCircleRefs.value = [];
@@ -1247,7 +1252,7 @@ const handleSkeletonKeypointDragMove = (
   const circle = e.target;
   const currentPos = { x: circle.x(), y: circle.y() };
 
-  const layer = skeletonLayerRef.value?.getNode();
+  const layer = annotationsLayerRef.value?.getNode();
   if (!layer) return;
 
   const newPoints = [...currentSkeleton.points];
@@ -1370,7 +1375,7 @@ const handleSkeletonKeypointDragEnd = (
 
   saveAnnotations();
 
-  const layer = skeletonLayerRef.value?.getNode();
+  const layer = annotationsLayerRef.value?.getNode();
   if (layer) {
     layer.batchDraw();
   }
@@ -1468,7 +1473,7 @@ const handleMouseDown = (e: any) => {
     isDrawing.value = true;
     brush.value.startStroke(logicalPos);
 
-    const brushLayer = brushLayerRef.value?.getNode();
+    const brushLayer = brushPreviewGroupRef.value?.getNode();
     if (brushLayer) {
       brushLayer.destroyChildren();
     }
@@ -1542,15 +1547,15 @@ const handleMouseMove = () => {
 
     brush.value.continueStroke(logicalPos);
 
-    const brushLayer = brushLayerRef.value?.getNode();
-    if (brushLayer) {
-      brushLayer.destroyChildren();
+    const brushGroup = brushPreviewGroupRef.value?.getNode();
+    if (brushGroup) {
+      brushGroup.destroyChildren();
       const shape = brush.value.renderStrokeShape(
         brush.value.getCurrentPoints(),
         1
       );
-      brushLayer.add(shape);
-      brushLayer.batchDraw();
+      brushGroup.add(shape);
+      interactiveLayerRef.value?.getNode()?.batchDraw();
     }
   }
 };
@@ -1626,10 +1631,10 @@ const handleMouseUp = async () => {
   brush.value.renderToCanvas(offscreenCanvas, points, 1);
   ctx.restore();
 
-  const brushLayer = brushLayerRef.value?.getNode();
-  if (brushLayer) {
-    brushLayer.destroyChildren();
-    brushLayer.batchDraw();
+  const brushGroup = brushPreviewGroupRef.value?.getNode();
+  if (brushGroup) {
+    brushGroup.destroyChildren();
+    interactiveLayerRef.value?.getNode()?.batchDraw();
   }
 
   updateAnnotationLayer(offscreenCanvas);
@@ -1672,7 +1677,7 @@ const handleMouseLeave = () => {
   if (cursorShape.value) {
     cursorShape.value.destroy();
     cursorShape.value = null;
-    cursorLayerRef.value?.getNode().batchDraw();
+    interactiveLayerRef.value?.getNode()?.batchDraw();
   }
 
   if (mode.value === "polygon" && polygonTool?.isDrawingActive()) {
@@ -1897,23 +1902,23 @@ const saveAnnotations = async () => {
 const updateCursor = (pos: { x: number; y: number }) => {
   if (!brush.value) return;
 
-  const cursorLayer = cursorLayerRef.value?.getNode();
-  if (!cursorLayer) return;
+  const cursorGroup = cursorGroupRef.value?.getNode();
+  if (!cursorGroup) return;
 
   if (cursorShape.value) {
     cursorShape.value.destroy();
   }
 
   cursorShape.value = brush.value.createCursorShape(pos.x, pos.y, 1);
-  cursorLayer.add(cursorShape.value);
-  cursorLayer.batchDraw();
+  cursorGroup.add(cursorShape.value);
+  interactiveLayerRef.value?.getNode()?.batchDraw();
 };
 
 const updateAnnotationLayer = (offscreenCanvas: HTMLCanvasElement) => {
-  const annotationLayer = annotationLayerRef.value?.getNode();
-  if (!annotationLayer) return;
+  const brushGroup = brushAnnotationGroupRef.value?.getNode();
+  if (!brushGroup) return;
 
-  annotationLayer.destroyChildren();
+  brushGroup.destroyChildren();
 
   const snapshotCanvas = document.createElement("canvas");
   snapshotCanvas.width = offscreenCanvas.width;
@@ -1933,43 +1938,23 @@ const updateAnnotationLayer = (offscreenCanvas: HTMLCanvasElement) => {
     opacity: opacity.value,
   });
 
-  annotationLayer.add(konvaImage);
-  annotationLayer.batchDraw();
+  brushGroup.add(konvaImage);
+  annotationsLayerRef.value?.getNode()?.batchDraw();
 };
 
 const updateAllLayersOpacity = () => {
-  const annotationLayer = annotationLayerRef.value?.getNode();
-  if (annotationLayer) {
-    annotationLayer.children?.forEach((child: any) => {
-      if (child.opacity) child.opacity(opacity.value);
-    });
-    annotationLayer.batchDraw();
-  }
-
-  const bboxLayer = bboxLayerRef.value?.getNode();
-  if (bboxLayer) {
-    bboxLayer.children?.forEach((child: any) => {
-      if (child.opacity && child.name() !== "transformer") {
-        child.opacity(opacity.value);
+  const annotationsLayer = annotationsLayerRef.value?.getNode();
+  if (annotationsLayer) {
+    const updateChildOpacity = (node: any) => {
+      if (node.opacity && node.name() !== "transformer") {
+        node.opacity(opacity.value);
       }
-    });
-    bboxLayer.batchDraw();
-  }
-
-  const polygonLayer = polygonLayerRef.value?.getNode();
-  if (polygonLayer) {
-    polygonLayer.children?.forEach((child: any) => {
-      if (child.opacity) child.opacity(opacity.value);
-    });
-    polygonLayer.batchDraw();
-  }
-
-  const skeletonLayer = skeletonLayerRef.value?.getNode();
-  if (skeletonLayer) {
-    skeletonLayer.children?.forEach((child: any) => {
-      if (child.opacity) child.opacity(opacity.value);
-    });
-    skeletonLayer.batchDraw();
+      if (node.children) {
+        node.children.forEach(updateChildOpacity);
+      }
+    };
+    annotationsLayer.children?.forEach(updateChildOpacity);
+    annotationsLayer.batchDraw();
   }
 };
 
@@ -2153,14 +2138,14 @@ watch(currentFrame, () => {
 });
 
 watch(opacity, () => {
-  const annotationLayer = annotationLayerRef.value?.getNode();
-  if (!annotationLayer) return;
+  const brushGroup = brushAnnotationGroupRef.value?.getNode();
+  if (!brushGroup) return;
 
-  const images = annotationLayer.getChildren();
+  const images = brushGroup.getChildren();
   images.forEach((img: any) => {
     img.opacity(opacity.value);
   });
-  annotationLayer.batchDraw();
+  annotationsLayerRef.value?.getNode()?.batchDraw();
 });
 </script>
 
