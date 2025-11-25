@@ -299,7 +299,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from "vue";
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from "vue";
 import { useRouter } from "vue-router";
 import Konva from "konva";
 import { KonvaBrush } from "./KonvaBrush";
@@ -767,13 +767,29 @@ const handleBboxDragEnd = (e: any) => {
   const currentBox = getBoxAtFrame(trackId, currentFrame.value);
   if (!currentBox) return;
 
+  const rect = group.findOne("Rect");
+
   const updatedBox: BoundingBox = {
     ...currentBox,
     x: group.x(),
     y: group.y(),
+    width: rect ? rect.width() * rect.scaleX() : currentBox.width,
+    height: rect ? rect.height() * rect.scaleY() : currentBox.height,
+    rotation: group.rotation(),
   };
 
+  if (rect) {
+    rect.scaleX(1);
+    rect.scaleY(1);
+  }
+  group.scaleX(1);
+  group.scaleY(1);
+
   updateBboxKeyframe(trackId, currentFrame.value, updatedBox, autoSuggest.value);
+
+  nextTick(() => {
+    updateTransformerSelection();
+  });
 };
 
 const handleBboxTransformEnd = () => {
@@ -794,19 +810,30 @@ const handleBboxTransformEnd = () => {
   const rect = group.findOne("Rect");
   if (!rect) return;
 
+  const groupScaleX = group.scaleX();
+  const groupScaleY = group.scaleY();
+  const rectScaleX = rect.scaleX();
+  const rectScaleY = rect.scaleY();
+
   const updatedBox: BoundingBox = {
     ...currentBox,
     x: group.x(),
     y: group.y(),
-    width: rect.width() * rect.scaleX(),
-    height: rect.height() * rect.scaleY(),
+    width: rect.width() * rectScaleX * groupScaleX,
+    height: rect.height() * rectScaleY * groupScaleY,
     rotation: group.rotation(),
   };
 
   rect.scaleX(1);
   rect.scaleY(1);
+  group.scaleX(1);
+  group.scaleY(1);
 
   updateBboxKeyframe(selectedBboxTrackId.value, currentFrame.value, updatedBox, autoSuggest.value);
+
+  nextTick(() => {
+    updateTransformerSelection();
+  });
 };
 
 const setupPolygonTool = () => {
@@ -882,19 +909,26 @@ const handlePolygonDragEnd = (e: any) => {
 
   const dx = line.x();
   const dy = line.y();
+  const scaleX = line.scaleX();
+  const scaleY = line.scaleY();
 
   const updatedPolygon: Polygon = {
     ...currentPolygon,
     points: currentPolygon.points.map((p) => ({
-      x: p.x + dx,
-      y: p.y + dy,
+      x: p.x * scaleX + dx,
+      y: p.y * scaleY + dy,
     })),
   };
 
   line.x(0);
   line.y(0);
+  line.scaleX(1);
+  line.scaleY(1);
 
   updatePolygonKeyframe(trackId, currentFrame.value, updatedPolygon, autoSuggest.value);
+
+  const layer = polygonLayerRef.value?.getNode();
+  if (layer) layer.batchDraw();
 };
 
 const handlePolygonVertexClick = (polygonId: string) => {
@@ -945,6 +979,9 @@ const handlePolygonVertexDragEnd = (
   };
 
   updatePolygonKeyframe(polygonId, currentFrame.value, updatedPolygon, autoSuggest.value);
+
+  const layer = polygonLayerRef.value?.getNode();
+  if (layer) layer.batchDraw();
 };
 
 const setupSkeletonTool = () => {
@@ -1012,19 +1049,26 @@ const handleSkeletonDragEnd = (e: any) => {
 
   const dx = line.x();
   const dy = line.y();
+  const scaleX = line.scaleX();
+  const scaleY = line.scaleY();
 
   const updatedSkeleton: Skeleton = {
     ...currentSkeleton,
     points: currentSkeleton.points.map((p) => ({
-      x: p.x + dx,
-      y: p.y + dy,
+      x: p.x * scaleX + dx,
+      y: p.y * scaleY + dy,
     })),
   };
 
   line.x(0);
   line.y(0);
+  line.scaleX(1);
+  line.scaleY(1);
 
   updateSkeletonKeyframe(trackId, currentFrame.value, updatedSkeleton, autoSuggest.value);
+
+  const layer = skeletonLayerRef.value?.getNode();
+  if (layer) layer.batchDraw();
 };
 
 const handleSkeletonKeypointClick = (skeletonId: string) => {
@@ -1075,6 +1119,9 @@ const handleSkeletonKeypointDragEnd = (
   };
 
   updateSkeletonKeyframe(skeletonId, currentFrame.value, updatedSkeleton, autoSuggest.value);
+
+  const layer = skeletonLayerRef.value?.getNode();
+  if (layer) layer.batchDraw();
 };
 
 const handleMouseDown = (e: any) => {
