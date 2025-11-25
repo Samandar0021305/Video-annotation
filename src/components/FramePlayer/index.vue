@@ -8,6 +8,23 @@
       </div>
 
       <div class="control-group">
+        <button
+          @click="handleJumpToPreviousKeyframe"
+          class="keyframe-nav-btn"
+          :disabled="!timelineRef?.selectedTrackId"
+        >
+          ◄◄ Keyframe
+        </button>
+        <button
+          @click="handleJumpToNextKeyframe"
+          class="keyframe-nav-btn"
+          :disabled="!timelineRef?.selectedTrackId"
+        >
+          Keyframe ►►
+        </button>
+      </div>
+
+      <div class="control-group">
         <label>Mode:</label>
         <button :class="{ active: mode === 'brush' }" @click="setMode('brush')">
           Brush
@@ -42,6 +59,13 @@
         >
           Skeleton
         </button>
+        <button
+          @click="handleDeleteSelected"
+          class="delete-btn"
+          :disabled="!timelineRef?.selectedTrackId"
+        >
+          Delete
+        </button>
       </div>
 
       <div v-if="mode === 'brush' || mode === 'eraser'" class="control-group">
@@ -60,6 +84,16 @@
         <input type="color" v-model="bboxColor" class="color-picker" />
       </div>
 
+      <div v-if="mode === 'polygon'" class="control-group">
+        <label>Color:</label>
+        <input type="color" v-model="polygonColor" class="color-picker" />
+      </div>
+
+      <div v-if="mode === 'skeleton'" class="control-group">
+        <label>Color:</label>
+        <input type="color" v-model="skeletonColor" class="color-picker" />
+      </div>
+
       <div class="control-group">
         <label>Zoom: {{ Math.round(zoomLevel * 100) }}%</label>
         <button @click="zoomIn">+</button>
@@ -68,28 +102,20 @@
       </div>
     </div>
 
-    <div class="frame-info">
-      Frame: {{ currentFrame + 1 }} / {{ physicalFrames }}
-      <span v-if="hasDrawing" class="draw-indicator">✏️</span>
-    </div>
-
-    <div class="timeline-container">
-      <div
-        class="timeline-track"
-        @click="handleTimelineClick"
-        @mousedown="startTimelineDrag"
-        ref="timelineRef"
-      >
-        <div
-          class="timeline-progress"
-          :style="{ width: progressPercent + '%' }"
-        ></div>
-        <div
-          class="timeline-handle"
-          :style="{ left: progressPercent + '%' }"
-        ></div>
-      </div>
-    </div>
+    <FramePlayerTimeline
+      ref="timelineRef"
+      :current-frame="currentFrame"
+      :total-frames="physicalFrames"
+      :fps="30"
+      :bbox-tracks="bboxTracks"
+      :polygon-tracks="polygonTracks"
+      :skeleton-tracks="skeletonTracks"
+      @jump-to-frame="jumpToFrame"
+      @select-track="handleSelectTrack"
+      @toggle-interpolation="handleToggleInterpolation"
+      @add-keyframe="handleAddKeyframe"
+      @update-range="handleUpdateRange"
+    />
 
     <div class="canvas-container">
       <div
@@ -171,8 +197,8 @@
                   radius: 6,
                   fill: polygon.color,
                   stroke:
-                    selectedPolygonId === polygon.id ? '#fff' : polygon.color,
-                  strokeWidth: selectedPolygonId === polygon.id ? 2 : 1,
+                    timelineRef?.selectedTrackId === polygon.id ? '#fff' : polygon.color,
+                  strokeWidth: timelineRef?.selectedTrackId === polygon.id ? 2 : 1,
                   draggable: mode === 'select',
                   name: 'polygonVertex',
                 }"
@@ -213,10 +239,10 @@
                   radius: 6,
                   fill: skeleton.color,
                   stroke:
-                    selectedSkeletonId === skeleton.id
+                    timelineRef?.selectedTrackId === skeleton.id
                       ? '#fff'
                       : skeleton.color,
-                  strokeWidth: selectedSkeletonId === skeleton.id ? 2 : 1,
+                  strokeWidth: timelineRef?.selectedTrackId === skeleton.id ? 2 : 1,
                   draggable: mode === 'select',
                   name: 'skeletonKeypoint',
                 }"
@@ -246,12 +272,18 @@ import { useRouter } from "vue-router";
 import Konva from "konva";
 import { KonvaBrush } from "./KonvaBrush";
 import { useFramesStore } from "../../stores/framesStore";
+import { useBoundingBoxTracks } from "../../composables/useBoundingBoxTracks";
+import { usePolygonTracks } from "../../composables/usePolygonTracks";
+import { useSkeletonTracks } from "../../composables/useSkeletonTracks";
 import { BBoxTool } from "../../utils/bboxUtils";
 import { PolygonTool } from "../../utils/polygonUtils";
 import { SkeletonTool } from "../../utils/skeletonUtils";
 import type { BoundingBox } from "../../types/boundingBox";
 import type { Polygon } from "../../types/polygon";
 import type { Skeleton } from "../../types/skeleton";
+import FramePlayerTimeline from "./FramePlayerTimeline.vue";
+
+type TrackType = 'bbox' | 'polygon' | 'skeleton';
 
 const router = useRouter();
 const framesStore = useFramesStore();
@@ -265,7 +297,7 @@ const skeletonLayerRef = ref<any>(null);
 const brushLayerRef = ref<any>(null);
 const cursorLayerRef = ref<any>(null);
 const containerRef = ref<HTMLDivElement | null>(null);
-const timelineRef = ref<HTMLDivElement | null>(null);
+const timelineRef = ref<InstanceType<typeof FramePlayerTimeline> | null>(null);
 
 const framesLoaded = ref(false);
 const currentFrame = ref(0);
@@ -292,16 +324,42 @@ const lastPanPoint = ref<{ x: number; y: number } | null>(null);
 const frameImages = ref<Map<number, HTMLImageElement>>(new Map());
 const frameCanvases = ref<Map<number, HTMLCanvasElement>>(new Map());
 
-const frameBboxes = ref<Map<number, BoundingBox[]>>(new Map());
-const selectedBboxId = ref<string | null>(null);
+const {
+  tracks: bboxTracks,
+  selectedTrackId: selectedBboxTrackId,
+  createTrack: createBboxTrack,
+  getBoxAtFrame,
+  updateKeyframe: updateBboxKeyframe,
+  toggleInterpolation: toggleBboxInterpolation,
+  deleteTrack: deleteBboxTrack,
+  jumpToNextKeyframe: jumpToNextBboxKeyframe,
+  jumpToPreviousKeyframe: jumpToPreviousBboxKeyframe,
+} = useBoundingBoxTracks(currentFrame);
 
-const framePolygons = ref<Map<number, Polygon[]>>(new Map());
-const selectedPolygonId = ref<string | null>(null);
+const {
+  tracks: polygonTracks,
+  selectedTrackId: selectedPolygonTrackId,
+  createTrack: createPolygonTrack,
+  getPolygonAtFrame,
+  updateKeyframe: updatePolygonKeyframe,
+  toggleInterpolation: togglePolygonInterpolation,
+  deleteTrack: deletePolygonTrack,
+  jumpToNextKeyframe: jumpToNextPolygonKeyframe,
+  jumpToPreviousKeyframe: jumpToPreviousPolygonKeyframe,
+} = usePolygonTracks(currentFrame);
 
-const frameSkeletons = ref<Map<number, Skeleton[]>>(new Map());
-const selectedSkeletonId = ref<string | null>(null);
+const {
+  tracks: skeletonTracks,
+  selectedTrackId: selectedSkeletonTrackId,
+  createTrack: createSkeletonTrack,
+  getSkeletonAtFrame,
+  updateKeyframe: updateSkeletonKeyframe,
+  toggleInterpolation: toggleSkeletonInterpolation,
+  deleteTrack: deleteSkeletonTrack,
+  jumpToNextKeyframe: jumpToNextSkeletonKeyframe,
+  jumpToPreviousKeyframe: jumpToPreviousSkeletonKeyframe,
+} = useSkeletonTracks(currentFrame);
 
-// Tool instances
 let bboxTool: BBoxTool | null = null;
 let polygonTool: PolygonTool | null = null;
 let skeletonTool: SkeletonTool | null = null;
@@ -326,25 +384,37 @@ const imageConfig = computed(() => ({
   height: stageConfig.value.height,
 }));
 
-const progressPercent = computed(() => {
-  if (physicalFrames.value === 0) return 0;
-  return (currentFrame.value / (physicalFrames.value - 1)) * 100;
-});
-
-const hasDrawing = computed(() => {
-  return frameCanvases.value.has(currentFrame.value);
-});
-
 const currentFrameBboxes = computed(() => {
-  return frameBboxes.value.get(currentFrame.value) || [];
+  const result: BoundingBox[] = [];
+  for (const [trackId] of bboxTracks.value) {
+    const box = getBoxAtFrame(trackId, currentFrame.value);
+    if (box) {
+      result.push(box);
+    }
+  }
+  return result;
 });
 
 const currentFramePolygons = computed(() => {
-  return framePolygons.value.get(currentFrame.value) || [];
+  const result: Polygon[] = [];
+  for (const [trackId] of polygonTracks.value) {
+    const polygon = getPolygonAtFrame(trackId, currentFrame.value);
+    if (polygon) {
+      result.push(polygon);
+    }
+  }
+  return result;
 });
 
 const currentFrameSkeletons = computed(() => {
-  return frameSkeletons.value.get(currentFrame.value) || [];
+  const result: Skeleton[] = [];
+  for (const [trackId] of skeletonTracks.value) {
+    const skeleton = getSkeletonAtFrame(trackId, currentFrame.value);
+    if (skeleton) {
+      result.push(skeleton);
+    }
+  }
+  return result;
 });
 
 const loadImage = (url: string): Promise<HTMLImageElement> => {
@@ -415,7 +485,7 @@ const renderFrame = async (frameIndex: number) => {
 const animate = async (timestamp: number) => {
   if (!isPlaying.value) return;
 
-  const frameInterval = 1000 / 30; // Fixed at 30 FPS
+  const frameInterval = 1000 / 30;
   const elapsed = timestamp - lastFrameTime;
 
   if (elapsed >= frameInterval) {
@@ -461,42 +531,8 @@ const previousFrame = async () => {
   }
 };
 
-const handleTimelineClick = (e: MouseEvent) => {
-  if (!timelineRef.value) return;
-
-  const rect = timelineRef.value.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const percent = x / rect.width;
-  const targetFrame = Math.floor(percent * (physicalFrames.value - 1));
-
-  renderFrame(Math.max(0, Math.min(targetFrame, physicalFrames.value - 1)));
-};
-
-let isTimelineDragging = false;
-
-const startTimelineDrag = (e: MouseEvent) => {
-  isTimelineDragging = true;
-  e.preventDefault();
-
-  const handleMove = (moveEvent: MouseEvent) => {
-    if (!isTimelineDragging || !timelineRef.value) return;
-
-    const rect = timelineRef.value.getBoundingClientRect();
-    const x = moveEvent.clientX - rect.left;
-    const percent = Math.max(0, Math.min(1, x / rect.width));
-    const targetFrame = Math.floor(percent * (physicalFrames.value - 1));
-
-    renderFrame(targetFrame);
-  };
-
-  const handleUp = () => {
-    isTimelineDragging = false;
-    document.removeEventListener("mousemove", handleMove);
-    document.removeEventListener("mouseup", handleUp);
-  };
-
-  document.addEventListener("mousemove", handleMove);
-  document.addEventListener("mouseup", handleUp);
+const jumpToFrame = async (frame: number) => {
+  await renderFrame(Math.max(0, Math.min(frame, physicalFrames.value - 1)));
 };
 
 const setMode = (
@@ -571,7 +607,7 @@ const setupTransformer = () => {
 
 const updateTransformerSelection = () => {
   if (!bboxTool) return;
-  bboxTool.updateTransformerSelection(selectedBboxId.value);
+  bboxTool.updateTransformerSelection(selectedBboxTrackId.value);
 };
 
 const startBboxDrawing = (pos: { x: number; y: number }) => {
@@ -590,8 +626,9 @@ const finishBboxDrawing = () => {
   const bbox = bboxTool.finishDrawing(bboxColor.value);
   if (!bbox) return;
 
-  const currentBboxes = frameBboxes.value.get(currentFrame.value) || [];
-  frameBboxes.value.set(currentFrame.value, [...currentBboxes, bbox]);
+  const trackId = createBboxTrack(currentFrame.value, bbox, undefined, physicalFrames.value);
+  selectedBboxTrackId.value = trackId;
+  timelineRef.value?.selectTrack(trackId, 'bbox');
 };
 
 const handleBboxClick = (e: any) => {
@@ -599,29 +636,61 @@ const handleBboxClick = (e: any) => {
 
   const group = e.target.findAncestor("Group");
   if (group) {
-    selectedBboxId.value = group.id();
+    const trackId = group.id();
+    selectedBboxTrackId.value = trackId;
+    timelineRef.value?.selectTrack(trackId, 'bbox');
     updateTransformerSelection();
   }
 };
 
 const handleBboxDragEnd = (e: any) => {
-  if (!bboxTool) return;
+  const group = e.target.findAncestor("Group");
+  if (!group) return;
 
-  const currentBboxes = frameBboxes.value.get(currentFrame.value);
-  if (!currentBboxes) return;
+  const trackId = group.id();
+  const track = bboxTracks.value.get(trackId);
+  if (!track) return;
 
-  const updatedBboxes = bboxTool.handleDragEnd(e, currentBboxes);
-  frameBboxes.value.set(currentFrame.value, updatedBboxes);
+  const currentBox = getBoxAtFrame(trackId, currentFrame.value);
+  if (!currentBox) return;
+
+  const updatedBox: BoundingBox = {
+    ...currentBox,
+    x: group.x(),
+    y: group.y(),
+  };
+
+  updateBboxKeyframe(trackId, currentFrame.value, updatedBox);
 };
 
 const handleBboxTransformEnd = () => {
-  if (!bboxTool) return;
+  if (!bboxTool || !selectedBboxTrackId.value) return;
 
-  const currentBboxes = frameBboxes.value.get(currentFrame.value);
-  if (!currentBboxes) return;
+  const currentBox = getBoxAtFrame(selectedBboxTrackId.value, currentFrame.value);
+  if (!currentBox) return;
 
-  const updatedBboxes = bboxTool.handleTransformEnd(currentBboxes);
-  frameBboxes.value.set(currentFrame.value, updatedBboxes);
+  const layer = bboxLayerRef.value?.getNode();
+  if (!layer) return;
+
+  const group = layer.findOne(`#${selectedBboxTrackId.value}`);
+  if (!group) return;
+
+  const rect = group.findOne("Rect");
+  if (!rect) return;
+
+  const updatedBox: BoundingBox = {
+    ...currentBox,
+    x: group.x(),
+    y: group.y(),
+    width: rect.width() * rect.scaleX(),
+    height: rect.height() * rect.scaleY(),
+    rotation: group.rotation(),
+  };
+
+  rect.scaleX(1);
+  rect.scaleY(1);
+
+  updateBboxKeyframe(selectedBboxTrackId.value, currentFrame.value, updatedBox);
 };
 
 const setupPolygonTool = () => {
@@ -659,10 +728,9 @@ const completePolygonDrawing = () => {
   const polygon = polygonTool.completeDrawing(polygonColor.value);
   if (!polygon) return;
 
-  const currentPolygons = framePolygons.value.get(currentFrame.value) || [];
-  framePolygons.value.set(currentFrame.value, [...currentPolygons, polygon]);
-
-  selectedPolygonId.value = polygon.id;
+  const trackId = createPolygonTrack(currentFrame.value, polygon, undefined, physicalFrames.value);
+  selectedPolygonTrackId.value = trackId;
+  timelineRef.value?.selectTrack(trackId, 'polygon');
 };
 
 const cancelPolygonDrawing = () => {
@@ -675,25 +743,45 @@ const handlePolygonClick = (e: any) => {
 
   const line = e.target;
   if (line && line.id()) {
-    selectedPolygonId.value = line.id();
-    selectedBboxId.value = null;
+    const trackId = line.id();
+    selectedPolygonTrackId.value = trackId;
+    selectedBboxTrackId.value = null;
+    selectedSkeletonTrackId.value = null;
+    timelineRef.value?.selectTrack(trackId, 'polygon');
   }
 };
 
 const handlePolygonDragEnd = (e: any) => {
-  if (!polygonTool) return;
+  const line = e.target;
+  if (!line) return;
 
-  const currentPolygons = framePolygons.value.get(currentFrame.value);
-  if (!currentPolygons) return;
+  const trackId = line.id();
+  const currentPolygon = getPolygonAtFrame(trackId, currentFrame.value);
+  if (!currentPolygon) return;
 
-  const updatedPolygons = polygonTool.handleDragEnd(e, currentPolygons);
-  framePolygons.value.set(currentFrame.value, updatedPolygons);
+  const dx = line.x();
+  const dy = line.y();
+
+  const updatedPolygon: Polygon = {
+    ...currentPolygon,
+    points: currentPolygon.points.map(p => ({
+      x: p.x + dx,
+      y: p.y + dy,
+    })),
+  };
+
+  line.x(0);
+  line.y(0);
+
+  updatePolygonKeyframe(trackId, currentFrame.value, updatedPolygon);
 };
 
 const handlePolygonVertexClick = (polygonId: string) => {
   if (mode.value !== "select") return;
-  selectedPolygonId.value = polygonId;
-  selectedBboxId.value = null;
+  selectedPolygonTrackId.value = polygonId;
+  selectedBboxTrackId.value = null;
+  selectedSkeletonTrackId.value = null;
+  timelineRef.value?.selectTrack(polygonId, 'polygon');
 };
 
 const handlePolygonVertexDragMove = (
@@ -701,12 +789,21 @@ const handlePolygonVertexDragMove = (
   polygonId: string,
   pointIdx: number
 ) => {
-  if (!polygonTool) return;
+  const currentPolygon = getPolygonAtFrame(polygonId, currentFrame.value);
+  if (!currentPolygon) return;
 
-  const currentPolygons = framePolygons.value.get(currentFrame.value);
-  if (!currentPolygons) return;
+  const circle = e.target;
+  const newPoints = [...currentPolygon.points];
+  newPoints[pointIdx] = { x: circle.x(), y: circle.y() };
 
-  polygonTool.handleVertexDragMove(e, polygonId, pointIdx, currentPolygons);
+  const layer = polygonLayerRef.value?.getNode();
+  if (layer) {
+    const line = layer.findOne(`#${polygonId}`);
+    if (line) {
+      line.points(newPoints.flatMap(p => [p.x, p.y]));
+      layer.batchDraw();
+    }
+  }
 };
 
 const handlePolygonVertexDragEnd = (
@@ -714,18 +811,19 @@ const handlePolygonVertexDragEnd = (
   polygonId: string,
   pointIdx: number
 ) => {
-  if (!polygonTool) return;
+  const currentPolygon = getPolygonAtFrame(polygonId, currentFrame.value);
+  if (!currentPolygon) return;
 
-  const currentPolygons = framePolygons.value.get(currentFrame.value);
-  if (!currentPolygons) return;
+  const circle = e.target;
+  const newPoints = [...currentPolygon.points];
+  newPoints[pointIdx] = { x: circle.x(), y: circle.y() };
 
-  const updatedPolygons = polygonTool.handleVertexDragEnd(
-    e,
-    polygonId,
-    pointIdx,
-    currentPolygons
-  );
-  framePolygons.value.set(currentFrame.value, updatedPolygons);
+  const updatedPolygon: Polygon = {
+    ...currentPolygon,
+    points: newPoints,
+  };
+
+  updatePolygonKeyframe(polygonId, currentFrame.value, updatedPolygon);
 };
 
 const setupSkeletonTool = () => {
@@ -755,10 +853,9 @@ const completeSkeletonDrawing = () => {
   const skeleton = skeletonTool.completeDrawing(skeletonColor.value);
   if (!skeleton) return;
 
-  const currentSkeletons = frameSkeletons.value.get(currentFrame.value) || [];
-  frameSkeletons.value.set(currentFrame.value, [...currentSkeletons, skeleton]);
-
-  selectedSkeletonId.value = skeleton.id;
+  const trackId = createSkeletonTrack(currentFrame.value, skeleton, undefined, physicalFrames.value);
+  selectedSkeletonTrackId.value = trackId;
+  timelineRef.value?.selectTrack(trackId, 'skeleton');
 };
 
 const cancelSkeletonDrawing = () => {
@@ -771,27 +868,45 @@ const handleSkeletonClick = (e: any) => {
 
   const line = e.target;
   if (line && line.id()) {
-    selectedSkeletonId.value = line.id();
-    selectedBboxId.value = null;
-    selectedPolygonId.value = null;
+    const trackId = line.id();
+    selectedSkeletonTrackId.value = trackId;
+    selectedBboxTrackId.value = null;
+    selectedPolygonTrackId.value = null;
+    timelineRef.value?.selectTrack(trackId, 'skeleton');
   }
 };
 
 const handleSkeletonDragEnd = (e: any) => {
-  if (!skeletonTool) return;
+  const line = e.target;
+  if (!line) return;
 
-  const currentSkeletons = frameSkeletons.value.get(currentFrame.value);
-  if (!currentSkeletons) return;
+  const trackId = line.id();
+  const currentSkeleton = getSkeletonAtFrame(trackId, currentFrame.value);
+  if (!currentSkeleton) return;
 
-  const updatedSkeletons = skeletonTool.handleDragEnd(e, currentSkeletons);
-  frameSkeletons.value.set(currentFrame.value, updatedSkeletons);
+  const dx = line.x();
+  const dy = line.y();
+
+  const updatedSkeleton: Skeleton = {
+    ...currentSkeleton,
+    points: currentSkeleton.points.map(p => ({
+      x: p.x + dx,
+      y: p.y + dy,
+    })),
+  };
+
+  line.x(0);
+  line.y(0);
+
+  updateSkeletonKeyframe(trackId, currentFrame.value, updatedSkeleton);
 };
 
 const handleSkeletonKeypointClick = (skeletonId: string) => {
   if (mode.value !== "select") return;
-  selectedSkeletonId.value = skeletonId;
-  selectedBboxId.value = null;
-  selectedPolygonId.value = null;
+  selectedSkeletonTrackId.value = skeletonId;
+  selectedBboxTrackId.value = null;
+  selectedPolygonTrackId.value = null;
+  timelineRef.value?.selectTrack(skeletonId, 'skeleton');
 };
 
 const handleSkeletonKeypointDragMove = (
@@ -799,12 +914,21 @@ const handleSkeletonKeypointDragMove = (
   skeletonId: string,
   pointIdx: number
 ) => {
-  if (!skeletonTool) return;
+  const currentSkeleton = getSkeletonAtFrame(skeletonId, currentFrame.value);
+  if (!currentSkeleton) return;
 
-  const currentSkeletons = frameSkeletons.value.get(currentFrame.value);
-  if (!currentSkeletons) return;
+  const circle = e.target;
+  const newPoints = [...currentSkeleton.points];
+  newPoints[pointIdx] = { x: circle.x(), y: circle.y() };
 
-  skeletonTool.handleKeypointDragMove(e, skeletonId, pointIdx, currentSkeletons);
+  const layer = skeletonLayerRef.value?.getNode();
+  if (layer) {
+    const line = layer.findOne(`#${skeletonId}`);
+    if (line) {
+      line.points(newPoints.flatMap(p => [p.x, p.y]));
+      layer.batchDraw();
+    }
+  }
 };
 
 const handleSkeletonKeypointDragEnd = (
@@ -812,18 +936,19 @@ const handleSkeletonKeypointDragEnd = (
   skeletonId: string,
   pointIdx: number
 ) => {
-  if (!skeletonTool) return;
+  const currentSkeleton = getSkeletonAtFrame(skeletonId, currentFrame.value);
+  if (!currentSkeleton) return;
 
-  const currentSkeletons = frameSkeletons.value.get(currentFrame.value);
-  if (!currentSkeletons) return;
+  const circle = e.target;
+  const newPoints = [...currentSkeleton.points];
+  newPoints[pointIdx] = { x: circle.x(), y: circle.y() };
 
-  const updatedSkeletons = skeletonTool.handleKeypointDragEnd(
-    e,
-    skeletonId,
-    pointIdx,
-    currentSkeletons
-  );
-  frameSkeletons.value.set(currentFrame.value, updatedSkeletons);
+  const updatedSkeleton: Skeleton = {
+    ...currentSkeleton,
+    points: newPoints,
+  };
+
+  updateSkeletonKeyframe(skeletonId, currentFrame.value, updatedSkeleton);
 };
 
 const handleMouseDown = (e: any) => {
@@ -875,9 +1000,10 @@ const handleMouseDown = (e: any) => {
   if (mode.value === "select") {
     const target = e.target;
     if (target === stage || target.getClassName() === "Image") {
-      selectedBboxId.value = null;
-      selectedPolygonId.value = null;
-      selectedSkeletonId.value = null;
+      selectedBboxTrackId.value = null;
+      selectedPolygonTrackId.value = null;
+      selectedSkeletonTrackId.value = null;
+      timelineRef.value?.clearSelection();
       updateTransformerSelection();
     }
     return;
@@ -1077,8 +1203,116 @@ const handleDoubleClick = () => {
   }
 };
 
-const handleKeyDown = (_e: KeyboardEvent) => {
-  // Reserved for future keyboard shortcuts
+const handleSelectTrack = (trackId: string, type: TrackType) => {
+  if (type === 'bbox') {
+    selectedBboxTrackId.value = trackId;
+    selectedPolygonTrackId.value = null;
+    selectedSkeletonTrackId.value = null;
+    updateTransformerSelection();
+  } else if (type === 'polygon') {
+    selectedPolygonTrackId.value = trackId;
+    selectedBboxTrackId.value = null;
+    selectedSkeletonTrackId.value = null;
+  } else if (type === 'skeleton') {
+    selectedSkeletonTrackId.value = trackId;
+    selectedBboxTrackId.value = null;
+    selectedPolygonTrackId.value = null;
+  }
+};
+
+const handleToggleInterpolation = (trackId: string, type: TrackType) => {
+  if (type === 'bbox') {
+    toggleBboxInterpolation(trackId);
+  } else if (type === 'polygon') {
+    togglePolygonInterpolation(trackId);
+  } else if (type === 'skeleton') {
+    toggleSkeletonInterpolation(trackId);
+  }
+};
+
+const handleAddKeyframe = (trackId: string, type: TrackType) => {
+  if (type === 'bbox') {
+    const currentBox = getBoxAtFrame(trackId, currentFrame.value);
+    if (currentBox) {
+      updateBboxKeyframe(trackId, currentFrame.value, currentBox);
+    }
+  } else if (type === 'polygon') {
+    const currentPolygon = getPolygonAtFrame(trackId, currentFrame.value);
+    if (currentPolygon) {
+      updatePolygonKeyframe(trackId, currentFrame.value, currentPolygon);
+    }
+  } else if (type === 'skeleton') {
+    const currentSkeleton = getSkeletonAtFrame(trackId, currentFrame.value);
+    if (currentSkeleton) {
+      updateSkeletonKeyframe(trackId, currentFrame.value, currentSkeleton);
+    }
+  }
+};
+
+const handleUpdateRange = (
+  trackId: string,
+  type: TrackType,
+  rangeIndex: number,
+  start: number,
+  end: number
+) => {
+  let track;
+  if (type === 'bbox') {
+    track = bboxTracks.value.get(trackId);
+  } else if (type === 'polygon') {
+    track = polygonTracks.value.get(trackId);
+  } else if (type === 'skeleton') {
+    track = skeletonTracks.value.get(trackId);
+  }
+
+  if (track && track.ranges[rangeIndex]) {
+    track.ranges[rangeIndex] = [start, end];
+  }
+};
+
+const handleDeleteSelected = () => {
+  const trackId = timelineRef.value?.selectedTrackId;
+  const trackType = timelineRef.value?.selectedTrackType;
+
+  if (!trackId || !trackType) return;
+
+  if (trackType === 'bbox') {
+    deleteBboxTrack(trackId);
+    selectedBboxTrackId.value = null;
+  } else if (trackType === 'polygon') {
+    deletePolygonTrack(trackId);
+    selectedPolygonTrackId.value = null;
+  } else if (trackType === 'skeleton') {
+    deleteSkeletonTrack(trackId);
+    selectedSkeletonTrackId.value = null;
+  }
+
+  timelineRef.value?.clearSelection();
+  updateTransformerSelection();
+};
+
+const handleJumpToNextKeyframe = () => {
+  const trackType = timelineRef.value?.selectedTrackType;
+
+  if (trackType === 'bbox') {
+    jumpToNextBboxKeyframe(jumpToFrame);
+  } else if (trackType === 'polygon') {
+    jumpToNextPolygonKeyframe(jumpToFrame);
+  } else if (trackType === 'skeleton') {
+    jumpToNextSkeletonKeyframe(jumpToFrame);
+  }
+};
+
+const handleJumpToPreviousKeyframe = () => {
+  const trackType = timelineRef.value?.selectedTrackType;
+
+  if (trackType === 'bbox') {
+    jumpToPreviousBboxKeyframe(jumpToFrame);
+  } else if (trackType === 'polygon') {
+    jumpToPreviousPolygonKeyframe(jumpToFrame);
+  } else if (trackType === 'skeleton') {
+    jumpToPreviousSkeletonKeyframe(jumpToFrame);
+  }
 };
 
 const updateCursor = (pos: { x: number; y: number }) => {
@@ -1222,8 +1456,6 @@ onMounted(async () => {
     for (let i = 1; i < Math.min(30, physicalFrames.value); i++) {
       loadImage(frames.value[i]!).then((img) => frameImages.value.set(i, img));
     }
-
-    window.addEventListener("keydown", handleKeyDown);
   } catch (error) {
     console.error("Failed to load first frame:", error);
   }
@@ -1233,7 +1465,6 @@ onUnmounted(() => {
   if (animationId !== null) {
     cancelAnimationFrame(animationId);
   }
-  window.removeEventListener("keydown", handleKeyDown);
 });
 
 watch(zoomLevel, () => {
@@ -1246,12 +1477,14 @@ watch(zoomLevel, () => {
 });
 
 watch(currentFrame, () => {
-  selectedBboxId.value = null;
-  selectedPolygonId.value = null;
   updateTransformerSelection();
 
   if (polygonTool?.isDrawingActive()) {
     cancelPolygonDrawing();
+  }
+
+  if (skeletonTool?.isDrawingActive()) {
+    cancelSkeletonDrawing();
   }
 });
 
@@ -1319,6 +1552,11 @@ watch(opacity, () => {
   border-color: #007bff;
 }
 
+.control-group button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .control-group input[type="range"] {
   width: 150px;
 }
@@ -1331,70 +1569,19 @@ watch(opacity, () => {
   width: 60px;
 }
 
-.control-group .drawing-hint {
-  margin-left: 10px;
-  color: #007bff;
-  font-size: 13px;
-  font-style: italic;
+.keyframe-nav-btn {
+  padding: 6px 12px !important;
+  font-size: 12px;
 }
 
-.frame-info {
-  font-weight: 600;
-  color: #333;
-  padding: 10px 15px;
-  background: #f5f5f5;
-  border-radius: 4px;
-  text-align: center;
+.delete-btn {
+  background: #dc3545 !important;
+  color: white !important;
+  border-color: #dc3545 !important;
 }
 
-.draw-indicator {
-  color: #007bff;
-  margin-left: 5px;
-}
-
-.timeline-container {
-  width: 100%;
-  padding: 10px 0;
-}
-
-.timeline-track {
-  position: relative;
-  width: 100%;
-  height: 8px;
-  background: #ddd;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.timeline-progress {
-  position: absolute;
-  height: 100%;
-  background: #007bff;
-  border-radius: 4px;
-  transition: width 0.1s;
-  pointer-events: none;
-}
-
-.timeline-handle {
-  position: absolute;
-  top: 50%;
-  width: 18px;
-  height: 18px;
-  background: #007bff;
-  border: 3px solid white;
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  cursor: grab;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-  transition: transform 0.1s;
-}
-
-.timeline-handle:hover {
-  transform: translate(-50%, -50%) scale(1.2);
-}
-
-.timeline-handle:active {
-  cursor: grabbing;
+.delete-btn:hover:not(:disabled) {
+  background: #c82333 !important;
 }
 
 .canvas-container {
