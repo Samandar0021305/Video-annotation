@@ -1,8 +1,15 @@
 <template>
-  <div class="brush-merge-popup" :style="popupStyle">
-    <div class="popup-header">
+  <div
+    class="brush-merge-popup"
+    :style="popupStyle"
+    ref="popupRef"
+    @mousedown.stop
+    @click.stop
+  >
+    <div class="popup-header" @mousedown="startDrag">
       <span class="popup-icon">🖌️</span>
       <span class="popup-title">Brush Segmentation</span>
+      <span class="drag-hint">⋮⋮</span>
     </div>
 
     <div class="popup-content">
@@ -11,14 +18,21 @@
         <input
           type="color"
           :value="color"
-          @input="$emit('update:color', ($event.target as HTMLInputElement).value)"
+          @input="
+            $emit('update:color', ($event.target as HTMLInputElement).value)
+          "
           class="color-input"
         />
         <span class="color-hex">{{ color }}</span>
       </div>
 
       <div class="stroke-info">
-        <span class="stroke-count">{{ strokeCount }} stroke{{ strokeCount !== 1 ? 's' : '' }} drawn</span>
+        <span class="stroke-count"
+          >{{ strokeCount }} stroke{{
+            strokeCount !== 1 ? "s" : ""
+          }}
+          drawn</span
+        >
       </div>
 
       <div class="tool-buttons">
@@ -28,7 +42,9 @@
           title="Brush - Add to segmentation"
         >
           <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-            <path d="M7 14c-1.66 0-3 1.34-3 3 0 1.31-1.16 2-2 2 .92 1.22 2.49 2 4 2 2.21 0 4-1.79 4-4 0-1.66-1.34-3-3-3zm13.71-9.37l-1.34-1.34a.996.996 0 00-1.41 0L9 12.25 11.75 15l8.96-8.96a.996.996 0 000-1.41z"/>
+            <path
+              d="M7 14c-1.66 0-3 1.34-3 3 0 1.31-1.16 2-2 2 .92 1.22 2.49 2 4 2 2.21 0 4-1.79 4-4 0-1.66-1.34-3-3-3zm13.71-9.37l-1.34-1.34a.996.996 0 00-1.41 0L9 12.25 11.75 15l8.96-8.96a.996.996 0 000-1.41z"
+            />
           </svg>
           <span>Brush</span>
         </button>
@@ -38,7 +54,9 @@
           title="Eraser - Remove from segmentation"
         >
           <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-            <path d="M16.24 3.56l4.95 4.94c.78.79.78 2.05 0 2.84L12 20.53a4.008 4.008 0 01-5.66 0L2.81 17c-.78-.79-.78-2.05 0-2.84l10.6-10.6c.79-.78 2.05-.78 2.83 0zM4.22 15.58l3.54 3.53c.78.79 2.04.79 2.83 0l3.53-3.53-4.95-4.95-4.95 4.95z"/>
+            <path
+              d="M16.24 3.56l4.95 4.94c.78.79.78 2.05 0 2.84L12 20.53a4.008 4.008 0 01-5.66 0L2.81 17c-.78-.79-.78-2.05 0-2.84l10.6-10.6c.79-.78 2.05-.78 2.83 0zM4.22 15.58l3.54 3.53c.78.79 2.04.79 2.83 0l3.53-3.53-4.95-4.95-4.95 4.95z"
+            />
           </svg>
           <span>Eraser</span>
         </button>
@@ -46,53 +64,103 @@
     </div>
 
     <div class="popup-actions">
-      <button class="btn-clear" @click="$emit('clear')">
-        Clear All
-      </button>
-      <button class="btn-merge" @click="$emit('merge')">
-        ✓ Merge Object
-      </button>
+      <button class="btn-clear" @click="$emit('clear')">Clear All</button>
+      <button class="btn-merge" @click="$emit('merge')">✓ Merge Object</button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { ref, computed, onUnmounted } from "vue";
 
-const props = defineProps<{
+defineProps<{
   strokeCount: number;
   color: string;
-  position?: { x: number; y: number };
-  editMode: 'brush' | 'eraser';
+  editMode: "brush" | "eraser";
 }>();
 
 defineEmits<{
-  (e: 'merge'): void;
-  (e: 'clear'): void;
-  (e: 'update:color', color: string): void;
-  (e: 'set-edit-mode', mode: 'brush' | 'eraser'): void;
+  (e: "merge"): void;
+  (e: "clear"): void;
+  (e: "update:color", color: string): void;
+  (e: "set-edit-mode", mode: "brush" | "eraser"): void;
 }>();
 
+const popupRef = ref<HTMLElement | null>(null);
+const isDragging = ref(false);
+const position = ref<{ x: number; y: number } | null>(null);
+const dragOffset = ref({ x: 0, y: 0 });
+
 const popupStyle = computed(() => {
-  if (props.position) {
+  if (position.value) {
     return {
-      position: 'absolute' as const,
-      left: `${props.position.x}px`,
-      top: `${props.position.y}px`,
-      transform: 'translateX(-50%)'
+      position: "fixed" as const,
+      left: `${position.value.x}px`,
+      top: `${position.value.y}px`,
+      transform: "none",
     };
   }
-  return {
-    position: 'absolute' as const,
-    left: '50%',
-    top: '10px',
-    transform: 'translateX(-50%)'
+  return {};
+});
+
+const startDrag = (e: MouseEvent) => {
+  // Stop propagation to prevent parent elements (like canvas) from handling the event
+  e.stopPropagation();
+  e.preventDefault();
+
+  if (!popupRef.value) return;
+
+  isDragging.value = true;
+
+  const rect = popupRef.value.getBoundingClientRect();
+  dragOffset.value = {
+    x: e.clientX - rect.left,
+    y: e.clientY - rect.top,
   };
+
+  // Set initial position if not already set
+  if (!position.value) {
+    position.value = {
+      x: rect.left,
+      y: rect.top,
+    };
+  }
+
+  document.addEventListener("mousemove", onDrag);
+  document.addEventListener("mouseup", stopDrag);
+};
+
+const onDrag = (e: MouseEvent) => {
+  if (!isDragging.value) return;
+
+  const newX = e.clientX - dragOffset.value.x;
+  const newY = e.clientY - dragOffset.value.y;
+
+  // Constrain to viewport
+  const maxX = window.innerWidth - (popupRef.value?.offsetWidth || 300);
+  const maxY = window.innerHeight - (popupRef.value?.offsetHeight || 200);
+
+  position.value = {
+    x: Math.max(0, Math.min(newX, maxX)),
+    y: Math.max(0, Math.min(newY, maxY)),
+  };
+};
+
+const stopDrag = () => {
+  isDragging.value = false;
+  document.removeEventListener("mousemove", onDrag);
+  document.removeEventListener("mouseup", stopDrag);
+};
+
+onUnmounted(() => {
+  document.removeEventListener("mousemove", onDrag);
+  document.removeEventListener("mouseup", stopDrag);
 });
 </script>
 
 <style scoped>
 .brush-merge-popup {
+  position: relative;
   background: #1a1a2e;
   border: 1px solid #4a4a6a;
   border-radius: 12px;
@@ -101,6 +169,7 @@ const popupStyle = computed(() => {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   z-index: 1000;
   color: #ffffff;
+  left: 45vh;
 }
 
 .popup-header {
@@ -110,6 +179,12 @@ const popupStyle = computed(() => {
   margin-bottom: 16px;
   padding-bottom: 12px;
   border-bottom: 1px solid #4a4a6a;
+  cursor: grab;
+  user-select: none;
+}
+
+.popup-header:active {
+  cursor: grabbing;
 }
 
 .popup-icon {
@@ -120,6 +195,13 @@ const popupStyle = computed(() => {
   font-weight: 600;
   font-size: 16px;
   color: #ffffff;
+  flex: 1;
+}
+
+.drag-hint {
+  color: #6a6a8a;
+  font-size: 14px;
+  letter-spacing: 2px;
 }
 
 .popup-content {
