@@ -132,6 +132,7 @@
       @toggle-interpolation="handleToggleInterpolation"
       @add-keyframe="handleAddKeyframe"
       @update-range="handleUpdateRange"
+      @resize-end="handleRangeResizeEnd"
     />
 
     <div class="canvas-container">
@@ -1983,8 +1984,17 @@ const handleUpdateRange = (
 
   if (track && track.ranges[rangeIndex]) {
     track.ranges[rangeIndex] = [start, end];
-    saveAnnotations();
   }
+};
+
+const handleRangeResizeEnd = (
+  _trackId: string,
+  _type: TrackType,
+  _rangeIndex: number,
+  _start: number,
+  _end: number
+) => {
+  saveAnnotations();
 };
 
 const handleDeleteSelected = () => {

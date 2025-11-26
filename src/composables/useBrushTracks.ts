@@ -48,13 +48,15 @@ export function useBrushTracks(currentFrame: Ref<number>) {
     totalFrames: number = 1000
   ): string {
     const trackId = `brush_track_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+    const defaultRangeLength = 15;
+    const rangeEnd = Math.min(initialFrame + defaultRangeLength, totalFrames);
 
     const track: BrushTrack = {
       trackId,
       keyframes: new Map([[initialFrame, contours]]),
       interpolationEnabled: true,
       label,
-      ranges: [[initialFrame, totalFrames]],
+      ranges: [[initialFrame, rangeEnd]],
       hiddenAreas: [],
       interpolateAlgorithm: 'contour-morph-1.0'
     };
