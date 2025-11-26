@@ -1901,6 +1901,8 @@ const handleMouseUp = async () => {
       },
     ];
 
+    const originalContours = trackResult.contours;
+
     try {
       const newContours = await getSegmentationImageContoursForSaving(
         modifiedCanvas,
@@ -1909,9 +1911,20 @@ const handleMouseUp = async () => {
       );
 
       if (newContours.length > 0) {
-        updateBrushKeyframe(selectedTrackId, targetFrame, newContours);
+        updateBrushKeyframe(
+          selectedTrackId,
+          targetFrame,
+          newContours,
+          autoSuggest.value,
+          originalContours
+        );
       } else {
-        deleteBrushKeyframe(selectedTrackId, targetFrame);
+        deleteBrushKeyframe(
+          selectedTrackId,
+          targetFrame,
+          autoSuggest.value,
+          originalContours
+        );
       }
 
       frameCanvases.value.delete(targetFrame);

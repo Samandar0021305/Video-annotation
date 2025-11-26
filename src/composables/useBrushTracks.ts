@@ -162,17 +162,53 @@ export function useBrushTracks(currentFrame: Ref<number>) {
   function updateKeyframe(
     trackId: string,
     frame: number,
-    contours: SegmentationContour[]
+    contours: SegmentationContour[],
+    autoSuggestEnabled: boolean = false,
+    originalContours?: SegmentationContour[]
   ): void {
     const track = tracks.value.get(trackId);
     if (!track) return;
-    track.keyframes.set(frame, contours);
+
+    if (autoSuggestEnabled && originalContours) {
+      track.keyframes.set(frame, contours);
+
+      const nextFrame = frame + 1;
+      const isNextFrameInRange = track.ranges.some(
+        ([start, end]) => nextFrame >= start && nextFrame < end
+      );
+
+      if (!track.keyframes.has(nextFrame) && isNextFrameInRange) {
+        track.keyframes.set(nextFrame, originalContours);
+      }
+    } else {
+      track.keyframes.set(frame, contours);
+    }
   }
 
-  function deleteKeyframe(trackId: string, frame: number): void {
+  function deleteKeyframe(
+    trackId: string,
+    frame: number,
+    autoSuggestEnabled: boolean = false,
+    originalContours?: SegmentationContour[]
+  ): void {
     const track = tracks.value.get(trackId);
     if (!track) return;
-    track.keyframes.delete(frame);
+
+    if (autoSuggestEnabled && originalContours) {
+      track.keyframes.delete(frame);
+
+      const nextFrame = frame + 1;
+      const isNextFrameInRange = track.ranges.some(
+        ([start, end]) => nextFrame >= start && nextFrame < end
+      );
+
+      if (!track.keyframes.has(nextFrame) && isNextFrameInRange) {
+        track.keyframes.set(nextFrame, originalContours);
+      }
+    } else {
+      track.keyframes.delete(frame);
+    }
+
     if (track.keyframes.size === 0) {
       deleteTrack(trackId);
     }
