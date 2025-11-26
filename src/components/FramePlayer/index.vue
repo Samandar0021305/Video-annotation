@@ -797,10 +797,12 @@ const handleBboxClick = (e: any) => {
 };
 
 const handleBboxDragEnd = (e: any) => {
-  const group = e.target.findAncestor("Group");
+  const target = e.target;
+  const group = target.getClassName() === "Group" ? target : target.findAncestor("Group");
   if (!group) return;
 
   const trackId = group.id();
+  if (!trackId) return;
   const track = bboxTracks.value.get(trackId);
   if (!track) return;
 
