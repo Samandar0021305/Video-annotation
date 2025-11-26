@@ -280,18 +280,20 @@ export function renderMaskToCanvas(
   imageArray.set(decoded);
   const imageData = new ImageData(imageArray, width, height);
 
-  if (scale === 1) {
-    // Direct render
-    ctx.putImageData(imageData, mask.left, mask.top);
-  } else {
-    // Scaled render - use temporary canvas
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = width;
-    tempCanvas.height = height;
-    const tempCtx = tempCanvas.getContext('2d')!;
-    tempCtx.putImageData(imageData, 0, 0);
+  // IMPORTANT: Always use temp canvas + drawImage for proper alpha compositing
+  // putImageData is destructive - it overwrites ALL pixels including transparent ones
+  // drawImage respects alpha - transparent pixels won't overwrite existing content
+  const tempCanvas = document.createElement('canvas');
+  tempCanvas.width = width;
+  tempCanvas.height = height;
+  const tempCtx = tempCanvas.getContext('2d')!;
+  tempCtx.putImageData(imageData, 0, 0);
 
-    // Draw scaled
+  if (scale === 1) {
+    // Direct composite - drawImage respects alpha channel
+    ctx.drawImage(tempCanvas, mask.left, mask.top);
+  } else {
+    // Scaled composite
     ctx.drawImage(
       tempCanvas,
       0, 0, width, height,
@@ -459,4 +461,143 @@ export function scaleMaskData(mask: MaskData, scale: number): MaskData {
     right: Math.round(mask.right * scale),
     bottom: Math.round(mask.bottom * scale)
   };
+}
+
+/**
+ * Check if a point is inside a mask (pixel-perfect using RLE)
+ *
+ * @param mask - The mask to test
+ * @param x - X coordinate
+ * @param y - Y coordinate
+ * @returns true if point is on an opaque pixel of the mask
+ */
+export function isPointInMask(mask: MaskData, x: number, y: number): boolean {
+  // Quick bounding box check (early exit)
+  const px = Math.floor(x);
+  const py = Math.floor(y);
+
+  if (px < mask.left || px > mask.right || py < mask.top || py > mask.bottom) {
+    return false;
+  }
+
+  // Convert to local coordinates within the mask
+  const localX = px - mask.left;
+  const localY = py - mask.top;
+  const width = mask.right - mask.left + 1;
+
+  // Calculate the pixel index in the flattened array
+  const pixelIndex = localY * width + localX;
+
+  // Walk through RLE to determine if this pixel is opaque
+  // RLE format: [transparent_count, opaque_count, transparent_count, ...]
+  // Starts with transparent pixels
+  let currentIndex = 0;
+  let isOpaque = false; // RLE starts with transparent run
+
+  for (const runLength of mask.rle) {
+    if (currentIndex + runLength > pixelIndex) {
+      // The pixel falls within this run
+      return isOpaque;
+    }
+    currentIndex += runLength;
+    isOpaque = !isOpaque; // Toggle between transparent and opaque
+  }
+
+  return false;
+}
+
+/**
+ * Find which mask contains the given point
+ * Checks in reverse order (last = top-most, checked first)
+ *
+ * @param masks - Array of masks to check
+ * @param x - X coordinate
+ * @param y - Y coordinate
+ * @returns The mask containing the point, or null if none
+ */
+export function findMaskAtPoint(
+  masks: MaskData[],
+  x: number,
+  y: number
+): MaskData | null {
+  // Check in reverse order (top-most mask first)
+  for (let i = masks.length - 1; i >= 0; i--) {
+    const mask = masks[i];
+    if (mask && isPointInMask(mask, x, y)) {
+      return mask;
+    }
+  }
+  return null;
+}
+
+/**
+ * Find which mask (with index) contains the given point
+ *
+ * @param masks - Array of masks to check
+ * @param x - X coordinate
+ * @param y - Y coordinate
+ * @returns Object with mask and index, or null if none found
+ */
+export function findMaskWithIndexAtPoint(
+  masks: MaskData[],
+  x: number,
+  y: number
+): { mask: MaskData; index: number } | null {
+  // Check in reverse order (top-most mask first)
+  for (let i = masks.length - 1; i >= 0; i--) {
+    const mask = masks[i];
+    if (mask && isPointInMask(mask, x, y)) {
+      return { mask, index: i };
+    }
+  }
+  return null;
+}
+
+/**
+ * Apply a color change to a mask by updating its color property
+ * and re-rendering it to a canvas
+ *
+ * @param mask - The mask to modify
+ * @param newColor - New hex color string
+ * @param canvas - Canvas to render the updated mask to
+ */
+export function changeMaskColor(
+  mask: MaskData,
+  newColor: string,
+  canvas: HTMLCanvasElement
+): MaskData {
+  // Create a new mask with updated color
+  const updatedMask: MaskData = {
+    ...mask,
+    color: newColor
+  };
+
+  // Clear and re-render the mask with new color
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    renderMaskToCanvas(updatedMask, canvas, false, 1);
+  }
+
+  return updatedMask;
+}
+
+/**
+ * Re-encode a canvas to RLE MaskData
+ * Used after editing (brush/eraser) to update the stored data
+ *
+ * @param canvas - Canvas containing the edited mask
+ * @param originalMask - Original mask for metadata (color, className, classID)
+ * @returns New MaskData with updated RLE, or null if canvas is empty
+ */
+export function canvasToMaskDataFromEdit(
+  canvas: HTMLCanvasElement,
+  originalMask: MaskData
+): MaskData | null {
+  return canvasToMaskData(
+    canvas,
+    originalMask.color,
+    originalMask.className,
+    originalMask.classID
+  );
 }

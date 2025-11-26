@@ -1,7 +1,11 @@
 import { ref, computed, type Ref } from 'vue';
 import type { SegmentationContour } from '../types/contours';
 import type { MaskData } from '../types/mask';
-import { renderMasksToCanvas } from '../utils/rle';
+import {
+  renderMasksToCanvas,
+  isPointInMask,
+  canvasToMaskData
+} from '../utils/rle';
 
 // Union type for keyframe data - supports both old contour format and new RLE format
 export type KeyframeData = SegmentationContour[] | MaskData[];
@@ -32,6 +36,15 @@ export interface BrushTrack {
   dataFormat: 'rle' | 'contour';
 }
 
+/** Per-track editing state for selective editing */
+export interface TrackEditState {
+  trackId: string;
+  editCanvas: HTMLCanvasElement;
+  isSelected: boolean;
+  isHovered: boolean;
+  originalMasks: MaskData[];  // Original masks before editing
+}
+
 function findSurroundingKeyframes(
   keyframes: Map<number, KeyframeData>,
   targetFrame: number
@@ -60,6 +73,13 @@ function findSurroundingKeyframes(
 export function useBrushTracks(currentFrame: Ref<number>) {
   const tracks = ref<Map<string, BrushTrack>>(new Map());
   const selectedTrackId = ref<string | null>(null);
+  const hoveredTrackId = ref<string | null>(null);
+
+  // Per-track editing canvases for selective editing
+  const trackEditStates = ref<Map<string, TrackEditState>>(new Map());
+
+  // Segmentation edit mode: 'none' | 'brush' | 'eraser'
+  const segmentationEditMode = ref<'none' | 'brush' | 'eraser'>('none');
 
   /**
    * Create a new track with RLE-based mask data
@@ -146,11 +166,6 @@ export function useBrushTracks(currentFrame: Ref<number>) {
 
   /**
    * Get mask data at a specific frame and render to canvas
-   * @param trackId - Track ID
-   * @param frame - Frame number
-   * @param workingWidth - Working canvas width
-   * @param workingHeight - Working canvas height
-   * @param scale - Scale factor for rendering (default 1)
    */
   async function getMasksAtFrame(
     trackId: string,
@@ -162,19 +177,16 @@ export function useBrushTracks(currentFrame: Ref<number>) {
     const track = tracks.value.get(trackId);
     if (!track) return { masks: [], canvas: null, isInterpolated: false };
 
-    // Check if frame is in range
     const ranges = track.ranges || [];
     const isInRange = ranges.length === 0
       ? true
       : ranges.some(([start, end]) => frame >= start && frame < end);
     if (!isInRange) return { masks: [], canvas: null, isInterpolated: false };
 
-    // Check if frame is hidden
     const hiddenAreas = track.hiddenAreas || [];
     const isHidden = hiddenAreas.some(([start, end]) => frame >= start && frame < end);
     if (isHidden) return { masks: [], canvas: null, isInterpolated: false };
 
-    // Get keyframe data
     let keyframeData: KeyframeData | undefined;
     let isInterpolated = false;
 
@@ -192,7 +204,6 @@ export function useBrushTracks(currentFrame: Ref<number>) {
       return { masks: [], canvas: null, isInterpolated: false };
     }
 
-    // Handle RLE mask data
     if (isMaskData(keyframeData)) {
       const canvas = document.createElement('canvas');
       canvas.width = workingWidth;
@@ -201,7 +212,6 @@ export function useBrushTracks(currentFrame: Ref<number>) {
       return { masks: keyframeData, canvas, isInterpolated };
     }
 
-    // For legacy contour data, return empty (should use getContoursAtFrame instead)
     return { masks: [], canvas: null, isInterpolated };
   }
 
@@ -219,26 +229,21 @@ export function useBrushTracks(currentFrame: Ref<number>) {
     const track = tracks.value.get(trackId);
     if (!track) return { contours: [], canvas: null, isInterpolated: false };
 
-    // For RLE tracks, use getMasksAtFrame instead
     if (track.dataFormat === 'rle') {
       const result = await getMasksAtFrame(trackId, frame, workingWidth, workingHeight, displayScale);
-      // Return empty contours but with the rendered canvas
       return { contours: [], canvas: result.canvas, isInterpolated: result.isInterpolated };
     }
 
-    // Check if frame is in range
     const ranges = track.ranges || [];
     const isInRange = ranges.length === 0
       ? true
       : ranges.some(([start, end]) => frame >= start && frame < end);
     if (!isInRange) return { contours: [], canvas: null, isInterpolated: false };
 
-    // Check if frame is hidden
     const hiddenAreas = track.hiddenAreas || [];
     const isHidden = hiddenAreas.some(([start, end]) => frame >= start && frame < end);
     if (isHidden) return { contours: [], canvas: null, isInterpolated: false };
 
-    // Get keyframe data
     let keyframeData: KeyframeData | undefined;
     let isInterpolated = false;
 
@@ -256,7 +261,6 @@ export function useBrushTracks(currentFrame: Ref<number>) {
       return { contours: [], canvas: null, isInterpolated: false };
     }
 
-    // Handle legacy contour data
     if (isContourData(keyframeData)) {
       const { getImageFromContours } = await import('../utils/opencv-contours');
       const canvas = await getImageFromContours(toolClasses, keyframeData, displayScale, workingWidth, workingHeight);
@@ -275,8 +279,13 @@ export function useBrushTracks(currentFrame: Ref<number>) {
 
   function deleteTrack(trackId: string): void {
     tracks.value.delete(trackId);
+    trackEditStates.value.delete(trackId);
     if (selectedTrackId.value === trackId) {
       selectedTrackId.value = null;
+      segmentationEditMode.value = 'none';
+    }
+    if (hoveredTrackId.value === trackId) {
+      hoveredTrackId.value = null;
     }
   }
 
@@ -344,9 +353,6 @@ export function useBrushTracks(currentFrame: Ref<number>) {
     return track.keyframes.get(frame) || null;
   }
 
-  /**
-   * Legacy alias for getTrackDataAtFrame
-   */
   function getTrackCanvasAtFrame(
     trackId: string,
     frame: number
@@ -374,7 +380,10 @@ export function useBrushTracks(currentFrame: Ref<number>) {
 
   function clearAllTracks(): void {
     tracks.value.clear();
+    trackEditStates.value.clear();
     selectedTrackId.value = null;
+    hoveredTrackId.value = null;
+    segmentationEditMode.value = 'none';
   }
 
   function jumpToNextKeyframe(seekToFrame: (frame: number) => void): void {
@@ -427,12 +436,293 @@ export function useBrushTracks(currentFrame: Ref<number>) {
     return ranges.some(([start, end]) => frame >= start && frame < end);
   }
 
-  /**
-   * Get the data format of a track
-   */
   function getTrackFormat(trackId: string): 'rle' | 'contour' | null {
     const track = tracks.value.get(trackId);
     return track ? track.dataFormat : null;
+  }
+
+  // ========== NEW: Selection & Editing Functions ==========
+
+  /**
+   * Find which track contains the point at current frame
+   */
+  function findTrackAtPoint(
+    x: number,
+    y: number,
+    frame: number
+  ): string | null {
+    // Check tracks in reverse order (last added = top = checked first)
+    const trackEntries = Array.from(tracks.value.entries()).reverse();
+
+    for (const [trackId, track] of trackEntries) {
+      if (track.dataFormat !== 'rle') continue;
+
+      // Check if frame is in range
+      const ranges = track.ranges || [];
+      const isInRange = ranges.length === 0
+        ? true
+        : ranges.some(([start, end]) => frame >= start && frame < end);
+      if (!isInRange) continue;
+
+      // Get masks for this frame
+      let keyframeData: KeyframeData | undefined;
+      if (track.keyframes.has(frame)) {
+        keyframeData = track.keyframes.get(frame)!;
+      } else if (track.interpolationEnabled) {
+        const { before } = findSurroundingKeyframes(track.keyframes, frame);
+        if (before) {
+          keyframeData = before[1];
+        }
+      }
+
+      if (!keyframeData || !isMaskData(keyframeData)) continue;
+
+      // Check if point is in any mask of this track
+      for (const mask of keyframeData) {
+        if (isPointInMask(mask, x, y)) {
+          return trackId;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Select a track for editing
+   */
+  function selectTrackForEditing(
+    trackId: string,
+    canvasWidth: number,
+    canvasHeight: number
+  ): void {
+    // Deselect previous
+    if (selectedTrackId.value && selectedTrackId.value !== trackId) {
+      deselectTrack();
+    }
+
+    const track = tracks.value.get(trackId);
+    if (!track || track.dataFormat !== 'rle') return;
+
+    selectedTrackId.value = trackId;
+
+    // Get current frame masks
+    let keyframeData: KeyframeData | undefined;
+    const frame = currentFrame.value;
+
+    if (track.keyframes.has(frame)) {
+      keyframeData = track.keyframes.get(frame)!;
+    } else if (track.interpolationEnabled) {
+      const { before } = findSurroundingKeyframes(track.keyframes, frame);
+      if (before) {
+        keyframeData = before[1];
+      }
+    }
+
+    if (!keyframeData || !isMaskData(keyframeData)) return;
+
+    // Create edit canvas for this track
+    const editCanvas = document.createElement('canvas');
+    editCanvas.width = canvasWidth;
+    editCanvas.height = canvasHeight;
+
+    // Render current masks to edit canvas
+    renderMasksToCanvas(keyframeData, editCanvas, true, 1);
+
+    // Store edit state
+    trackEditStates.value.set(trackId, {
+      trackId,
+      editCanvas,
+      isSelected: true,
+      isHovered: false,
+      originalMasks: [...keyframeData]
+    });
+  }
+
+  /**
+   * Deselect current track and save changes
+   */
+  function deselectTrack(): void {
+    if (!selectedTrackId.value) return;
+
+    const editState = trackEditStates.value.get(selectedTrackId.value);
+    if (editState) {
+      // Re-encode canvas to RLE and update keyframe
+      const originalMask = editState.originalMasks[0];
+      if (originalMask) {
+        const newMaskData = canvasToMaskData(
+          editState.editCanvas,
+          originalMask.color,
+          originalMask.className,
+          originalMask.classID
+        );
+
+        if (newMaskData) {
+          const track = tracks.value.get(selectedTrackId.value);
+          if (track) {
+            track.keyframes.set(currentFrame.value, [newMaskData]);
+          }
+        }
+      }
+    }
+
+    trackEditStates.value.delete(selectedTrackId.value);
+    selectedTrackId.value = null;
+    segmentationEditMode.value = 'none';
+  }
+
+  /**
+   * Set hover state for a track
+   */
+  function setHoveredTrack(trackId: string | null): void {
+    hoveredTrackId.value = trackId;
+  }
+
+  /**
+   * Get the edit canvas for the selected track
+   */
+  function getSelectedEditCanvas(): HTMLCanvasElement | null {
+    if (!selectedTrackId.value) return null;
+    const editState = trackEditStates.value.get(selectedTrackId.value);
+    return editState?.editCanvas || null;
+  }
+
+  /**
+   * Set the segmentation edit mode
+   */
+  function setSegmentationEditMode(mode: 'none' | 'brush' | 'eraser'): void {
+    segmentationEditMode.value = mode;
+  }
+
+  /**
+   * Draw on the selected track's canvas (brush mode)
+   */
+  function brushOnSelectedTrack(
+    x: number,
+    y: number,
+    size: number,
+    color: string,
+    isStart: boolean = false
+  ): void {
+    if (!selectedTrackId.value) return;
+
+    const editState = trackEditStates.value.get(selectedTrackId.value);
+    if (!editState) return;
+
+    const ctx = editState.editCanvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = size;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.globalCompositeOperation = 'source-over';
+
+    if (isStart) {
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+    } else {
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+    }
+  }
+
+  /**
+   * Erase on the selected track's canvas (eraser mode)
+   */
+  function eraseOnSelectedTrack(
+    x: number,
+    y: number,
+    size: number
+  ): void {
+    if (!selectedTrackId.value) return;
+
+    const editState = trackEditStates.value.get(selectedTrackId.value);
+    if (!editState) return;
+
+    const ctx = editState.editCanvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.beginPath();
+    ctx.arc(x, y, size / 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  /**
+   * Change the color of the selected track
+   */
+  function changeSelectedTrackColor(newColor: string): void {
+    if (!selectedTrackId.value) return;
+
+    const editState = trackEditStates.value.get(selectedTrackId.value);
+    if (!editState || editState.originalMasks.length === 0) return;
+
+    const firstMask = editState.originalMasks[0];
+    if (!firstMask) return;
+
+    // Update the original mask color
+    firstMask.color = newColor;
+
+    // Re-render with new color
+    const ctx = editState.editCanvas.getContext('2d');
+    if (!ctx) return;
+
+    // Get current canvas data
+    const imageData = ctx.getImageData(
+      0, 0,
+      editState.editCanvas.width,
+      editState.editCanvas.height
+    );
+
+    // Parse new color
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(newColor);
+    if (!result || !result[1] || !result[2] || !result[3]) return;
+
+    const r = parseInt(result[1], 16);
+    const g = parseInt(result[2], 16);
+    const b = parseInt(result[3], 16);
+
+    // Change all non-transparent pixels to new color
+    for (let i = 0; i < imageData.data.length; i += 4) {
+      const alpha = imageData.data[i + 3];
+      if (alpha !== undefined && alpha > 0) {
+        imageData.data[i] = r;
+        imageData.data[i + 1] = g;
+        imageData.data[i + 2] = b;
+      }
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+  }
+
+  /**
+   * Get the color of the selected track
+   */
+  function getSelectedTrackColor(): string | null {
+    if (!selectedTrackId.value) return null;
+
+    const editState = trackEditStates.value.get(selectedTrackId.value);
+    if (!editState || editState.originalMasks.length === 0) return null;
+
+    const firstMask = editState.originalMasks[0];
+    return firstMask ? firstMask.color : null;
+  }
+
+  /**
+   * Check if a track is currently selected
+   */
+  function isTrackSelected(trackId: string): boolean {
+    return selectedTrackId.value === trackId;
+  }
+
+  /**
+   * Check if a track is currently hovered
+   */
+  function isTrackHovered(trackId: string): boolean {
+    return hoveredTrackId.value === trackId;
   }
 
   return {
@@ -440,6 +730,9 @@ export function useBrushTracks(currentFrame: Ref<number>) {
     selectedTrackId,
     selectedTrack,
     isCurrentFrameKeyframe,
+    hoveredTrackId,
+    segmentationEditMode,
+    trackEditStates,
     createTrack,
     createTrackLegacy,
     addKeyframe,
@@ -459,6 +752,19 @@ export function useBrushTracks(currentFrame: Ref<number>) {
     isFrameInRanges,
     getTrackFormat,
     isMaskData,
-    isContourData
+    isContourData,
+    // New selection & editing functions
+    findTrackAtPoint,
+    selectTrackForEditing,
+    deselectTrack,
+    setHoveredTrack,
+    getSelectedEditCanvas,
+    setSegmentationEditMode,
+    brushOnSelectedTrack,
+    eraseOnSelectedTrack,
+    changeSelectedTrackColor,
+    getSelectedTrackColor,
+    isTrackSelected,
+    isTrackHovered
   };
 }

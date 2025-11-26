@@ -20,6 +20,29 @@
       <div class="stroke-info">
         <span class="stroke-count">{{ strokeCount }} stroke{{ strokeCount !== 1 ? 's' : '' }} drawn</span>
       </div>
+
+      <div class="tool-buttons">
+        <button
+          :class="['tool-btn', { active: editMode === 'brush' }]"
+          @click="$emit('set-edit-mode', 'brush')"
+          title="Brush - Add to segmentation"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <path d="M7 14c-1.66 0-3 1.34-3 3 0 1.31-1.16 2-2 2 .92 1.22 2.49 2 4 2 2.21 0 4-1.79 4-4 0-1.66-1.34-3-3-3zm13.71-9.37l-1.34-1.34a.996.996 0 00-1.41 0L9 12.25 11.75 15l8.96-8.96a.996.996 0 000-1.41z"/>
+          </svg>
+          <span>Brush</span>
+        </button>
+        <button
+          :class="['tool-btn', { active: editMode === 'eraser' }]"
+          @click="$emit('set-edit-mode', 'eraser')"
+          title="Eraser - Remove from segmentation"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <path d="M16.24 3.56l4.95 4.94c.78.79.78 2.05 0 2.84L12 20.53a4.008 4.008 0 01-5.66 0L2.81 17c-.78-.79-.78-2.05 0-2.84l10.6-10.6c.79-.78 2.05-.78 2.83 0zM4.22 15.58l3.54 3.53c.78.79 2.04.79 2.83 0l3.53-3.53-4.95-4.95-4.95 4.95z"/>
+          </svg>
+          <span>Eraser</span>
+        </button>
+      </div>
     </div>
 
     <div class="popup-actions">
@@ -40,12 +63,14 @@ const props = defineProps<{
   strokeCount: number;
   color: string;
   position?: { x: number; y: number };
+  editMode: 'brush' | 'eraser';
 }>();
 
 defineEmits<{
   (e: 'merge'): void;
   (e: 'clear'): void;
   (e: 'update:color', color: string): void;
+  (e: 'set-edit-mode', mode: 'brush' | 'eraser'): void;
 }>();
 
 const popupStyle = computed(() => {
@@ -152,6 +177,44 @@ const popupStyle = computed(() => {
   background: #2a2a4a;
   padding: 6px 12px;
   border-radius: 6px;
+}
+
+.tool-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.tool-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #4a4a6a;
+  border-radius: 8px;
+  background: transparent;
+  color: #a0a0b0;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s;
+  justify-content: center;
+}
+
+.tool-btn:hover {
+  background: #2a2a4a;
+  color: #ffffff;
+  border-color: #6a6a8a;
+}
+
+.tool-btn.active {
+  background: #4a90d9;
+  color: #ffffff;
+  border-color: #4a90d9;
+}
+
+.tool-btn svg {
+  flex-shrink: 0;
 }
 
 .popup-actions {
