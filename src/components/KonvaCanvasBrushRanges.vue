@@ -904,7 +904,7 @@ const {
   selectedTrackId,
   selectedTrack,
   isCurrentFrameKeyframe,
-  createTrack,
+  createTrackLegacy: createTrack,
   addKeyframe,
   getContoursAtFrame,
   toggleInterpolation,

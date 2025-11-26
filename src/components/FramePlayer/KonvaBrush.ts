@@ -124,7 +124,9 @@ export class KonvaBrush {
 
     const ctx = canvas.getContext("2d")!;
     ctx.save();
-    ctx.globalAlpha = opacityOverride !== undefined ? opacityOverride : this.opacity;
+    // IMPORTANT: Default to full opacity (1.0) for storage to avoid noise from semi-transparent pixels
+    // Visual opacity should be applied at the Konva layer level, not during canvas rendering
+    ctx.globalAlpha = opacityOverride !== undefined ? opacityOverride : 1.0;
 
     ctx.imageSmoothingEnabled = false;
 
