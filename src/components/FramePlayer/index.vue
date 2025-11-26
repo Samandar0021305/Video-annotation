@@ -1,301 +1,341 @@
 <template>
   <div class="frame-player">
-    <div class="controls">
-      <div class="control-group">
-        <label>Mode:</label>
-        <button :class="{ active: mode === 'pan' }" @click="setMode('pan')">
-          Pan
-        </button>
-        <button :class="{ active: mode === 'brush' }" @click="setMode('brush')">
-          Brush
-        </button>
-        <button
-          :class="{ active: mode === 'eraser' }"
-          @click="setMode('eraser')"
-        >
-          Eraser
-        </button>
-        <button :class="{ active: mode === 'bbox' }" @click="setMode('bbox')">
-          BBox
-        </button>
-        <button
-          :class="{ active: mode === 'polygon' }"
-          @click="setMode('polygon')"
-        >
-          Polygon
-        </button>
-        <button
-          :class="{ active: mode === 'skeleton' }"
-          @click="setMode('skeleton')"
-        >
-          Skeleton
-        </button>
-        <button
-          @click="handleDeleteSelected"
-          class="delete-btn"
-          :disabled="!timelineRef?.selectedTrackId"
-        >
-          Delete
-        </button>
-      </div>
-
-      <div v-if="mode === 'brush' || mode === 'eraser'" class="control-group">
-        <label>Size: {{ brushSize }}px</label>
-        <input
-          type="range"
-          min="5"
-          max="100"
-          v-model.number="brushSize"
-          @input="handleSizeChange"
-        />
-      </div>
-
-      <div v-if="mode === 'brush'" class="control-group">
-        <label>Color:</label>
-        <input
-          type="color"
-          v-model="brushColor"
-          class="color-picker"
-          @change="handleBrushColorChange"
-        />
-      </div>
-
-      <div v-if="mode === 'bbox'" class="control-group">
-        <label>Color:</label>
-        <input type="color" v-model="bboxColor" class="color-picker" />
-      </div>
-
-      <div v-if="mode === 'polygon'" class="control-group">
-        <label>Color:</label>
-        <input type="color" v-model="polygonColor" class="color-picker" />
-      </div>
-
-      <div v-if="mode === 'skeleton'" class="control-group">
-        <label>Color:</label>
-        <input type="color" v-model="skeletonColor" class="color-picker" />
-      </div>
-
-      <div class="control-group">
-        <label>Opacity: {{ Math.round(opacity * 100) }}%</label>
-        <input
-          type="range"
-          min="0.05"
-          max="1"
-          step="0.05"
-          v-model.number="opacity"
-          @input="handleOpacityChange"
-        />
-      </div>
-
-      <div class="control-group">
-        <label>Zoom: {{ Math.round(zoomLevel * 100) }}%</label>
-        <button @click="zoomIn">+</button>
-        <button @click="zoomOut">-</button>
-        <button @click="resetZoom">Reset</button>
-      </div>
-
-      <div class="control-group">
-        <button
-          @click="handleClearCache"
-          class="clear-cache-btn"
-          :disabled="isClearingCache"
-        >
-          {{ isClearingCache ? "Clearing..." : "Clear Cache" }}
-        </button>
-      </div>
-
-      <div class="control-group">
-        <label class="auto-suggest-toggle">
-          <input type="checkbox" v-model="autoSuggest" />
-          <span>Auto Suggest {{ autoSuggest ? "ON" : "OFF" }}</span>
-        </label>
-      </div>
-    </div>
-
-    <div class="canvas-container">
-      <div
-        v-if="framesLoaded"
-        ref="containerRef"
-        class="stage-wrapper"
-        @wheel="handleWheel"
-      >
-        <v-stage
-          ref="stageRef"
-          :config="stageConfig"
-          @mousedown="handleMouseDown"
-          @mousemove="handleMouseMove"
-          @mouseup="handleMouseUp"
-          @mouseleave="handleMouseLeave"
-          @dblclick="handleDoubleClick"
-        >
-          <v-layer ref="backgroundLayerRef">
-            <v-image :config="imageConfig" />
-          </v-layer>
-
-          <v-layer
-            ref="annotationsLayerRef"
-            :config="{ imageSmoothingEnabled: false }"
+    <div class="main-content">
+      <!-- Vertical Toolbar -->
+      <div class="vertical-toolbar">
+        <div class="toolbar-section">
+          <div class="toolbar-title">Tools</div>
+          <button
+            :class="['tool-btn', { active: mode === 'pan' }]"
+            @click="setMode('pan')"
+            title="Pan"
           >
-            <v-group ref="brushAnnotationGroupRef"></v-group>
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path
+                d="M10 9h4V6h3l-5-5-5 5h3v3zm-1 1H6V7l-5 5 5 5v-3h3v-4zm14 2l-5-5v3h-3v4h3v3l5-5zm-9 3h-4v3H7l5 5 5-5h-3v-3z"
+              />
+            </svg>
+            <span>Pan</span>
+          </button>
+          <button
+            :class="['tool-btn', { active: mode === 'brush' }]"
+            @click="setMode('brush')"
+            title="Brush"
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path
+                d="M7 14c-1.66 0-3 1.34-3 3 0 1.31-1.16 2-2 2 .92 1.22 2.49 2 4 2 2.21 0 4-1.79 4-4 0-1.66-1.34-3-3-3zm13.71-9.37l-1.34-1.34a.996.996 0 00-1.41 0L9 12.25 11.75 15l8.96-8.96a.996.996 0 000-1.41z"
+              />
+            </svg>
+            <span>Brush</span>
+          </button>
+          <button
+            :class="['tool-btn', { active: mode === 'eraser' }]"
+            @click="setMode('eraser')"
+            title="Eraser"
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path
+                d="M16.24 3.56l4.95 4.94c.78.79.78 2.05 0 2.84L12 20.53a4.008 4.008 0 01-5.66 0L2.81 17c-.78-.79-.78-2.05 0-2.84l10.6-10.6c.79-.78 2.05-.78 2.83 0zM4.22 15.58l3.54 3.53c.78.79 2.04.79 2.83 0l3.53-3.53-4.95-4.95-4.95 4.95z"
+              />
+            </svg>
+            <span>Eraser</span>
+          </button>
+          <button
+            :class="['tool-btn', { active: mode === 'bbox' }]"
+            @click="setMode('bbox')"
+            title="Bounding Box"
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path
+                d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z"
+              />
+            </svg>
+            <span>BBox</span>
+          </button>
+          <button
+            :class="['tool-btn', { active: mode === 'polygon' }]"
+            @click="setMode('polygon')"
+            title="Polygon"
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path
+                d="M17.63 5.84C17.27 5.33 16.67 5 16 5H8c-.67 0-1.27.33-1.63.84L2 12l4.37 6.16c.36.51.96.84 1.63.84h8c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16z"
+              />
+            </svg>
+            <span>Polygon</span>
+          </button>
+          <button
+            :class="['tool-btn', { active: mode === 'skeleton' }]"
+            @click="setMode('skeleton')"
+            title="Skeleton"
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path
+                d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"
+              />
+            </svg>
+            <span>Skeleton</span>
+          </button>
+        </div>
 
-            <v-group ref="bboxGroupRef">
-              <v-group
-                v-for="bbox in currentFrameBboxes"
-                :key="bbox.id"
-                :config="{
-                  id: bbox.id,
-                  x: bbox.x,
-                  y: bbox.y,
-                  rotation: bbox.rotation,
-                  draggable: mode === 'pan',
-                  name: 'boundingBox',
-                  opacity: opacity,
-                }"
-                @click="handleBboxClick"
-                @dragend="handleBboxDragEnd"
-                @transformend="handleBboxTransformEnd"
-              >
-                <v-rect
-                  :config="{
-                    width: bbox.width,
-                    height: bbox.height,
-                    stroke: bbox.color,
-                    strokeWidth: 2,
-                    fill: bbox.color + '20',
-                  }"
-                />
-              </v-group>
-            </v-group>
+        <div
+          v-if="mode === 'brush' || mode === 'eraser'"
+          class="toolbar-section"
+        >
+          <div class="toolbar-title">Size</div>
+          <div class="size-control">
+            <input
+              type="range"
+              min="5"
+              max="100"
+              v-model.number="brushSize"
+              @input="handleSizeChange"
+              class="vertical-slider"
+            />
+            <span class="size-value">{{ brushSize }}px</span>
+          </div>
+        </div>
 
-            <v-group ref="polygonGroupRef">
-              <template
-                v-for="polygon in currentFramePolygons"
-                :key="polygon.id"
-              >
-                <v-line
-                  :config="{
-                    id: polygon.id,
-                    x: 0,
-                    y: 0,
-                    points: polygon.points.flatMap((p) => [p.x, p.y]),
-                    fill: polygon.color + '30',
-                    stroke: polygon.color,
-                    strokeWidth: 2,
-                    closed: true,
-                    draggable: canEditPolygon,
-                    name: 'polygon',
-                    opacity: opacity,
-                  }"
-                  @click="handlePolygonClick"
-                  @dragend="handlePolygonDragEnd"
-                />
-                <v-circle
-                  v-for="(point, pointIdx) in polygon.points"
-                  :key="`${polygon.id}-pt-${pointIdx}`"
-                  :config="{
-                    x: point.x,
-                    y: point.y,
-                    radius: 6,
-                    fill: polygon.color,
-                    stroke:
-                      timelineRef?.selectedTrackId === polygon.id
-                        ? '#fff'
-                        : polygon.color,
-                    strokeWidth:
-                      timelineRef?.selectedTrackId === polygon.id ? 2 : 1,
-                    draggable: canEditPolygon,
-                    name: 'polygonVertex',
-                    opacity: opacity,
-                  }"
-                  @dragmove="(e: any) => handlePolygonVertexDragMove(e, polygon.id, pointIdx)"
-                  @dragend="(e: any) => handlePolygonVertexDragEnd(e, polygon.id, pointIdx)"
-                  @click="() => handlePolygonVertexClick(polygon.id)"
-                />
-              </template>
-            </v-group>
+        <!-- Color Picker -->
+        <div v-if="mode === 'brush'" class="toolbar-section">
+          <div class="toolbar-title">Color</div>
+          <input
+            type="color"
+            v-model="brushColor"
+            class="color-picker"
+            @change="handleBrushColorChange"
+          />
+        </div>
+        <div v-if="mode === 'bbox'" class="toolbar-section">
+          <div class="toolbar-title">Color</div>
+          <input type="color" v-model="bboxColor" class="color-picker" />
+        </div>
+        <div v-if="mode === 'polygon'" class="toolbar-section">
+          <div class="toolbar-title">Color</div>
+          <input type="color" v-model="polygonColor" class="color-picker" />
+        </div>
+        <div v-if="mode === 'skeleton'" class="toolbar-section">
+          <div class="toolbar-title">Color</div>
+          <input type="color" v-model="skeletonColor" class="color-picker" />
+        </div>
 
-            <v-group ref="skeletonGroupRef">
-              <template
-                v-for="skeleton in currentFrameSkeletons"
-                :key="skeleton.id"
-              >
-                <v-line
-                  :config="{
-                    id: skeleton.id,
-                    x: 0,
-                    y: 0,
-                    points: skeleton.points.flatMap((p) => [p.x, p.y]),
-                    stroke: skeleton.color,
-                    strokeWidth: 2,
-                    lineCap: 'round',
-                    lineJoin: 'round',
-                    draggable: canEditSkeleton,
-                    name: 'skeleton',
-                    opacity: opacity,
-                  }"
-                  @click="handleSkeletonClick"
-                  @dragend="handleSkeletonDragEnd"
-                />
-                <v-circle
-                  v-for="(point, pointIdx) in skeleton.points"
-                  :key="`${skeleton.id}-kp-${pointIdx}`"
-                  :config="{
-                    x: point.x,
-                    y: point.y,
-                    radius: 6,
-                    fill: skeleton.color,
-                    stroke:
-                      timelineRef?.selectedTrackId === skeleton.id
-                        ? '#fff'
-                        : skeleton.color,
-                    strokeWidth:
-                      timelineRef?.selectedTrackId === skeleton.id ? 2 : 1,
-                    draggable: canEditSkeleton,
-                    name: 'skeletonKeypoint',
-                    opacity: opacity,
-                  }"
-                  @dragstart="(e: any) => handleSkeletonKeypointDragStart(e, skeleton.id, pointIdx)"
-                  @dragmove="(e: any) => handleSkeletonKeypointDragMove(e, skeleton.id, pointIdx)"
-                  @dragend="(e: any) => handleSkeletonKeypointDragEnd(e, skeleton.id, pointIdx)"
-                  @click="() => handleSkeletonKeypointClick(skeleton.id)"
-                />
-              </template>
-            </v-group>
-          </v-layer>
+        <div class="toolbar-divider"></div>
 
-          <v-layer ref="interactiveLayerRef">
-            <v-group
-              ref="brushPreviewGroupRef"
-              :config="{ imageSmoothingEnabled: false }"
-            ></v-group>
-            <v-group ref="cursorGroupRef"></v-group>
-          </v-layer>
-        </v-stage>
+        <!-- Opacity -->
+        <div class="toolbar-section">
+          <div class="toolbar-title">Opacity</div>
+          <div class="opacity-control">
+            <input
+              type="range"
+              min="0.05"
+              max="1"
+              step="0.05"
+              v-model.number="opacity"
+              @input="handleOpacityChange"
+              class="vertical-slider"
+            />
+            <span class="opacity-value">{{ Math.round(opacity * 100) }}%</span>
+          </div>
+        </div>
       </div>
-      <div v-else class="loading">Loading frames...</div>
 
-      <BrushMergePopup
-        v-if="showBrushMergePopup"
-        :stroke-count="tempStrokesConvertedToCanvas ? 1 : tempBrushStrokes.length"
-        :color="mergeColor"
-        :edit-mode="tempStrokesEditMode"
-        @update:color="handleTempStrokesColorChange"
-        @merge="handleMergeStrokes"
-        @clear="handleClearStrokes"
-        @set-edit-mode="handleTempStrokesEditModeChange"
-      />
+      <!-- Canvas Container -->
+      <div class="canvas-container">
+        <div
+          v-if="framesLoaded"
+          ref="containerRef"
+          class="stage-wrapper"
+          @wheel="handleWheel"
+        >
+          <v-stage
+            ref="stageRef"
+            :config="stageConfig"
+            @mousedown="handleMouseDown"
+            @mousemove="handleMouseMove"
+            @mouseup="handleMouseUp"
+            @mouseleave="handleMouseLeave"
+            @dblclick="handleDoubleClick"
+          >
+            <v-layer ref="backgroundLayerRef">
+              <v-image :config="imageConfig" />
+            </v-layer>
 
-      <SegmentationToolbar
-        :visible="showSegmentationToolbar"
-        :position="selectedSegmentationPosition"
-        :edit-mode="segmentationEditMode"
-        :color="selectedSegmentationColor"
-        :stage-offset="stageOffset"
-        :stage-scale="zoomLevel"
-        @set-mode="handleSegmentationEditMode"
-        @change-color="handleSegmentationColorChange"
-        @deselect="handleDeselectSegmentation"
-      />
+            <v-layer
+              ref="annotationsLayerRef"
+              :config="{ imageSmoothingEnabled: false }"
+            >
+              <v-group ref="brushAnnotationGroupRef"></v-group>
+
+              <v-group ref="bboxGroupRef">
+                <v-group
+                  v-for="bbox in currentFrameBboxes"
+                  :key="bbox.id"
+                  :config="{
+                    id: bbox.id,
+                    x: bbox.x,
+                    y: bbox.y,
+                    rotation: bbox.rotation,
+                    draggable: mode === 'pan',
+                    name: 'boundingBox',
+                    opacity: opacity,
+                  }"
+                  @click="handleBboxClick"
+                  @dragend="handleBboxDragEnd"
+                  @transformend="handleBboxTransformEnd"
+                >
+                  <v-rect
+                    :config="{
+                      width: bbox.width,
+                      height: bbox.height,
+                      stroke: bbox.color,
+                      strokeWidth: 2,
+                      fill: bbox.color + '20',
+                    }"
+                  />
+                </v-group>
+              </v-group>
+
+              <v-group ref="polygonGroupRef">
+                <template
+                  v-for="polygon in currentFramePolygons"
+                  :key="polygon.id"
+                >
+                  <v-line
+                    :config="{
+                      id: polygon.id,
+                      x: 0,
+                      y: 0,
+                      points: polygon.points.flatMap((p) => [p.x, p.y]),
+                      fill: polygon.color + '30',
+                      stroke: polygon.color,
+                      strokeWidth: 2,
+                      closed: true,
+                      draggable: canEditPolygon,
+                      name: 'polygon',
+                      opacity: opacity,
+                    }"
+                    @click="handlePolygonClick"
+                    @dragend="handlePolygonDragEnd"
+                  />
+                  <v-circle
+                    v-for="(point, pointIdx) in polygon.points"
+                    :key="`${polygon.id}-pt-${pointIdx}`"
+                    :config="{
+                      x: point.x,
+                      y: point.y,
+                      radius: 6,
+                      fill: polygon.color,
+                      stroke:
+                        timelineRef?.selectedTrackId === polygon.id
+                          ? '#fff'
+                          : polygon.color,
+                      strokeWidth:
+                        timelineRef?.selectedTrackId === polygon.id ? 2 : 1,
+                      draggable: canEditPolygon,
+                      name: 'polygonVertex',
+                      opacity: opacity,
+                    }"
+                    @dragmove="(e: any) => handlePolygonVertexDragMove(e, polygon.id, pointIdx)"
+                    @dragend="(e: any) => handlePolygonVertexDragEnd(e, polygon.id, pointIdx)"
+                    @click="() => handlePolygonVertexClick(polygon.id)"
+                  />
+                </template>
+              </v-group>
+
+              <v-group ref="skeletonGroupRef">
+                <template
+                  v-for="skeleton in currentFrameSkeletons"
+                  :key="skeleton.id"
+                >
+                  <v-line
+                    :config="{
+                      id: skeleton.id,
+                      x: 0,
+                      y: 0,
+                      points: skeleton.points.flatMap((p) => [p.x, p.y]),
+                      stroke: skeleton.color,
+                      strokeWidth: 2,
+                      lineCap: 'round',
+                      lineJoin: 'round',
+                      draggable: canEditSkeleton,
+                      name: 'skeleton',
+                      opacity: opacity,
+                    }"
+                    @click="handleSkeletonClick"
+                    @dragend="handleSkeletonDragEnd"
+                  />
+                  <v-circle
+                    v-for="(point, pointIdx) in skeleton.points"
+                    :key="`${skeleton.id}-kp-${pointIdx}`"
+                    :config="{
+                      x: point.x,
+                      y: point.y,
+                      radius: 6,
+                      fill: skeleton.color,
+                      stroke:
+                        timelineRef?.selectedTrackId === skeleton.id
+                          ? '#fff'
+                          : skeleton.color,
+                      strokeWidth:
+                        timelineRef?.selectedTrackId === skeleton.id ? 2 : 1,
+                      draggable: canEditSkeleton,
+                      name: 'skeletonKeypoint',
+                      opacity: opacity,
+                    }"
+                    @dragstart="(e: any) => handleSkeletonKeypointDragStart(e, skeleton.id, pointIdx)"
+                    @dragmove="(e: any) => handleSkeletonKeypointDragMove(e, skeleton.id, pointIdx)"
+                    @dragend="(e: any) => handleSkeletonKeypointDragEnd(e, skeleton.id, pointIdx)"
+                    @click="() => handleSkeletonKeypointClick(skeleton.id)"
+                  />
+                </template>
+              </v-group>
+            </v-layer>
+
+            <v-layer ref="interactiveLayerRef">
+              <v-group
+                ref="brushPreviewGroupRef"
+                :config="{ imageSmoothingEnabled: false }"
+              ></v-group>
+              <v-group ref="cursorGroupRef"></v-group>
+            </v-layer>
+          </v-stage>
+        </div>
+        <div v-else class="loading">Loading frames...</div>
+
+        <SegmentationToolbar
+          :visible="showSegmentationToolbar"
+          :position="selectedSegmentationPosition"
+          :edit-mode="segmentationEditMode"
+          :color="selectedSegmentationColor"
+          :stage-offset="stageOffset"
+          :stage-scale="zoomLevel"
+          @set-mode="handleSegmentationEditMode"
+          @change-color="handleSegmentationColorChange"
+          @deselect="handleDeselectSegmentation"
+        />
+      </div>
+
+      <!-- Right Side Panel for BrushMergePopup -->
+      <div
+        class="right-panel"
+        :class="{ visible: showBrushMergePopup }"
+        @mousedown.stop
+        @click.stop
+      >
+        <BrushMergePopup
+          v-if="showBrushMergePopup"
+          :stroke-count="
+            tempStrokesConvertedToCanvas ? 1 : tempBrushStrokes.length
+          "
+          :color="mergeColor"
+          :edit-mode="tempStrokesEditMode"
+          @update:color="handleTempStrokesColorChange"
+          @merge="handleMergeStrokes"
+          @clear="handleClearStrokes"
+          @set-edit-mode="handleTempStrokesEditModeChange"
+        />
+      </div>
     </div>
 
     <div class="playback-controls">
@@ -307,6 +347,47 @@
       <span class="frame-info"
         >Frame: {{ currentFrame + 1 }} / {{ physicalFrames }}</span
       >
+
+      <div class="playback-divider"></div>
+
+      <!-- Zoom Controls -->
+      <div class="zoom-controls">
+        <span class="zoom-label">{{ Math.round(zoomLevel * 100) }}%</span>
+        <button @click="zoomIn" class="utility-btn" title="Zoom In">+</button>
+        <button @click="zoomOut" class="utility-btn" title="Zoom Out">-</button>
+        <button @click="resetZoom" class="utility-btn" title="Reset Zoom">
+          Reset
+        </button>
+      </div>
+
+      <div class="playback-divider"></div>
+
+      <!-- Utility Controls -->
+      <button
+        @click="handleClearCache"
+        class="utility-btn clear-cache-btn"
+        :disabled="isClearingCache"
+        title="Clear Cache"
+      >
+        {{ isClearingCache ? "Clearing..." : "Clear Cache" }}
+      </button>
+
+      <label class="auto-suggest-toggle" title="Auto Suggest">
+        <input type="checkbox" v-model="autoSuggest" />
+        <span>Auto {{ autoSuggest ? "ON" : "OFF" }}</span>
+      </label>
+    </div>
+
+    <!-- Timeline Scrubber -->
+    <div class="timeline-scrubber-container">
+      <input
+        type="range"
+        class="timeline-scrubber"
+        :min="0"
+        :max="physicalFrames - 1"
+        :value="currentFrame"
+        @input="handleScrubberInput"
+      />
     </div>
 
     <FramePlayerTimeline
@@ -420,13 +501,16 @@ const bufferFrame = ref<number | null>(null);
 
 // Temp strokes canvas editing state (for eraser in BrushMergePopup)
 const tempStrokesCanvas = ref<HTMLCanvasElement | null>(null);
-const tempStrokesEditMode = ref<'brush' | 'eraser'>('brush');
+const tempStrokesEditMode = ref<"brush" | "eraser">("brush");
 const tempStrokesConvertedToCanvas = ref(false);
 
 const frameImages = ref<Map<number, HTMLImageElement>>(new Map());
 
 // Segmentation selection state
-const selectedSegmentationPosition = ref<{ x: number; y: number }>({ x: 0, y: 0 });
+const selectedSegmentationPosition = ref<{ x: number; y: number }>({
+  x: 0,
+  y: 0,
+});
 const showSegmentationToolbar = ref(false);
 const selectedSegmentationColor = ref("#FF0000");
 
@@ -506,7 +590,7 @@ const brushClasses = computed(() => {
     for (const [, keyframeData] of track.keyframes) {
       for (const item of keyframeData) {
         // Handle both MaskData (has 'color') and SegmentationContour (has 'classColor')
-        const color = 'color' in item ? item.color : item.classColor;
+        const color = "color" in item ? item.color : item.classColor;
         if (!usedColors.has(color)) {
           usedColors.add(color);
           classes.push({
@@ -687,7 +771,7 @@ const renderBrushAnnotations = async (frameIndex: number) => {
   // Create a separate canvas for the selected track (to render with different opacity)
   let selectedTrackCanvas: HTMLCanvasElement | null = null;
   if (selectedTrackIdValue && showSegmentationToolbar.value) {
-    selectedTrackCanvas = document.createElement('canvas');
+    selectedTrackCanvas = document.createElement("canvas");
     selectedTrackCanvas.width = stageConfig.value.width;
     selectedTrackCanvas.height = stageConfig.value.height;
   }
@@ -698,14 +782,19 @@ const renderBrushAnnotations = async (frameIndex: number) => {
 
     // Check ranges - if no ranges defined, show on all frames
     const ranges = track.ranges || [];
-    const isInRange = ranges.length === 0
-      ? true
-      : ranges.some(([start, end]) => frameIndex >= start && frameIndex < end);
+    const isInRange =
+      ranges.length === 0
+        ? true
+        : ranges.some(
+            ([start, end]) => frameIndex >= start && frameIndex < end
+          );
     if (!isInRange) continue;
 
     // Determine target canvas (selected tracks go to separate canvas)
-    const isSelected = trackId === selectedTrackIdValue && showSegmentationToolbar.value;
-    const targetCanvas = isSelected && selectedTrackCanvas ? selectedTrackCanvas : workingCanvas!;
+    const isSelected =
+      trackId === selectedTrackIdValue && showSegmentationToolbar.value;
+    const targetCanvas =
+      isSelected && selectedTrackCanvas ? selectedTrackCanvas : workingCanvas!;
 
     const keyframeData = track.keyframes.get(frameIndex);
     if (keyframeData && keyframeData.length > 0) {
@@ -756,7 +845,11 @@ const renderBrushAnnotations = async (frameIndex: number) => {
 
   if (hasAnnotations) {
     // Atomic swap: copy workingCanvas to displayCanvas and update Konva
-    updateAnnotationLayerWithSelection(workingCanvas!, selectedTrackCanvas, frameIndex);
+    updateAnnotationLayerWithSelection(
+      workingCanvas!,
+      selectedTrackCanvas,
+      frameIndex
+    );
   } else {
     const brushGroup = brushAnnotationGroupRef.value?.getNode();
     if (brushGroup) {
@@ -782,9 +875,12 @@ const renderBrushAnnotationsWithTempStrokes = async (frameIndex: number) => {
 
     // Check ranges - if no ranges defined, show on all frames
     const ranges = track.ranges || [];
-    const isInRange = ranges.length === 0
-      ? true
-      : ranges.some(([start, end]) => frameIndex >= start && frameIndex < end);
+    const isInRange =
+      ranges.length === 0
+        ? true
+        : ranges.some(
+            ([start, end]) => frameIndex >= start && frameIndex < end
+          );
     if (!isInRange) continue;
 
     const keyframeData = track.keyframes.get(frameIndex);
@@ -875,7 +971,6 @@ const forceRenderFrame = async (frameIndex: number) => {
   await renderBrushAnnotations(frameIndex);
 };
 
-
 const animate = async (timestamp: number) => {
   if (!isPlaying.value) return;
 
@@ -927,6 +1022,11 @@ const previousFrame = async () => {
 
 const jumpToFrame = async (frame: number) => {
   await renderFrame(Math.max(0, Math.min(frame, physicalFrames.value - 1)));
+};
+
+const handleScrubberInput = (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  jumpToFrame(parseInt(target.value, 10));
 };
 
 const setMode = (
@@ -1461,7 +1561,8 @@ const binarizeAlpha = (canvas: HTMLCanvasElement): void => {
 
 const handleMergeStrokes = async () => {
   // Check if we have anything to merge (either canvas or points)
-  const hasCanvasData = tempStrokesConvertedToCanvas.value && tempStrokesCanvas.value;
+  const hasCanvasData =
+    tempStrokesConvertedToCanvas.value && tempStrokesCanvas.value;
   const hasPointsData = tempBrushStrokes.value.length > 0;
 
   if (!hasCanvasData && !hasPointsData) return;
@@ -1521,14 +1622,16 @@ const handleMergeStrokes = async () => {
 
     if (maskData) {
       // Check if mask has content
-      const hasContent = maskData.rle.some((val, idx) => idx % 2 === 1 && val > 0);
+      const hasContent = maskData.rle.some(
+        (val, idx) => idx % 2 === 1 && val > 0
+      );
 
       if (!hasContent) {
         // No content to merge - just clean up
         tempBrushStrokes.value = [];
         tempStrokesCanvas.value = null;
         tempStrokesConvertedToCanvas.value = false;
-        tempStrokesEditMode.value = 'brush';
+        tempStrokesEditMode.value = "brush";
         showBrushMergePopup.value = false;
         bufferFrame.value = null;
         return;
@@ -1581,7 +1684,7 @@ const handleMergeStrokes = async () => {
       tempBrushStrokes.value = [];
       tempStrokesCanvas.value = null;
       tempStrokesConvertedToCanvas.value = false;
-      tempStrokesEditMode.value = 'brush';
+      tempStrokesEditMode.value = "brush";
       showBrushMergePopup.value = false;
       bufferFrame.value = null;
       currentDisplayFrame = targetFrame;
@@ -1595,7 +1698,7 @@ const handleMergeStrokes = async () => {
     tempBrushStrokes.value = [];
     tempStrokesCanvas.value = null;
     tempStrokesConvertedToCanvas.value = false;
-    tempStrokesEditMode.value = 'brush';
+    tempStrokesEditMode.value = "brush";
     showBrushMergePopup.value = false;
     bufferFrame.value = null;
   }
@@ -1607,7 +1710,7 @@ const handleClearStrokes = async () => {
   tempBrushStrokes.value = [];
   tempStrokesCanvas.value = null;
   tempStrokesConvertedToCanvas.value = false;
-  tempStrokesEditMode.value = 'brush';
+  tempStrokesEditMode.value = "brush";
   showBrushMergePopup.value = false;
   bufferFrame.value = null;
 
@@ -1618,13 +1721,14 @@ const handleClearStrokes = async () => {
 
 // Convert temp brush strokes from points to canvas (for eraser support)
 const convertTempStrokesToCanvas = () => {
-  if (tempStrokesConvertedToCanvas.value || tempBrushStrokes.value.length === 0) return;
+  if (tempStrokesConvertedToCanvas.value || tempBrushStrokes.value.length === 0)
+    return;
 
   // Create canvas
-  const canvas = document.createElement('canvas');
+  const canvas = document.createElement("canvas");
   canvas.width = stageConfig.value.width;
   canvas.height = stageConfig.value.height;
-  const ctx = canvas.getContext('2d')!;
+  const ctx = canvas.getContext("2d")!;
   ctx.imageSmoothingEnabled = false;
 
   // Render all strokes from points
@@ -1633,9 +1737,9 @@ const convertTempStrokesToCanvas = () => {
 
     ctx.strokeStyle = stroke.color;
     ctx.lineWidth = stroke.size;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.globalCompositeOperation = 'source-over';
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.globalCompositeOperation = "source-over";
 
     ctx.beginPath();
     const firstPoint = stroke.points[0];
@@ -1664,9 +1768,9 @@ const convertTempStrokesToCanvas = () => {
 };
 
 // Handle edit mode change in BrushMergePopup
-const handleTempStrokesEditModeChange = async (newMode: 'brush' | 'eraser') => {
+const handleTempStrokesEditModeChange = async (newMode: "brush" | "eraser") => {
   // If switching to eraser and not yet converted, convert points to canvas
-  if (newMode === 'eraser' && !tempStrokesConvertedToCanvas.value) {
+  if (newMode === "eraser" && !tempStrokesConvertedToCanvas.value) {
     convertTempStrokesToCanvas();
   }
 
@@ -1675,7 +1779,7 @@ const handleTempStrokesEditModeChange = async (newMode: 'brush' | 'eraser') => {
   // Update cursor style
   const stage = stageRef.value?.getStage();
   if (stage) {
-    stage.container().style.cursor = 'none';
+    stage.container().style.cursor = "none";
   }
 };
 
@@ -1709,9 +1813,12 @@ const renderTempStrokesCanvasToDisplay = async (frameIndex: number) => {
     if (!track) continue;
 
     const ranges = track.ranges || [];
-    const isInRange = ranges.length === 0
-      ? true
-      : ranges.some(([start, end]) => frameIndex >= start && frameIndex < end);
+    const isInRange =
+      ranges.length === 0
+        ? true
+        : ranges.some(
+            ([start, end]) => frameIndex >= start && frameIndex < end
+          );
     if (!isInRange) continue;
 
     const keyframeData = track.keyframes.get(frameIndex);
@@ -1754,7 +1861,7 @@ const renderTempStrokesCanvasToDisplay = async (frameIndex: number) => {
   }
 
   // Then render the temp strokes canvas on top
-  const ctx = workingCanvas!.getContext('2d')!;
+  const ctx = workingCanvas!.getContext("2d")!;
   ctx.drawImage(tempStrokesCanvas.value, 0, 0);
 
   // Update display
@@ -2031,7 +2138,7 @@ const handleMouseDown = (e: any) => {
     brush.value.startStroke(logicalPos);
 
     // Set brush color for drawing
-    if (tempStrokesEditMode.value === 'brush') {
+    if (tempStrokesEditMode.value === "brush") {
       brush.value.changeColor(mergeColor.value);
     }
 
@@ -2046,7 +2153,10 @@ const handleMouseDown = (e: any) => {
   const isInSegmentationBrushMode = segmentationEditMode.value === "brush";
   const isInSegmentationEraserMode = segmentationEditMode.value === "eraser";
 
-  if ((isInSegmentationBrushMode || isInSegmentationEraserMode) && brush.value?.isLoaded()) {
+  if (
+    (isInSegmentationBrushMode || isInSegmentationEraserMode) &&
+    brush.value?.isLoaded()
+  ) {
     const logicalPos = getLogicalPointerPosition();
     if (!logicalPos) return;
 
@@ -2082,7 +2192,11 @@ const handleMouseDown = (e: any) => {
       // Check if clicking on a segmentation mask (RLE-based hit test)
       const logicalPos = getLogicalPointerPosition();
       if (logicalPos) {
-        const trackId = findTrackAtPoint(logicalPos.x, logicalPos.y, currentFrame.value);
+        const trackId = findTrackAtPoint(
+          logicalPos.x,
+          logicalPos.y,
+          currentFrame.value
+        );
         if (trackId) {
           // Clicked on a segmentation - select it
           handleSelectSegmentationAtPoint(logicalPos.x, logicalPos.y);
@@ -2164,8 +2278,10 @@ const handleMouseDown = (e: any) => {
   }
 
   // Check for main brush/eraser mode OR segmentation edit mode from toolbar
-  const isInBrushMode = mode.value === "brush" || segmentationEditMode.value === "brush";
-  const isInEraserMode = mode.value === "eraser" || segmentationEditMode.value === "eraser";
+  const isInBrushMode =
+    mode.value === "brush" || segmentationEditMode.value === "brush";
+  const isInEraserMode =
+    mode.value === "eraser" || segmentationEditMode.value === "eraser";
 
   if ((isInBrushMode || isInEraserMode) && brush.value?.isLoaded()) {
     const logicalPos = getLogicalPointerPosition();
@@ -2176,7 +2292,10 @@ const handleMouseDown = (e: any) => {
     brush.value.startStroke(logicalPos);
 
     // Set brush color to match selected segmentation when in edit mode
-    if (segmentationEditMode.value === "brush" && selectedSegmentationColor.value) {
+    if (
+      segmentationEditMode.value === "brush" &&
+      selectedSegmentationColor.value
+    ) {
       brush.value.changeColor(selectedSegmentationColor.value);
     }
 
@@ -2232,8 +2351,10 @@ const handleMouseMove = () => {
   }
 
   // Check for brush/eraser mode (main or segmentation edit)
-  const isInBrushMode = mode.value === "brush" || segmentationEditMode.value === "brush";
-  const isInEraserMode = mode.value === "eraser" || segmentationEditMode.value === "eraser";
+  const isInBrushMode =
+    mode.value === "brush" || segmentationEditMode.value === "brush";
+  const isInEraserMode =
+    mode.value === "eraser" || segmentationEditMode.value === "eraser";
 
   if (
     (mode.value !== "pan" || isInBrushMode || isInEraserMode) &&
@@ -2248,11 +2369,7 @@ const handleMouseMove = () => {
     }
   }
 
-  if (
-    isDrawing.value &&
-    (isInBrushMode || isInEraserMode) &&
-    brush.value
-  ) {
+  if (isDrawing.value && (isInBrushMode || isInEraserMode) && brush.value) {
     const logicalPos = getLogicalPointerPosition();
     if (!logicalPos) return;
 
@@ -2311,17 +2428,17 @@ const handleMouseUp = async () => {
       interactiveLayerRef.value?.getNode()?.batchDraw();
     }
 
-    if (tempStrokesEditMode.value === 'brush') {
+    if (tempStrokesEditMode.value === "brush") {
       // Brush mode - add stroke
       if (tempStrokesConvertedToCanvas.value && tempStrokesCanvas.value) {
         // Already converted to canvas - draw directly on it
-        const ctx = tempStrokesCanvas.value.getContext('2d')!;
+        const ctx = tempStrokesCanvas.value.getContext("2d")!;
         ctx.imageSmoothingEnabled = false;
         ctx.strokeStyle = mergeColor.value;
         ctx.lineWidth = brushSize.value;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.globalCompositeOperation = 'source-over';
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.globalCompositeOperation = "source-over";
 
         if (points.length >= 2) {
           ctx.beginPath();
@@ -2368,16 +2485,16 @@ const handleMouseUp = async () => {
 
       if (tempStrokesCanvas.value) {
         // Create eraser stroke canvas
-        const eraserStrokeCanvas = document.createElement('canvas');
+        const eraserStrokeCanvas = document.createElement("canvas");
         eraserStrokeCanvas.width = stageConfig.value.width;
         eraserStrokeCanvas.height = stageConfig.value.height;
         brush.value.renderToCanvas(eraserStrokeCanvas, points, 1, 1.0);
 
         // Apply eraser to temp strokes canvas
-        const ctx = tempStrokesCanvas.value.getContext('2d')!;
-        ctx.globalCompositeOperation = 'destination-out';
+        const ctx = tempStrokesCanvas.value.getContext("2d")!;
+        ctx.globalCompositeOperation = "destination-out";
         ctx.drawImage(eraserStrokeCanvas, 0, 0);
-        ctx.globalCompositeOperation = 'source-over';
+        ctx.globalCompositeOperation = "source-over";
 
         // Re-render display
         await renderTempStrokesCanvasToDisplay(targetFrame);
@@ -2389,8 +2506,10 @@ const handleMouseUp = async () => {
   }
 
   // Check for brush/eraser mode (main or segmentation edit)
-  const isInBrushMode = mode.value === "brush" || segmentationEditMode.value === "brush";
-  const isInEraserMode = mode.value === "eraser" || segmentationEditMode.value === "eraser";
+  const isInBrushMode =
+    mode.value === "brush" || segmentationEditMode.value === "brush";
+  const isInEraserMode =
+    mode.value === "eraser" || segmentationEditMode.value === "eraser";
 
   if (!isDrawing.value || !brush.value || !currentImage.value) return;
   if (!isInBrushMode && !isInEraserMode) return;
@@ -2512,7 +2631,12 @@ const handleMouseUp = async () => {
         if (editState) {
           const editCtx = editState.editCanvas.getContext("2d");
           if (editCtx) {
-            editCtx.clearRect(0, 0, editState.editCanvas.width, editState.editCanvas.height);
+            editCtx.clearRect(
+              0,
+              0,
+              editState.editCanvas.width,
+              editState.editCanvas.height
+            );
             editCtx.drawImage(mergedCanvas, 0, 0);
           }
         }
@@ -2546,12 +2670,16 @@ const handleMouseUp = async () => {
   }
 
   if (isInEraserMode) {
-    const selectedTrackId = selectedBrushTrackId.value || timelineRef.value?.selectedTrackId;
+    const selectedTrackId =
+      selectedBrushTrackId.value || timelineRef.value?.selectedTrackId;
     const selectedType = timelineRef.value?.selectedTrackType;
     const isInSegmentationEditMode = segmentationEditMode.value === "eraser";
 
     // Allow erasing if in segmentation edit mode with a selected track, or if track is selected in timeline
-    if (!selectedTrackId || (!isInSegmentationEditMode && selectedType !== "brush")) {
+    if (
+      !selectedTrackId ||
+      (!isInSegmentationEditMode && selectedType !== "brush")
+    ) {
       isDrawing.value = false;
       return;
     }
@@ -2619,7 +2747,9 @@ const handleMouseUp = async () => {
 
       if (newMaskData) {
         // Check if the mask is empty (all erased)
-        const hasContent = newMaskData.rle.some((val, idx) => idx % 2 === 1 && val > 0);
+        const hasContent = newMaskData.rle.some(
+          (val, idx) => idx % 2 === 1 && val > 0
+        );
 
         if (hasContent) {
           // Update the track keyframe with modified data
@@ -2631,11 +2761,7 @@ const handleMouseUp = async () => {
           );
         } else {
           // All content erased - delete the keyframe
-          deleteBrushKeyframe(
-            trackId,
-            targetFrame,
-            autoSuggest.value
-          );
+          deleteBrushKeyframe(trackId, targetFrame, autoSuggest.value);
         }
 
         // IMPORTANT: Also update the editCanvas in trackEditStates
@@ -2644,7 +2770,12 @@ const handleMouseUp = async () => {
         if (editState) {
           const editCtx = editState.editCanvas.getContext("2d");
           if (editCtx) {
-            editCtx.clearRect(0, 0, editState.editCanvas.width, editState.editCanvas.height);
+            editCtx.clearRect(
+              0,
+              0,
+              editState.editCanvas.width,
+              editState.editCanvas.height
+            );
             editCtx.drawImage(modifiedCanvas, 0, 0);
           }
         }
@@ -2918,7 +3049,7 @@ const handleClearCache = async () => {
 
 // ========== Segmentation Selection Handlers ==========
 
-const handleSegmentationEditMode = (newEditMode: 'brush' | 'eraser') => {
+const handleSegmentationEditMode = (newEditMode: "brush" | "eraser") => {
   setSegmentationEditMode(newEditMode);
 
   // Update cursor style for brush/eraser mode
@@ -2939,7 +3070,7 @@ const handleSegmentationColorChange = async (newColor: string) => {
 const handleDeselectSegmentation = async () => {
   deselectTrack();
   showSegmentationToolbar.value = false;
-  setSegmentationEditMode('none');
+  setSegmentationEditMode("none");
 
   // Restore default cursor
   const stage = stageRef.value?.getStage();
@@ -2957,7 +3088,11 @@ const handleSelectSegmentationAtPoint = async (x: number, y: number) => {
 
   if (trackId) {
     // Select this track for editing
-    selectTrackForEditing(trackId, stageConfig.value.width, stageConfig.value.height);
+    selectTrackForEditing(
+      trackId,
+      stageConfig.value.width,
+      stageConfig.value.height
+    );
 
     // Get the color of selected track
     const color = getSelectedTrackColor();
@@ -3100,10 +3235,12 @@ const updateAnnotationLayerWithSelection = (
 
   // Render selected track with reduced opacity (50% of normal)
   if (selectedCanvas) {
-    const selectedDisplayCanvas = document.createElement('canvas');
+    const selectedDisplayCanvas = document.createElement("canvas");
     selectedDisplayCanvas.width = stageConfig.value.width;
     selectedDisplayCanvas.height = stageConfig.value.height;
-    const selectedCtx = selectedDisplayCanvas.getContext("2d", { alpha: true })!;
+    const selectedCtx = selectedDisplayCanvas.getContext("2d", {
+      alpha: true,
+    })!;
     selectedCtx.imageSmoothingEnabled = false;
     selectedCtx.drawImage(selectedCanvas, 0, 0);
 
@@ -3351,125 +3488,163 @@ watch(currentFrame, async (newFrame, _oldFrame) => {
   padding: 20px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
   max-width: 100%;
 }
 
-.controls {
+.main-content {
   display: flex;
-  flex-wrap: wrap;
-  gap: 20px;
-  padding: 15px;
-  background: #f5f5f5;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  gap: 16px;
+  align-items: flex-start;
+  position: relative;
 }
 
-.control-group {
+/* Vertical Toolbar */
+.vertical-toolbar {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  color: black;
+  flex-direction: column;
+  background: #2d3748;
+  border-radius: 12px;
+  padding: 12px;
+  gap: 8px;
+  min-width: 100px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
-.control-group label {
+.toolbar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.toolbar-title {
+  font-size: 11px;
   font-weight: 600;
-  min-width: 80px;
-  color: #333;
+  color: #a0aec0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 0 4px;
 }
 
-.control-group button {
-  padding: 8px 16px;
-  border: 1px solid #ddd;
-  background: white;
-  border-radius: 4px;
+.toolbar-divider {
+  height: 1px;
+  background: #4a5568;
+  margin: 8px 0;
+}
+
+.tool-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #a0aec0;
   cursor: pointer;
   transition: all 0.2s;
-  color: #333;
+  font-size: 11px;
+  font-weight: 500;
 }
 
-.control-group button:hover {
-  background: #e9ecef;
-}
-
-.control-group button.active {
-  background: #007bff;
+.tool-btn:hover {
+  background: #4a5568;
   color: white;
-  border-color: #007bff;
 }
 
-.control-group button:disabled {
-  opacity: 0.5;
+.tool-btn.active {
+  background: #4299e1;
+  color: white;
+}
+
+.tool-btn:disabled {
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
-.control-group input[type="range"] {
-  width: 150px;
+.tool-btn.delete-btn {
+  color: #fc8181;
 }
 
-.control-group .color-picker {
+.tool-btn.delete-btn:hover:not(:disabled) {
+  background: #e53e3e;
+  color: white;
+}
+
+.tool-btn svg {
+  flex-shrink: 0;
+}
+
+/* Size and Opacity Controls */
+.size-control,
+.opacity-control {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+}
+
+.vertical-slider {
+  width: 80px;
   cursor: pointer;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  height: 32px;
-  width: 60px;
 }
 
-.keyframe-nav-btn {
-  padding: 6px 12px !important;
+.size-value,
+.opacity-value {
   font-size: 12px;
-}
-
-.delete-btn {
-  background: #dc3545 !important;
-  color: white !important;
-  border-color: #dc3545 !important;
-}
-
-.delete-btn:hover:not(:disabled) {
-  background: #c82333 !important;
-}
-
-.clear-cache-btn {
-  background: #6b7280 !important;
-  color: white !important;
-  border-color: #6b7280 !important;
-}
-
-.clear-cache-btn:hover:not(:disabled) {
-  background: #4b5563 !important;
-}
-
-.auto-suggest-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  padding: 8px 12px;
-  background: #e9ecef;
-  border-radius: 4px;
+  color: #a0aec0;
   font-weight: 500;
-  transition: all 0.2s;
 }
 
-.auto-suggest-toggle:hover {
-  background: #dee2e6;
-}
-
-.auto-suggest-toggle input {
+/* Color Picker in Toolbar */
+.vertical-toolbar .color-picker {
+  width: 100%;
+  height: 32px;
+  border: 2px solid #4a5568;
+  border-radius: 6px;
   cursor: pointer;
-  width: 16px;
-  height: 16px;
+  padding: 2px;
+  background: transparent;
 }
 
-.auto-suggest-toggle input:checked + span {
-  color: #28a745;
+.vertical-toolbar .color-picker::-webkit-color-swatch-wrapper {
+  padding: 0;
 }
 
+.vertical-toolbar .color-picker::-webkit-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
+
+/* Canvas Container */
 .canvas-container {
+  flex: 1;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
   align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+/* Right Panel for BrushMergePopup - positioned absolutely to not shift canvas */
+.right-panel {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%) translateX(100%);
+  opacity: 0;
+  transition: all 0.3s ease;
+  z-index: 100;
+  pointer-events: none;
+}
+
+.right-panel.visible {
+  transform: translateY(-50%) translateX(0);
+  opacity: 1;
+  pointer-events: auto;
+  margin-right: 16px;
 }
 
 .stage-wrapper {
@@ -3487,15 +3662,17 @@ watch(currentFrame, async (newFrame, _oldFrame) => {
   color: #666;
 }
 
+/* Playback Controls */
 .playback-controls {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 15px;
+  gap: 12px;
   padding: 12px 20px;
   background: #2d3748;
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  flex-wrap: wrap;
 }
 
 .playback-btn {
@@ -3535,5 +3712,130 @@ watch(currentFrame, async (newFrame, _oldFrame) => {
   padding: 0 10px;
   min-width: 140px;
   text-align: center;
+}
+
+.playback-divider {
+  width: 1px;
+  height: 24px;
+  background: #4a5568;
+}
+
+/* Zoom Controls */
+.zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.zoom-label {
+  color: #a0aec0;
+  font-size: 13px;
+  font-weight: 500;
+  min-width: 45px;
+  text-align: right;
+}
+
+.utility-btn {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s;
+  background: #4a5568;
+  color: white;
+}
+
+.utility-btn:hover {
+  background: #5a6778;
+}
+
+.utility-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.utility-btn.clear-cache-btn {
+  background: #6b7280;
+}
+
+.utility-btn.clear-cache-btn:hover:not(:disabled) {
+  background: #4b5563;
+}
+
+/* Auto Suggest Toggle */
+.auto-suggest-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 6px 12px;
+  background: #4a5568;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #a0aec0;
+  transition: all 0.2s;
+}
+
+.auto-suggest-toggle:hover {
+  background: #5a6778;
+}
+
+.auto-suggest-toggle input {
+  cursor: pointer;
+  width: 14px;
+  height: 14px;
+}
+
+.auto-suggest-toggle input:checked + span {
+  color: #48bb78;
+}
+
+/* Legacy styles for backward compatibility */
+.keyframe-nav-btn {
+  padding: 6px 12px !important;
+  font-size: 12px;
+}
+
+/* Timeline Scrubber */
+.timeline-scrubber-container {
+  padding: 8px 16px;
+  background: #1a1a2e;
+  border-radius: 8px;
+}
+
+.timeline-scrubber {
+  width: 100%;
+  height: 6px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: #16213e;
+  border-radius: 3px;
+  outline: none;
+  cursor: pointer;
+}
+
+.timeline-scrubber::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  background: #e94560;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.timeline-scrubber::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  background: #e94560;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 </style>

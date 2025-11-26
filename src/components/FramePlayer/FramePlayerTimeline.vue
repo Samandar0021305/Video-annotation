@@ -406,17 +406,6 @@
         </div>
       </div>
     </div>
-
-    <div class="timeline-scrubber-container">
-      <input
-        type="range"
-        class="timeline-scrubber"
-        :min="0"
-        :max="totalFrames - 1"
-        :value="currentFrame"
-        @input="handleScrubberInput"
-      />
-    </div>
   </div>
 </template>
 
@@ -556,11 +545,6 @@ function handleAddKeyframe() {
   if (selectedTrackId.value && selectedTrackType.value) {
     emit("add-keyframe", selectedTrackId.value, selectedTrackType.value);
   }
-}
-
-function handleScrubberInput(event: Event) {
-  const target = event.target as HTMLInputElement;
-  emit("jump-to-frame", parseInt(target.value, 10));
 }
 
 function startRangeResize(
@@ -939,42 +923,5 @@ defineExpose({
   background: #e94560;
   border-color: white;
   box-shadow: 0 0 8px rgba(233, 69, 96, 0.8);
-}
-
-.timeline-scrubber-container {
-  padding: 8px 4px;
-}
-
-.timeline-scrubber {
-  width: 100%;
-  height: 6px;
-  -webkit-appearance: none;
-  appearance: none;
-  background: #16213e;
-  border-radius: 3px;
-  outline: none;
-  cursor: pointer;
-}
-
-.timeline-scrubber::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 16px;
-  height: 16px;
-  background: #e94560;
-  border-radius: 50%;
-  cursor: pointer;
-  border: 2px solid white;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-}
-
-.timeline-scrubber::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
-  background: #e94560;
-  border-radius: 50%;
-  cursor: pointer;
-  border: 2px solid white;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 </style>
