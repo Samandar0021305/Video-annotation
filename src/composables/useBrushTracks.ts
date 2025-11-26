@@ -157,6 +157,34 @@ export function useBrushTracks(currentFrame: Ref<number>) {
     }
   }
 
+  function updateKeyframe(
+    trackId: string,
+    frame: number,
+    contours: SegmentationContour[]
+  ): void {
+    const track = tracks.value.get(trackId);
+    if (!track) return;
+    track.keyframes.set(frame, contours);
+  }
+
+  function deleteKeyframe(trackId: string, frame: number): void {
+    const track = tracks.value.get(trackId);
+    if (!track) return;
+    track.keyframes.delete(frame);
+    if (track.keyframes.size === 0) {
+      deleteTrack(trackId);
+    }
+  }
+
+  function getTrackCanvasAtFrame(
+    trackId: string,
+    frame: number
+  ): SegmentationContour[] | null {
+    const track = tracks.value.get(trackId);
+    if (!track) return null;
+    return track.keyframes.get(frame) || null;
+  }
+
   function isKeyframe(trackId: string, frame: number): boolean {
     const track = tracks.value.get(trackId);
     return track ? track.keyframes.has(frame) : false;
@@ -237,6 +265,9 @@ export function useBrushTracks(currentFrame: Ref<number>) {
     getContoursAtFrame,
     toggleInterpolation,
     deleteTrack,
+    updateKeyframe,
+    deleteKeyframe,
+    getTrackCanvasAtFrame,
     isKeyframe,
     clearAllTracks,
     jumpToNextKeyframe,
