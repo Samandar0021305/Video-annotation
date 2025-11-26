@@ -2,12 +2,6 @@
   <div class="frame-player">
     <div class="controls">
       <div class="control-group">
-        <button @click="togglePlay">{{ isPlaying ? "Pause" : "Play" }}</button>
-        <button @click="previousFrame">Previous</button>
-        <button @click="nextFrame">Next</button>
-      </div>
-
-      <div class="control-group">
         <label>Mode:</label>
         <button :class="{ active: mode === 'pan' }" @click="setMode('pan')">
           Pan
@@ -289,6 +283,18 @@
         @clear="handleClearStrokes"
       />
     </div>
+
+    <div class="playback-controls">
+      <button @click="previousFrame" class="playback-btn">⏮ Previous</button>
+      <button @click="togglePlay" class="playback-btn play-btn">
+        {{ isPlaying ? "⏸ Pause" : "▶ Play" }}
+      </button>
+      <button @click="nextFrame" class="playback-btn">Next ⏭</button>
+      <span class="frame-info"
+        >Frame: {{ currentFrame + 1 }} / {{ physicalFrames }}</span
+      >
+    </div>
+
     <FramePlayerTimeline
       ref="timelineRef"
       :current-frame="currentFrame"
@@ -362,7 +368,7 @@ const brushColor = ref("#FF0000");
 const bboxColor = ref("#FF0000");
 const polygonColor = ref("#00FF00");
 const skeletonColor = ref("#0000FF");
-const opacity = ref(1);
+const opacity = ref(0.7);
 const zoomLevel = ref(1);
 const autoSuggest = ref(false);
 const dpr = window.devicePixelRatio || 1;
@@ -2569,5 +2575,55 @@ watch(currentFrame, async (newFrame, _oldFrame) => {
   padding: 40px;
   font-size: 18px;
   color: #666;
+}
+
+.playback-controls {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 15px;
+  padding: 12px 20px;
+  background: #2d3748;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.playback-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+  background: #4a5568;
+  color: white;
+}
+
+.playback-btn:hover {
+  background: #5a6778;
+  transform: translateY(-1px);
+}
+
+.playback-btn:active {
+  transform: translateY(0);
+}
+
+.playback-btn.play-btn {
+  background: #48bb78;
+  padding: 10px 30px;
+}
+
+.playback-btn.play-btn:hover {
+  background: #38a169;
+}
+
+.frame-info {
+  color: #a0aec0;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 0 10px;
+  min-width: 140px;
+  text-align: center;
 }
 </style>
