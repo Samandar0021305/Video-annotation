@@ -118,23 +118,6 @@
       </div>
     </div>
 
-    <FramePlayerTimeline
-      ref="timelineRef"
-      :current-frame="currentFrame"
-      :total-frames="physicalFrames"
-      :fps="30"
-      :bbox-tracks="bboxTracks"
-      :polygon-tracks="polygonTracks"
-      :skeleton-tracks="skeletonTracks"
-      :brush-tracks="brushTracks"
-      @jump-to-frame="jumpToFrame"
-      @select-track="handleSelectTrack"
-      @toggle-interpolation="handleToggleInterpolation"
-      @add-keyframe="handleAddKeyframe"
-      @update-range="handleUpdateRange"
-      @resize-end="handleRangeResizeEnd"
-    />
-
     <div class="canvas-container">
       <div
         v-if="framesLoaded"
@@ -191,7 +174,10 @@
             </v-group>
 
             <v-group ref="polygonGroupRef">
-              <template v-for="polygon in currentFramePolygons" :key="polygon.id">
+              <template
+                v-for="polygon in currentFramePolygons"
+                :key="polygon.id"
+              >
                 <v-line
                   :config="{
                     id: polygon.id,
@@ -303,6 +289,22 @@
         @clear="handleClearStrokes"
       />
     </div>
+    <FramePlayerTimeline
+      ref="timelineRef"
+      :current-frame="currentFrame"
+      :total-frames="physicalFrames"
+      :fps="30"
+      :bbox-tracks="bboxTracks"
+      :polygon-tracks="polygonTracks"
+      :skeleton-tracks="skeletonTracks"
+      :brush-tracks="brushTracks"
+      @jump-to-frame="jumpToFrame"
+      @select-track="handleSelectTrack"
+      @toggle-interpolation="handleToggleInterpolation"
+      @add-keyframe="handleAddKeyframe"
+      @update-range="handleUpdateRange"
+      @resize-end="handleRangeResizeEnd"
+    />
   </div>
 </template>
 
@@ -488,12 +490,16 @@ const imageConfig = computed(() => ({
 const isPolygonDrawing = ref(false);
 const isSkeletonDrawing = ref(false);
 
-const canEditPolygon = computed(() =>
-  mode.value === 'pan' || (mode.value === 'polygon' && !isPolygonDrawing.value)
+const canEditPolygon = computed(
+  () =>
+    mode.value === "pan" ||
+    (mode.value === "polygon" && !isPolygonDrawing.value)
 );
 
-const canEditSkeleton = computed(() =>
-  mode.value === 'pan' || (mode.value === 'skeleton' && !isSkeletonDrawing.value)
+const canEditSkeleton = computed(
+  () =>
+    mode.value === "pan" ||
+    (mode.value === "skeleton" && !isSkeletonDrawing.value)
 );
 
 const currentFrameBboxes = computed(() => {
@@ -624,6 +630,46 @@ const renderFrame = async (frameIndex: number) => {
           annotationsLayerRef.value?.getNode()?.batchDraw();
         }
       }
+    }
+  }
+};
+
+const forceRenderFrame = async (frameIndex: number) => {
+  if (frameIndex < 0 || frameIndex >= physicalFrames.value) return;
+
+  let combinedCanvas: HTMLCanvasElement | null = null;
+
+  for (const [trackId] of brushTracks.value) {
+    const result = await getContoursAtFrame(
+      trackId,
+      frameIndex,
+      brushClasses.value,
+      stageConfig.value.width,
+      stageConfig.value.height,
+      1
+    );
+
+    if (result.canvas && result.contours.length > 0) {
+      if (!combinedCanvas) {
+        combinedCanvas = document.createElement("canvas");
+        combinedCanvas.width = result.canvas.width;
+        combinedCanvas.height = result.canvas.height;
+      }
+      const ctx = combinedCanvas.getContext("2d")!;
+      ctx.drawImage(result.canvas, 0, 0);
+    }
+  }
+
+  if (combinedCanvas) {
+    frameCanvases.value.set(frameIndex, combinedCanvas);
+    currentAnnotationFrame = -1;
+    updateAnnotationLayer(combinedCanvas, frameIndex);
+  } else {
+    const brushGroup = brushAnnotationGroupRef.value?.getNode();
+    if (brushGroup) {
+      brushGroup.destroyChildren();
+      currentAnnotationFrame = frameIndex;
+      annotationsLayerRef.value?.getNode()?.batchDraw();
     }
   }
 };
@@ -798,7 +844,8 @@ const handleBboxClick = (e: any) => {
 
 const handleBboxDragEnd = (e: any) => {
   const target = e.target;
-  const group = target.getClassName() === "Group" ? target : target.findAncestor("Group");
+  const group =
+    target.getClassName() === "Group" ? target : target.findAncestor("Group");
   if (!group) return;
 
   const trackId = group.id();
@@ -1167,11 +1214,14 @@ const hexToRgb = (hex: string): [number, number, number] => {
   return [
     parseInt(result[1], 16),
     parseInt(result[2], 16),
-    parseInt(result[3], 16)
+    parseInt(result[3], 16),
   ];
 };
 
-const applyColorToCanvas = (canvas: HTMLCanvasElement, newColor: string): void => {
+const applyColorToCanvas = (
+  canvas: HTMLCanvasElement,
+  newColor: string
+): void => {
   const ctx = canvas.getContext("2d")!;
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const [r, g, b] = hexToRgb(newColor);
@@ -1212,11 +1262,13 @@ const handleMergeStrokes = async () => {
   applyColorToCanvas(combinedCanvas, mergeColor.value);
 
   try {
-    const mergeClasses: ToolClass[] = [{
-      value: 0,
-      name: "Brush",
-      color: mergeColor.value,
-    }];
+    const mergeClasses: ToolClass[] = [
+      {
+        value: 0,
+        name: "Brush",
+        color: mergeColor.value,
+      },
+    ];
 
     const contours = await getSegmentationImageContoursForSaving(
       combinedCanvas,
@@ -1317,7 +1369,7 @@ const findNearbySkeletonPoint = (
       }
 
       const isColocated = colocatedPoints.value.some(
-        cp => cp.skeletonId === skeleton.id && cp.pointIdx === i
+        (cp) => cp.skeletonId === skeleton.id && cp.pointIdx === i
       );
       if (isColocated) {
         continue;
@@ -1359,13 +1411,12 @@ const handleSkeletonKeypointDragStart = (
   if (!layer) return;
 
   colocatedCircleRefs.value = [];
-  const allCircles = layer.find('.skeletonKeypoint') as Konva.Circle[];
+  const allCircles = layer.find(".skeletonKeypoint") as Konva.Circle[];
 
   for (const c of allCircles) {
     const circlePos = { x: c.x(), y: c.y() };
     const dist = Math.sqrt(
-      Math.pow(circlePos.x - point.x, 2) +
-      Math.pow(circlePos.y - point.y, 2)
+      Math.pow(circlePos.x - point.x, 2) + Math.pow(circlePos.y - point.y, 2)
     );
 
     if (dist < COLOCATED_EPSILON) {
@@ -1553,7 +1604,10 @@ const handleMouseDown = (e: any) => {
     const isClickOnPolygonVertex = target.name() === "polygonVertex";
     const isClickOnPolygon = target.name() === "polygon";
 
-    if (!polygonTool?.isDrawingActive() && (isClickOnPolygonVertex || isClickOnPolygon)) {
+    if (
+      !polygonTool?.isDrawingActive() &&
+      (isClickOnPolygonVertex || isClickOnPolygon)
+    ) {
       return;
     }
 
@@ -1573,7 +1627,10 @@ const handleMouseDown = (e: any) => {
     const isClickOnSkeletonKeypoint = target.name() === "skeletonKeypoint";
     const isClickOnSkeleton = target.name() === "skeleton";
 
-    if (!skeletonTool?.isDrawingActive() && (isClickOnSkeletonKeypoint || isClickOnSkeleton)) {
+    if (
+      !skeletonTool?.isDrawingActive() &&
+      (isClickOnSkeletonKeypoint || isClickOnSkeleton)
+    ) {
       return;
     }
 
@@ -1732,7 +1789,9 @@ const handleMouseUp = async () => {
   const strokeCtx = strokeCanvas.getContext("2d")!;
   strokeCtx.clearRect(0, 0, strokeCanvas.width, strokeCanvas.height);
   strokeCtx.globalCompositeOperation = "source-over";
-  brush.value.renderToCanvas(strokeCanvas, points, 1);
+
+  const eraserOpacity = mode.value === "eraser" ? 1.0 : undefined;
+  brush.value.renderToCanvas(strokeCanvas, points, 1, eraserOpacity);
 
   const brushGroup = brushPreviewGroupRef.value?.getNode();
   if (brushGroup) {
@@ -1816,6 +1875,13 @@ const handleMouseUp = async () => {
       return;
     }
 
+    const eraserStrokeCanvas = document.createElement("canvas");
+    eraserStrokeCanvas.width = stageConfig.value.width;
+    eraserStrokeCanvas.height = stageConfig.value.height;
+    const eraserCtx = eraserStrokeCanvas.getContext("2d")!;
+    eraserCtx.imageSmoothingEnabled = false;
+    brush.value.renderToCanvas(eraserStrokeCanvas, points, 1, 1.0);
+
     const modifiedCanvas = document.createElement("canvas");
     modifiedCanvas.width = trackResult.canvas.width;
     modifiedCanvas.height = trackResult.canvas.height;
@@ -1823,19 +1889,22 @@ const handleMouseUp = async () => {
 
     modifiedCtx.drawImage(trackResult.canvas, 0, 0);
     modifiedCtx.globalCompositeOperation = "destination-out";
-    modifiedCtx.drawImage(strokeCanvas, 0, 0);
+    modifiedCtx.drawImage(eraserStrokeCanvas, 0, 0);
 
-    const trackContourColor = trackResult.contours[0]?.classColor || brushColor.value;
-    const eraserClasses: ToolClass[] = [{
-      value: 0,
-      name: "Brush",
-      color: trackContourColor,
-    }];
+    const trackContourColor =
+      trackResult.contours[0]?.classColor || brushColor.value;
+    const eraserClasses: ToolClass[] = [
+      {
+        value: 0,
+        name: "Brush",
+        color: trackContourColor,
+      },
+    ];
 
     try {
       const newContours = await getSegmentationImageContoursForSaving(
         modifiedCanvas,
-        1 / dpr,
+        1,
         eraserClasses
       );
 
@@ -1847,7 +1916,8 @@ const handleMouseUp = async () => {
 
       frameCanvases.value.delete(targetFrame);
       annotationCanvases.value.delete(targetFrame);
-      await renderFrame(targetFrame);
+
+      await forceRenderFrame(targetFrame);
 
       saveAnnotations();
     } catch (err) {
@@ -2080,8 +2150,14 @@ const updateCursor = (pos: { x: number; y: number }) => {
   interactiveLayerRef.value?.getNode()?.batchDraw();
 };
 
-const updateAnnotationLayer = (offscreenCanvas: HTMLCanvasElement, frameNumber: number) => {
-  if (currentAnnotationFrame === frameNumber && annotationCanvases.value.has(frameNumber)) {
+const updateAnnotationLayer = (
+  offscreenCanvas: HTMLCanvasElement,
+  frameNumber: number
+) => {
+  if (
+    currentAnnotationFrame === frameNumber &&
+    annotationCanvases.value.has(frameNumber)
+  ) {
     return;
   }
 
@@ -2331,7 +2407,11 @@ watch(mode, async (_newMode, oldMode) => {
 });
 
 watch(currentFrame, async (newFrame, _oldFrame) => {
-  if (tempBrushStrokes.value.length > 0 && bufferFrame.value !== null && newFrame !== bufferFrame.value) {
+  if (
+    tempBrushStrokes.value.length > 0 &&
+    bufferFrame.value !== null &&
+    newFrame !== bufferFrame.value
+  ) {
     await handleClearStrokes();
   }
 });
