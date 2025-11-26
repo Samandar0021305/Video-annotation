@@ -321,7 +321,6 @@ import { BBoxTool } from "../../utils/bboxUtils";
 import { PolygonTool } from "../../utils/polygonUtils";
 import { SkeletonTool } from "../../utils/skeletonUtils";
 import { getSegmentationImageContoursForSaving } from "../../utils/opencv-contours";
-import { initializeOpenCVWorker, terminateOpenCVWorker } from "../../utils/opencv-worker-bridge";
 import type { BoundingBox } from "../../types/boundingBox";
 import type { Polygon } from "../../types/polygon";
 import type { Skeleton } from "../../types/skeleton";
@@ -2264,10 +2263,6 @@ const loadAnnotationsFromStore = async () => {
 };
 
 onMounted(async () => {
-  initializeOpenCVWorker().catch((err) => {
-    console.warn('OpenCV Worker initialization failed, will use main thread:', err);
-  });
-
   if (!framesStore.hasFrames) {
     const hasCached = await framesStore.checkCache();
 
@@ -2293,7 +2288,6 @@ onUnmounted(() => {
   if (animationId !== null) {
     cancelAnimationFrame(animationId);
   }
-  terminateOpenCVWorker();
 });
 
 watch(zoomLevel, () => {

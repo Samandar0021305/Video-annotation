@@ -1,9 +1,4 @@
 import type { SegmentationContour, ToolClass } from '../types/contours';
-import {
-  extractContoursViaWorker,
-  renderContoursViaWorker,
-  isOpenCVWorkerReady
-} from './opencv-worker-bridge';
 import { waitForOpenCV } from './loaders/opencv-utils';
 
 const canvasToDataURL = (canvas: HTMLCanvasElement): Promise<string> => {
@@ -75,7 +70,7 @@ const findClassByColor = (
   });
 };
 
-const extractContoursMainThread = async (
+const extractContours = async (
   canvasOrUrl: HTMLCanvasElement | string,
   storageScale: number,
   classes: ToolClass[]
@@ -174,7 +169,7 @@ const extractContoursMainThread = async (
   return results;
 };
 
-const renderContoursMainThread = async (
+const renderContours = async (
   toolClasses: ToolClass[],
   contours: SegmentationContour[],
   displayScale: number,
@@ -236,21 +231,10 @@ export const getSegmentationImageContoursForSaving = async (
   classes: ToolClass[]
 ): Promise<SegmentationContour[]> => {
   try {
-    if (isOpenCVWorkerReady() && typeof canvasOrUrl !== 'string') {
-      return await extractContoursViaWorker(canvasOrUrl, storageScale, classes);
-    }
-    return await extractContoursMainThread(canvasOrUrl, storageScale, classes);
+    return await extractContours(canvasOrUrl, storageScale, classes);
   } catch (error: any) {
     console.error('Error in getSegmentationImageContoursForSaving:', error);
-    if (error.message.includes('OpenCV initialization') || error.message.includes('WASM runtime')) {
-      return [];
-    }
-    try {
-      return await extractContoursMainThread(canvasOrUrl, storageScale, classes);
-    } catch (fallbackError) {
-      console.error('Fallback also failed:', fallbackError);
-      return [];
-    }
+    return [];
   }
 };
 
@@ -262,26 +246,12 @@ export const getImageFromContours = async (
   height: number
 ): Promise<HTMLCanvasElement> => {
   try {
-    if (isOpenCVWorkerReady()) {
-      return await renderContoursViaWorker(toolClasses, contours, displayScale, width, height);
-    }
-    return await renderContoursMainThread(toolClasses, contours, displayScale, width, height);
+    return await renderContours(toolClasses, contours, displayScale, width, height);
   } catch (error: any) {
     console.error('Error in getImageFromContours:', error);
-    if (error.message.includes('OpenCV initialization')) {
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      return canvas;
-    }
-    try {
-      return await renderContoursMainThread(toolClasses, contours, displayScale, width, height);
-    } catch (fallbackError) {
-      console.error('Fallback also failed:', fallbackError);
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      return canvas;
-    }
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    return canvas;
   }
 };
