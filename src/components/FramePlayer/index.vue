@@ -328,7 +328,17 @@ import { useBrushTracks } from "../../composables/useBrushTracks";
 import { BBoxTool } from "../../utils/bboxUtils";
 import { PolygonTool } from "../../utils/polygonUtils";
 import { SkeletonTool } from "../../utils/skeletonUtils";
-import { getSegmentationImageContoursForSaving } from "../../utils/opencv-contours";
+import {
+  getSegmentationImageContoursForSaving,
+  renderContoursToTargetCanvas,
+} from "../../utils/opencv-contours";
+import {
+  canvasToMaskData,
+  renderMaskToCanvas,
+  renderMasksToCanvas,
+} from "../../utils/rle";
+import type { MaskData } from "../../types/mask";
+import { isMaskData } from "../../composables/useBrushTracks";
 import type { BoundingBox } from "../../types/boundingBox";
 import type { Polygon } from "../../types/polygon";
 import type { Skeleton } from "../../types/skeleton";
@@ -371,7 +381,6 @@ const skeletonColor = ref("#0000FF");
 const opacity = ref(0.7);
 const zoomLevel = ref(1);
 const autoSuggest = ref(false);
-const dpr = window.devicePixelRatio || 1;
 
 const isDrawing = ref(false);
 const isPanning = ref(false);
@@ -384,8 +393,9 @@ const drawingStartFrame = ref<number | null>(null);
 const lastPanPoint = ref<{ x: number; y: number } | null>(null);
 
 interface TempBrushStroke {
-  canvas: HTMLCanvasElement;
+  points: Array<{ x: number; y: number }>;
   color: string;
+  size: number;
   frame: number;
 }
 const tempBrushStrokes = ref<TempBrushStroke[]>([]);
@@ -394,9 +404,25 @@ const mergeColor = ref("#FF0000");
 const bufferFrame = ref<number | null>(null);
 
 const frameImages = ref<Map<number, HTMLImageElement>>(new Map());
-const frameCanvases = ref<Map<number, HTMLCanvasElement>>(new Map());
-const annotationCanvases = ref<Map<number, HTMLCanvasElement>>(new Map());
-let currentAnnotationFrame = -1;
+
+let workingCanvas: HTMLCanvasElement | null = null;
+let displayCanvas: HTMLCanvasElement | null = null;
+let currentDisplayFrame = -1;
+
+const initializeCanvases = (width: number, height: number) => {
+  workingCanvas = document.createElement("canvas");
+  workingCanvas.width = width;
+  workingCanvas.height = height;
+
+  displayCanvas = document.createElement("canvas");
+  displayCanvas.width = width;
+  displayCanvas.height = height;
+};
+
+const clearCanvas = (canvas: HTMLCanvasElement) => {
+  const ctx = canvas.getContext("2d")!;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+};
 
 const {
   tracks: bboxTracks,
@@ -444,14 +470,16 @@ const brushClasses = computed(() => {
   const usedColors = new Set<string>();
 
   for (const [, track] of brushTracks.value) {
-    for (const [, contours] of track.keyframes) {
-      for (const contour of contours) {
-        if (!usedColors.has(contour.classColor)) {
-          usedColors.add(contour.classColor);
+    for (const [, keyframeData] of track.keyframes) {
+      for (const item of keyframeData) {
+        // Handle both MaskData (has 'color') and SegmentationContour (has 'classColor')
+        const color = 'color' in item ? item.color : item.classColor;
+        if (!usedColors.has(color)) {
+          usedColors.add(color);
           classes.push({
-            value: contour.classID - 1,
-            name: contour.className,
-            color: contour.classColor,
+            value: item.classID - 1,
+            name: item.className,
+            color: color,
           });
         }
       }
@@ -598,87 +626,196 @@ const renderFrame = async (frameIndex: number) => {
     return;
   }
 
-  const existingCanvas = frameCanvases.value.get(frameIndex);
-  if (existingCanvas) {
-    updateAnnotationLayer(existingCanvas, frameIndex);
-  } else {
-    let combinedCanvas: HTMLCanvasElement | null = null;
+  await renderBrushAnnotations(frameIndex);
+};
 
-    for (const [trackId] of brushTracks.value) {
-      const result = await getContoursAtFrame(
-        trackId,
-        frameIndex,
-        brushClasses.value,
-        stageConfig.value.width,
-        stageConfig.value.height,
-        1
-      );
+const renderBrushAnnotations = async (frameIndex: number) => {
+  if (!workingCanvas || !displayCanvas) {
+    initializeCanvases(stageConfig.value.width, stageConfig.value.height);
+  }
 
-      if (result.canvas && result.contours.length > 0) {
-        if (!combinedCanvas) {
-          combinedCanvas = document.createElement("canvas");
-          combinedCanvas.width = result.canvas.width;
-          combinedCanvas.height = result.canvas.height;
-        }
-        const ctx = combinedCanvas.getContext("2d")!;
-        ctx.drawImage(result.canvas, 0, 0);
+  if (currentDisplayFrame === frameIndex) {
+    return;
+  }
+
+  // Render to workingCanvas first (off-screen)
+  clearCanvas(workingCanvas!);
+
+  let hasAnnotations = false;
+
+  for (const [trackId] of brushTracks.value) {
+    const track = brushTracks.value.get(trackId);
+    if (!track) continue;
+
+    // Check ranges - if no ranges defined, show on all frames
+    const ranges = track.ranges || [];
+    const isInRange = ranges.length === 0
+      ? true
+      : ranges.some(([start, end]) => frameIndex >= start && frameIndex < end);
+    if (!isInRange) continue;
+
+    const keyframeData = track.keyframes.get(frameIndex);
+    if (keyframeData && keyframeData.length > 0) {
+      // Check if this is RLE data or contour data
+      if (isMaskData(keyframeData)) {
+        // RLE-based rendering (fast, pixel-perfect)
+        renderMasksToCanvas(keyframeData, workingCanvas!, false, 1);
+      } else {
+        // Legacy contour-based rendering
+        await renderContoursToTargetCanvas(
+          brushClasses.value,
+          keyframeData,
+          1,
+          workingCanvas!,
+          false
+        );
       }
-    }
-
-    if (combinedCanvas) {
-      updateAnnotationLayer(combinedCanvas, frameIndex);
-    } else {
-      if (currentAnnotationFrame !== frameIndex) {
-        const brushGroup = brushAnnotationGroupRef.value?.getNode();
-        if (brushGroup) {
-          brushGroup.destroyChildren();
-          currentAnnotationFrame = frameIndex;
-          annotationsLayerRef.value?.getNode()?.batchDraw();
+      hasAnnotations = true;
+    } else if (track.interpolationEnabled) {
+      const frames = Array.from(track.keyframes.keys()).sort((a, b) => a - b);
+      let beforeFrame: number | null = null;
+      for (const f of frames) {
+        if (f <= frameIndex) beforeFrame = f;
+        else break;
+      }
+      if (beforeFrame !== null) {
+        const beforeData = track.keyframes.get(beforeFrame);
+        if (beforeData && beforeData.length > 0) {
+          // Check if this is RLE data or contour data
+          if (isMaskData(beforeData)) {
+            // RLE-based rendering (fast, pixel-perfect)
+            renderMasksToCanvas(beforeData, workingCanvas!, false, 1);
+          } else {
+            // Legacy contour-based rendering
+            await renderContoursToTargetCanvas(
+              brushClasses.value,
+              beforeData,
+              1,
+              workingCanvas!,
+              false
+            );
+          }
+          hasAnnotations = true;
         }
       }
     }
   }
+
+  if (hasAnnotations) {
+    // Atomic swap: copy workingCanvas to displayCanvas and update Konva
+    updateAnnotationLayer(workingCanvas!, frameIndex);
+  } else {
+    const brushGroup = brushAnnotationGroupRef.value?.getNode();
+    if (brushGroup) {
+      brushGroup.destroyChildren();
+      annotationsLayerRef.value?.getNode()?.batchDraw();
+    }
+  }
+
+  currentDisplayFrame = frameIndex;
+};
+
+const renderBrushAnnotationsWithTempStrokes = async (frameIndex: number) => {
+  if (!workingCanvas) {
+    initializeCanvases(stageConfig.value.width, stageConfig.value.height);
+  }
+
+  clearCanvas(workingCanvas!);
+
+  // First render existing data from tracks (supports both RLE and contour formats)
+  for (const [trackId] of brushTracks.value) {
+    const track = brushTracks.value.get(trackId);
+    if (!track) continue;
+
+    // Check ranges - if no ranges defined, show on all frames
+    const ranges = track.ranges || [];
+    const isInRange = ranges.length === 0
+      ? true
+      : ranges.some(([start, end]) => frameIndex >= start && frameIndex < end);
+    if (!isInRange) continue;
+
+    const keyframeData = track.keyframes.get(frameIndex);
+    if (keyframeData && keyframeData.length > 0) {
+      // Check if this is RLE data or contour data
+      if (isMaskData(keyframeData)) {
+        // RLE-based rendering (fast, pixel-perfect)
+        renderMasksToCanvas(keyframeData, workingCanvas!, false, 1);
+      } else {
+        // Legacy contour-based rendering
+        await renderContoursToTargetCanvas(
+          brushClasses.value,
+          keyframeData,
+          1,
+          workingCanvas!,
+          false
+        );
+      }
+    } else if (track.interpolationEnabled) {
+      const frames = Array.from(track.keyframes.keys()).sort((a, b) => a - b);
+      let beforeFrame: number | null = null;
+      for (const f of frames) {
+        if (f <= frameIndex) beforeFrame = f;
+        else break;
+      }
+      if (beforeFrame !== null) {
+        const beforeData = track.keyframes.get(beforeFrame);
+        if (beforeData && beforeData.length > 0) {
+          // Check if this is RLE data or contour data
+          if (isMaskData(beforeData)) {
+            // RLE-based rendering (fast, pixel-perfect)
+            renderMasksToCanvas(beforeData, workingCanvas!, false, 1);
+          } else {
+            // Legacy contour-based rendering
+            await renderContoursToTargetCanvas(
+              brushClasses.value,
+              beforeData,
+              1,
+              workingCanvas!,
+              false
+            );
+          }
+        }
+      }
+    }
+  }
+
+  // Then render temp brush strokes on top
+  const ctx = workingCanvas!.getContext("2d")!
+  for (const stroke of tempBrushStrokes.value) {
+    if (stroke.frame !== frameIndex || stroke.points.length < 2) continue;
+
+    ctx.strokeStyle = stroke.color;
+    ctx.lineWidth = stroke.size;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.globalCompositeOperation = "source-over";
+
+    ctx.beginPath();
+    const firstPoint = stroke.points[0];
+    if (firstPoint) {
+      ctx.moveTo(firstPoint.x, firstPoint.y);
+      for (let i = 1; i < stroke.points.length; i++) {
+        const point = stroke.points[i];
+        if (point) {
+          ctx.lineTo(point.x, point.y);
+        }
+      }
+      ctx.stroke();
+    }
+  }
+
+  // Update display
+  currentDisplayFrame = -1; // Force update
+  updateAnnotationLayer(workingCanvas!, frameIndex);
 };
 
 const forceRenderFrame = async (frameIndex: number) => {
   if (frameIndex < 0 || frameIndex >= physicalFrames.value) return;
 
-  let combinedCanvas: HTMLCanvasElement | null = null;
-
-  for (const [trackId] of brushTracks.value) {
-    const result = await getContoursAtFrame(
-      trackId,
-      frameIndex,
-      brushClasses.value,
-      stageConfig.value.width,
-      stageConfig.value.height,
-      1
-    );
-
-    if (result.canvas && result.contours.length > 0) {
-      if (!combinedCanvas) {
-        combinedCanvas = document.createElement("canvas");
-        combinedCanvas.width = result.canvas.width;
-        combinedCanvas.height = result.canvas.height;
-      }
-      const ctx = combinedCanvas.getContext("2d")!;
-      ctx.drawImage(result.canvas, 0, 0);
-    }
-  }
-
-  if (combinedCanvas) {
-    frameCanvases.value.set(frameIndex, combinedCanvas);
-    currentAnnotationFrame = -1;
-    updateAnnotationLayer(combinedCanvas, frameIndex);
-  } else {
-    const brushGroup = brushAnnotationGroupRef.value?.getNode();
-    if (brushGroup) {
-      brushGroup.destroyChildren();
-      currentAnnotationFrame = frameIndex;
-      annotationsLayerRef.value?.getNode()?.batchDraw();
-    }
-  }
+  currentDisplayFrame = -1;
+  await renderBrushAnnotations(frameIndex);
 };
+
 
 const animate = async (timestamp: number) => {
   if (!isPlaying.value) return;
@@ -1249,62 +1386,108 @@ const handleMergeStrokes = async () => {
 
   const targetFrame = bufferFrame.value ?? currentFrame.value;
 
+  // Create a temporary canvas to render strokes at display resolution (no DPR scaling needed for RLE)
   const combinedCanvas = document.createElement("canvas");
-  combinedCanvas.width = stageConfig.value.width * dpr;
-  combinedCanvas.height = stageConfig.value.height * dpr;
+  combinedCanvas.width = stageConfig.value.width;
+  combinedCanvas.height = stageConfig.value.height;
   const combinedCtx = combinedCanvas.getContext("2d")!;
-  combinedCtx.scale(dpr, dpr);
 
+  // Render all strokes from their points
   for (const stroke of tempBrushStrokes.value) {
-    combinedCtx.drawImage(
-      stroke.canvas,
-      0,
-      0,
-      stageConfig.value.width,
-      stageConfig.value.height
-    );
+    if (stroke.points.length < 2) continue;
+
+    combinedCtx.strokeStyle = stroke.color;
+    combinedCtx.lineWidth = stroke.size;
+    combinedCtx.lineCap = "round";
+    combinedCtx.lineJoin = "round";
+    combinedCtx.globalCompositeOperation = "source-over";
+
+    combinedCtx.beginPath();
+    const firstPoint = stroke.points[0];
+    if (firstPoint) {
+      combinedCtx.moveTo(firstPoint.x, firstPoint.y);
+      for (let i = 1; i < stroke.points.length; i++) {
+        const point = stroke.points[i];
+        if (point) {
+          combinedCtx.lineTo(point.x, point.y);
+        }
+      }
+      combinedCtx.stroke();
+    }
   }
 
+  // Apply the merge color to all strokes
   applyColorToCanvas(combinedCanvas, mergeColor.value);
 
   try {
-    const mergeClasses: ToolClass[] = [
-      {
-        value: 0,
-        name: "Brush",
-        color: mergeColor.value,
-      },
-    ];
-
-    const contours = await getSegmentationImageContoursForSaving(
+    // Convert canvas to RLE-based MaskData (pixel-perfect, fast)
+    const maskData = canvasToMaskData(
       combinedCanvas,
-      1 / dpr,
-      mergeClasses
+      mergeColor.value,
+      "Brush",
+      0
     );
 
-    if (contours.length > 0) {
+    if (maskData) {
+      // Create array with single mask
+      const masks: MaskData[] = [maskData];
+
+      // Step 1: Create track with the NEW RLE mask data
       const trackId = createBrushTrack(
         targetFrame,
-        contours,
+        masks,
         undefined,
         physicalFrames.value
       );
       selectedBrushTrackId.value = null;
       timelineRef.value?.selectTrack(trackId, "brush");
 
-      frameCanvases.value.delete(targetFrame);
-      annotationCanvases.value.delete(targetFrame);
-      await renderFrame(targetFrame);
+      // Step 2: Render ONLY the NEW mask to workingCanvas
+      if (!workingCanvas || !displayCanvas) {
+        initializeCanvases(stageConfig.value.width, stageConfig.value.height);
+      }
+      clearCanvas(workingCanvas!);
 
+      // Render only the newly created mask (RLE-based, pixel-perfect)
+      renderMaskToCanvas(maskData, workingCanvas!, false, 1);
+
+      // Step 3: ADD new mask ON TOP of existing displayCanvas (don't clear it!)
+      const displayCtx = displayCanvas!.getContext("2d")!;
+      displayCtx.drawImage(workingCanvas!, 0, 0);
+
+      // Step 4: Update Konva display (displayCanvas now has old + new)
+      const brushGroup = brushAnnotationGroupRef.value?.getNode();
+      if (brushGroup) {
+        brushGroup.destroyChildren();
+        const konvaImage = new Konva.Image({
+          image: displayCanvas!,
+          x: 0,
+          y: 0,
+          width: stageConfig.value.width,
+          height: stageConfig.value.height,
+          listening: false,
+          opacity: opacity.value,
+        });
+        brushGroup.add(konvaImage);
+        annotationsLayerRef.value?.getNode()?.batchDraw();
+      }
+
+      // Step 5: Clear temp strokes (display already shows old + new)
+      tempBrushStrokes.value = [];
+      showBrushMergePopup.value = false;
+      bufferFrame.value = null;
+      currentDisplayFrame = targetFrame;
+
+      // Step 6: Save
       saveAnnotations();
     }
   } catch (err) {
     console.error("Failed to merge strokes:", err);
+    // On error, still clean up
+    tempBrushStrokes.value = [];
+    showBrushMergePopup.value = false;
+    bufferFrame.value = null;
   }
-
-  tempBrushStrokes.value = [];
-  showBrushMergePopup.value = false;
-  bufferFrame.value = null;
 };
 
 const handleClearStrokes = async () => {
@@ -1314,8 +1497,8 @@ const handleClearStrokes = async () => {
   showBrushMergePopup.value = false;
   bufferFrame.value = null;
 
-  frameCanvases.value.delete(targetFrame);
-  annotationCanvases.value.delete(targetFrame);
+  // Force re-render to clear temp strokes
+  currentDisplayFrame = -1;
   await renderFrame(targetFrame);
 };
 
@@ -1806,53 +1989,20 @@ const handleMouseUp = async () => {
   }
 
   if (mode.value === "brush") {
-    let displayCanvas = frameCanvases.value.get(targetFrame);
-    if (!displayCanvas) {
-      displayCanvas = createOffscreenCanvas(currentImage.value);
-
-      for (const [trackId] of brushTracks.value) {
-        const result = await getContoursAtFrame(
-          trackId,
-          targetFrame,
-          brushClasses.value,
-          stageConfig.value.width,
-          stageConfig.value.height,
-          1
-        );
-
-        if (result.canvas && result.contours.length > 0) {
-          const ctx = displayCanvas.getContext("2d")!;
-          ctx.drawImage(
-            result.canvas,
-            0,
-            0,
-            stageConfig.value.width,
-            stageConfig.value.height
-          );
-        }
-      }
-
-      frameCanvases.value.set(targetFrame, displayCanvas);
-    }
-
-    const displayCtx = displayCanvas.getContext("2d")!;
-    displayCtx.save();
-    displayCtx.globalCompositeOperation = "source-over";
-    displayCtx.drawImage(strokeCanvas, 0, 0);
-    displayCtx.restore();
-
-    annotationCanvases.value.delete(targetFrame);
-    updateAnnotationLayer(displayCanvas, targetFrame);
-
+    // Store the stroke points for later merging
     tempBrushStrokes.value.push({
-      canvas: strokeCanvas,
+      points: [...points],
       color: brushColor.value,
+      size: brushSize.value,
       frame: targetFrame,
     });
 
     if (bufferFrame.value === null) {
       bufferFrame.value = targetFrame;
     }
+
+    // Re-render the display with existing contours + temp strokes
+    await renderBrushAnnotationsWithTempStrokes(targetFrame);
 
     mergeColor.value = brushColor.value;
     showBrushMergePopup.value = true;
@@ -1933,9 +2083,8 @@ const handleMouseUp = async () => {
         );
       }
 
-      frameCanvases.value.delete(targetFrame);
-      annotationCanvases.value.delete(targetFrame);
-
+      // Force re-render with updated contours
+      currentDisplayFrame = -1;
       await forceRenderFrame(targetFrame);
 
       saveAnnotations();
@@ -2173,10 +2322,7 @@ const updateAnnotationLayer = (
   offscreenCanvas: HTMLCanvasElement,
   frameNumber: number
 ) => {
-  if (
-    currentAnnotationFrame === frameNumber &&
-    annotationCanvases.value.has(frameNumber)
-  ) {
+  if (currentDisplayFrame === frameNumber) {
     return;
   }
 
@@ -2185,21 +2331,18 @@ const updateAnnotationLayer = (
 
   brushGroup.destroyChildren();
 
-  let snapshotCanvas = annotationCanvases.value.get(frameNumber);
-  if (!snapshotCanvas) {
-    snapshotCanvas = document.createElement("canvas");
-    snapshotCanvas.width = offscreenCanvas.width;
-    snapshotCanvas.height = offscreenCanvas.height;
-    annotationCanvases.value.set(frameNumber, snapshotCanvas);
+  // Use the displayCanvas for Konva rendering
+  if (!displayCanvas) {
+    initializeCanvases(stageConfig.value.width, stageConfig.value.height);
   }
 
-  const ctx = snapshotCanvas.getContext("2d", { alpha: true })!;
-  ctx.clearRect(0, 0, snapshotCanvas.width, snapshotCanvas.height);
+  const ctx = displayCanvas!.getContext("2d", { alpha: true })!;
+  ctx.clearRect(0, 0, displayCanvas!.width, displayCanvas!.height);
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(offscreenCanvas, 0, 0);
 
   const konvaImage = new Konva.Image({
-    image: snapshotCanvas,
+    image: displayCanvas!,
     x: 0,
     y: 0,
     width: stageConfig.value.width,
@@ -2209,7 +2352,7 @@ const updateAnnotationLayer = (
   });
 
   brushGroup.add(konvaImage);
-  currentAnnotationFrame = frameNumber;
+  currentDisplayFrame = frameNumber;
   annotationsLayerRef.value?.getNode()?.batchDraw();
 };
 

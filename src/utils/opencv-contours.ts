@@ -169,13 +169,13 @@ const extractContours = async (
   return results;
 };
 
-const renderContours = async (
-  toolClasses: ToolClass[],
+const renderContoursToCanvas = async (
+  _toolClasses: ToolClass[],
   contours: SegmentationContour[],
   displayScale: number,
-  width: number,
-  height: number
-): Promise<HTMLCanvasElement> => {
+  targetCanvas: HTMLCanvasElement,
+  clearFirst: boolean = true
+): Promise<void> => {
   await waitForOpenCV();
   const cv = window.cv;
 
@@ -183,13 +183,24 @@ const renderContours = async (
     throw new Error('OpenCV initialization failed - cv is not available');
   }
 
+  const width = targetCanvas.width;
+  const height = targetCanvas.height;
+
+  if (clearFirst) {
+    const ctx = targetCanvas.getContext('2d')!;
+    ctx.clearRect(0, 0, width, height);
+  }
+
+  if (contours.length === 0) return;
+
   const dstColored = cv.Mat.zeros(height, width, cv.CV_8UC4);
 
   for (const contourGroup of contours) {
-    const toolClass = toolClasses.find(cls => cls.value === contourGroup.classID - 1);
-    if (!toolClass || !toolClass.color) continue;
+    // Use the color stored directly in the contour group instead of looking up by classID
+    const color = contourGroup.classColor;
+    if (!color) continue;
 
-    const [r, g, b] = hexToRgb(toolClass.color);
+    const [r, g, b] = hexToRgb(color);
     const rgbColor = new cv.Scalar(r, g, b, 255);
 
     for (const contour of contourGroup.contours) {
@@ -215,13 +226,21 @@ const renderContours = async (
     }
   }
 
+  cv.imshow(targetCanvas, dstColored);
+  dstColored.delete();
+};
+
+const renderContours = async (
+  toolClasses: ToolClass[],
+  contours: SegmentationContour[],
+  displayScale: number,
+  width: number,
+  height: number
+): Promise<HTMLCanvasElement> => {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
-  cv.imshow(canvas, dstColored);
-
-  dstColored.delete();
-
+  await renderContoursToCanvas(toolClasses, contours, displayScale, canvas, false);
   return canvas;
 };
 
@@ -253,5 +272,23 @@ export const getImageFromContours = async (
     canvas.width = width;
     canvas.height = height;
     return canvas;
+  }
+};
+
+export const renderContoursToTargetCanvas = async (
+  toolClasses: ToolClass[],
+  contours: SegmentationContour[],
+  displayScale: number,
+  targetCanvas: HTMLCanvasElement,
+  clearFirst: boolean = true
+): Promise<void> => {
+  try {
+    await renderContoursToCanvas(toolClasses, contours, displayScale, targetCanvas, clearFirst);
+  } catch (error: any) {
+    console.error('Error in renderContoursToTargetCanvas:', error);
+    if (clearFirst) {
+      const ctx = targetCanvas.getContext('2d')!;
+      ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
+    }
   }
 };
