@@ -1,4 +1,5 @@
 import axios from "axios";
+import { showErrorToast } from "../utils/toast";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
@@ -44,7 +45,6 @@ export async function loadAnnotations(
     );
   } catch (error: any) {
     if (error.response?.status === 404) {
-      // Return empty data if no annotations exist yet
       return {
         bbox: [],
         polygon: [],
@@ -52,7 +52,9 @@ export async function loadAnnotations(
         brush: [],
       };
     }
-    throw new Error(`Failed to load annotations: ${error.message}`);
+    const errorMessage = `Failed to load annotations: ${error.message}`;
+    showErrorToast(errorMessage, 3000);
+    throw new Error(errorMessage);
   }
 }
 
@@ -72,7 +74,9 @@ export async function saveAnnotations(
       config
     );
   } catch (error: any) {
-    throw new Error(`Failed to save annotations: ${error.message}`);
+    const errorMessage = `Failed to save annotations: ${error.message}`;
+    showErrorToast(errorMessage, 3000);
+    throw new Error(errorMessage);
   }
 }
 
