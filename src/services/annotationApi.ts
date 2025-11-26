@@ -13,12 +13,25 @@ export interface ApiResponse {
   result: AnnotationData;
 }
 
+function getConfigWithAuth() {
+  const token = import.meta.env.VITE_API_BASE_TOKEN;
+  if (token) {
+    return {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    };
+  }
+  return {};
+}
 export async function loadAnnotations(
   videoFilename: string
 ): Promise<AnnotationData> {
   try {
+    const config = getConfigWithAuth();
     const response = await axios.get<ApiResponse>(
-      `${API_BASE_URL}/results/${videoFilename}/`
+      `${API_BASE_URL}/${videoFilename}/`,
+      config
     );
 
     return (
@@ -48,9 +61,16 @@ export async function saveAnnotations(
   annotations: AnnotationData
 ): Promise<void> {
   try {
-    await axios.put(`${API_BASE_URL}/results/${videoFilename}/`, {
-      result: annotations,
-    });
+    const config = getConfigWithAuth();
+
+    await axios.put(
+      `${API_BASE_URL}/${videoFilename}/`,
+      {
+        result: annotations,
+        id: videoFilename,
+      },
+      config
+    );
   } catch (error: any) {
     throw new Error(`Failed to save annotations: ${error.message}`);
   }
