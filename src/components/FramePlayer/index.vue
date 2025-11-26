@@ -503,6 +503,10 @@ const drawingStartFrame = ref<number | null>(null);
 
 const lastPanPoint = ref<{ x: number; y: number } | null>(null);
 
+// Hover detection throttling (20 FPS to balance responsiveness vs performance)
+const HOVER_THROTTLE_MS = 50;
+let lastHoverCheckTime = 0;
+
 interface TempBrushStroke {
   points: Array<{ x: number; y: number }>;
   color: string;
@@ -581,6 +585,7 @@ const {
 const {
   tracks: brushTracks,
   selectedTrackId: selectedBrushTrackId,
+  hoveredTrackId: hoveredBrushTrackId,
   segmentationEditMode,
   trackEditStates,
   createTrack: createBrushTrack,
@@ -592,6 +597,7 @@ const {
   findTrackAtPoint,
   selectTrackForEditing,
   deselectTrack,
+  setHoveredTrack,
   setSegmentationEditMode,
   changeSelectedTrackColor,
   getSelectedTrackColor,
@@ -773,7 +779,13 @@ const renderBrushAnnotations = async (frameIndex: number) => {
     initializeCanvases(stageConfig.value.width, stageConfig.value.height);
   }
 
-  if (currentDisplayFrame === frameIndex && !showSegmentationToolbar.value) {
+  // Skip re-render if frame hasn't changed and no selection/hover state changes
+  const hoveredTrackIdValue = hoveredBrushTrackId.value;
+  if (
+    currentDisplayFrame === frameIndex &&
+    !showSegmentationToolbar.value &&
+    !hoveredTrackIdValue
+  ) {
     return;
   }
 
@@ -791,6 +803,14 @@ const renderBrushAnnotations = async (frameIndex: number) => {
     selectedTrackCanvas.height = stageConfig.value.height;
   }
 
+  // Create a separate canvas for hovered track (highlight effect)
+  let hoveredTrackCanvas: HTMLCanvasElement | null = null;
+  if (hoveredTrackIdValue && !showSegmentationToolbar.value) {
+    hoveredTrackCanvas = document.createElement("canvas");
+    hoveredTrackCanvas.width = stageConfig.value.width;
+    hoveredTrackCanvas.height = stageConfig.value.height;
+  }
+
   for (const [trackId] of brushTracks.value) {
     const track = brushTracks.value.get(trackId);
     if (!track) continue;
@@ -805,11 +825,20 @@ const renderBrushAnnotations = async (frameIndex: number) => {
           );
     if (!isInRange) continue;
 
-    // Determine target canvas (selected tracks go to separate canvas)
+    // Determine target canvas (selected/hovered tracks go to separate canvas)
     const isSelected =
       trackId === selectedTrackIdValue && showSegmentationToolbar.value;
-    const targetCanvas =
-      isSelected && selectedTrackCanvas ? selectedTrackCanvas : workingCanvas!;
+    const isHovered =
+      trackId === hoveredTrackIdValue && !showSegmentationToolbar.value;
+
+    let targetCanvas: HTMLCanvasElement;
+    if (isSelected && selectedTrackCanvas) {
+      targetCanvas = selectedTrackCanvas;
+    } else if (isHovered && hoveredTrackCanvas) {
+      targetCanvas = hoveredTrackCanvas;
+    } else {
+      targetCanvas = workingCanvas!;
+    }
 
     const keyframeData = track.keyframes.get(frameIndex);
     if (keyframeData && keyframeData.length > 0) {
@@ -860,9 +889,10 @@ const renderBrushAnnotations = async (frameIndex: number) => {
 
   if (hasAnnotations) {
     // Atomic swap: copy workingCanvas to displayCanvas and update Konva
-    updateAnnotationLayerWithSelection(
+    updateAnnotationLayerWithSelectionAndHover(
       workingCanvas!,
       selectedTrackCanvas,
+      hoveredTrackCanvas,
       frameIndex
     );
   } else {
@@ -2401,6 +2431,35 @@ const handleMouseMove = () => {
       interactiveLayerRef.value?.getNode()?.batchDraw();
     }
   }
+
+  // Throttled hover detection for segmentation masks (Pan mode only)
+  if (
+    mode.value === "pan" &&
+    !isPanning.value &&
+    !isDrawing.value &&
+    !showSegmentationToolbar.value
+  ) {
+    const now = performance.now();
+    if (now - lastHoverCheckTime >= HOVER_THROTTLE_MS) {
+      lastHoverCheckTime = now;
+      const logicalPos = getLogicalPointerPosition();
+      if (logicalPos) {
+        const trackId = findTrackAtPoint(
+          logicalPos.x,
+          logicalPos.y,
+          currentFrame.value
+        );
+        if (trackId !== hoveredBrushTrackId.value) {
+          setHoveredTrack(trackId);
+          // Update cursor to indicate hoverable segmentation
+          const stage = stageRef.value?.getStage();
+          if (stage) {
+            stage.container().style.cursor = trackId ? "pointer" : "default";
+          }
+        }
+      }
+    }
+  }
 };
 
 const handleMouseUp = async () => {
@@ -3214,11 +3273,12 @@ const updateAnnotationLayer = (
 };
 
 /**
- * Update annotation layer with separate opacity for selected segmentation
+ * Update annotation layer with separate rendering for selected and hovered segmentations
  */
-const updateAnnotationLayerWithSelection = (
+const updateAnnotationLayerWithSelectionAndHover = (
   nonSelectedCanvas: HTMLCanvasElement,
   selectedCanvas: HTMLCanvasElement | null,
+  hoveredCanvas: HTMLCanvasElement | null,
   frameNumber: number
 ) => {
   const brushGroup = brushAnnotationGroupRef.value?.getNode();
@@ -3231,7 +3291,7 @@ const updateAnnotationLayerWithSelection = (
     initializeCanvases(stageConfig.value.width, stageConfig.value.height);
   }
 
-  // Render non-selected tracks at full opacity
+  // Render non-selected/non-hovered tracks at normal opacity
   const ctx = displayCanvas!.getContext("2d", { alpha: true })!;
   ctx.clearRect(0, 0, displayCanvas!.width, displayCanvas!.height);
   ctx.imageSmoothingEnabled = false;
@@ -3247,6 +3307,52 @@ const updateAnnotationLayerWithSelection = (
     opacity: opacity.value,
   });
   brushGroup.add(nonSelectedImage);
+
+  // Render hovered track with brightness boost effect
+  if (hoveredCanvas) {
+    const hoveredDisplayCanvas = document.createElement("canvas");
+    hoveredDisplayCanvas.width = stageConfig.value.width;
+    hoveredDisplayCanvas.height = stageConfig.value.height;
+    const hoveredCtx = hoveredDisplayCanvas.getContext("2d", { alpha: true })!;
+    hoveredCtx.imageSmoothingEnabled = false;
+    hoveredCtx.drawImage(hoveredCanvas, 0, 0);
+
+    const hoveredImage = new Konva.Image({
+      image: hoveredDisplayCanvas,
+      x: 0,
+      y: 0,
+      width: stageConfig.value.width,
+      height: stageConfig.value.height,
+      listening: false,
+      opacity: Math.min(1, opacity.value * 1.3), // Slightly brighter on hover
+    });
+    brushGroup.add(hoveredImage);
+
+    // Add a subtle white outline/glow effect for hover
+    const glowCanvas = document.createElement("canvas");
+    glowCanvas.width = stageConfig.value.width;
+    glowCanvas.height = stageConfig.value.height;
+    const glowCtx = glowCanvas.getContext("2d", { alpha: true })!;
+    glowCtx.imageSmoothingEnabled = false;
+
+    // Create outline by drawing the mask slightly expanded with white
+    glowCtx.filter = "blur(2px)";
+    glowCtx.drawImage(hoveredCanvas, 0, 0);
+    glowCtx.globalCompositeOperation = "source-in";
+    glowCtx.fillStyle = "rgba(255, 255, 255, 0.5)";
+    glowCtx.fillRect(0, 0, glowCanvas.width, glowCanvas.height);
+
+    const glowImage = new Konva.Image({
+      image: glowCanvas,
+      x: 0,
+      y: 0,
+      width: stageConfig.value.width,
+      height: stageConfig.value.height,
+      listening: false,
+      opacity: 0.4,
+    });
+    brushGroup.add(glowImage);
+  }
 
   // Render selected track with reduced opacity (50% of normal)
   if (selectedCanvas) {
@@ -3494,6 +3600,14 @@ watch(currentFrame, async (newFrame, _oldFrame) => {
     newFrame !== bufferFrame.value
   ) {
     await handleClearStrokes();
+  }
+});
+
+// Re-render when hover state changes to show visual feedback
+watch(hoveredBrushTrackId, async () => {
+  if (framesLoaded.value && !isDrawing.value) {
+    currentDisplayFrame = -1; // Force re-render
+    await renderBrushAnnotations(currentFrame.value);
   }
 });
 </script>
