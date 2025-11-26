@@ -452,6 +452,14 @@ const emit = defineEmits<{
     start: number,
     end: number
   ): void;
+  (
+    e: "resize-end",
+    trackId: string,
+    type: TrackType,
+    rangeIndex: number,
+    start: number,
+    end: number
+  ): void;
 }>();
 
 const selectedTrackId = ref<string | null>(null);
@@ -466,6 +474,8 @@ const resizeState = ref<{
   initialStart: number;
   initialEnd: number;
   startX: number;
+  currentStart: number;
+  currentEnd: number;
 } | null>(null);
 
 const currentFramePercentage = computed(() => {
@@ -572,6 +582,8 @@ function startRangeResize(
     initialStart,
     initialEnd,
     startX: event.clientX,
+    currentStart: initialStart,
+    currentEnd: initialEnd,
   };
 
   document.addEventListener("mousemove", handleRangeResizeMove);
@@ -602,6 +614,9 @@ function handleRangeResizeMove(event: MouseEvent) {
     newEnd = Math.max(newEnd, newStart + 1);
   }
 
+  resizeState.value.currentStart = newStart;
+  resizeState.value.currentEnd = newEnd;
+
   emit(
     "update-range",
     resizeState.value.trackId,
@@ -613,6 +628,16 @@ function handleRangeResizeMove(event: MouseEvent) {
 }
 
 function handleRangeResizeEnd() {
+  if (resizeState.value) {
+    emit(
+      "resize-end",
+      resizeState.value.trackId,
+      resizeState.value.type,
+      resizeState.value.rangeIndex,
+      resizeState.value.currentStart,
+      resizeState.value.currentEnd
+    );
+  }
   resizeState.value = null;
   document.removeEventListener("mousemove", handleRangeResizeMove);
   document.removeEventListener("mouseup", handleRangeResizeEnd);
@@ -863,23 +888,25 @@ defineExpose({
 
 .resize-handle {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 8px;
+  top: -2px;
+  bottom: -2px;
+  width: 12px;
   cursor: ew-resize;
   background: transparent;
+  z-index: 20;
 }
 
 .resize-handle.left {
-  left: -4px;
+  left: -6px;
 }
 
 .resize-handle.right {
-  right: -4px;
+  right: -6px;
 }
 
 .resize-handle:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 2px;
 }
 
 .keyframe-diamond {

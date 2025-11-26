@@ -48,13 +48,15 @@ export function useBrushTracks(currentFrame: Ref<number>) {
     totalFrames: number = 1000
   ): string {
     const trackId = `brush_track_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+    const defaultRangeLength = 15;
+    const rangeEnd = Math.min(initialFrame + defaultRangeLength, totalFrames);
 
     const track: BrushTrack = {
       trackId,
       keyframes: new Map([[initialFrame, contours]]),
       interpolationEnabled: true,
       label,
-      ranges: [[initialFrame, totalFrames]],
+      ranges: [[initialFrame, rangeEnd]],
       hiddenAreas: [],
       interpolateAlgorithm: 'contour-morph-1.0'
     };
@@ -157,6 +159,34 @@ export function useBrushTracks(currentFrame: Ref<number>) {
     }
   }
 
+  function updateKeyframe(
+    trackId: string,
+    frame: number,
+    contours: SegmentationContour[]
+  ): void {
+    const track = tracks.value.get(trackId);
+    if (!track) return;
+    track.keyframes.set(frame, contours);
+  }
+
+  function deleteKeyframe(trackId: string, frame: number): void {
+    const track = tracks.value.get(trackId);
+    if (!track) return;
+    track.keyframes.delete(frame);
+    if (track.keyframes.size === 0) {
+      deleteTrack(trackId);
+    }
+  }
+
+  function getTrackCanvasAtFrame(
+    trackId: string,
+    frame: number
+  ): SegmentationContour[] | null {
+    const track = tracks.value.get(trackId);
+    if (!track) return null;
+    return track.keyframes.get(frame) || null;
+  }
+
   function isKeyframe(trackId: string, frame: number): boolean {
     const track = tracks.value.get(trackId);
     return track ? track.keyframes.has(frame) : false;
@@ -237,6 +267,9 @@ export function useBrushTracks(currentFrame: Ref<number>) {
     getContoursAtFrame,
     toggleInterpolation,
     deleteTrack,
+    updateKeyframe,
+    deleteKeyframe,
+    getTrackCanvasAtFrame,
     isKeyframe,
     clearAllTracks,
     jumpToNextKeyframe,

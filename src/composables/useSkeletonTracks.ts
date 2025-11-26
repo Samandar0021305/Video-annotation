@@ -37,13 +37,15 @@ export function useSkeletonTracks(currentFrame: Ref<number>) {
     totalFrames: number = 1000
   ): string {
     const trackId = `skeleton_track_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+    const defaultRangeLength = 15;
+    const rangeEnd = Math.min(initialFrame + defaultRangeLength, totalFrames);
 
     const track: SkeletonTrack = {
       trackId,
       keyframes: new Map([[initialFrame, { ...skeleton, id: trackId }]]),
       interpolationEnabled: true,
       label,
-      ranges: [[initialFrame, totalFrames]],
+      ranges: [[initialFrame, rangeEnd]],
       hiddenAreas: [],
       color: skeleton.color,
       classId: skeleton.classId
