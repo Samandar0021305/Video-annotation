@@ -833,7 +833,8 @@ const renderBrushAnnotationsWithTempStrokes = async (frameIndex: number) => {
   }
 
   // Then render temp brush strokes on top
-  const ctx = workingCanvas!.getContext("2d")!
+  const ctx = workingCanvas!.getContext("2d")!;
+  ctx.imageSmoothingEnabled = false;
   for (const stroke of tempBrushStrokes.value) {
     if (stroke.frame !== frameIndex || stroke.points.length < 2) continue;
 
@@ -855,6 +856,11 @@ const renderBrushAnnotationsWithTempStrokes = async (frameIndex: number) => {
       }
       ctx.stroke();
     }
+  }
+
+  // Binarize alpha to eliminate anti-aliasing noise (match RLE encoding behavior)
+  if (tempBrushStrokes.value.length > 0) {
+    binarizeAlpha(workingCanvas!);
   }
 
   // Update display
@@ -1434,6 +1440,25 @@ const applyColorToCanvas = (
   ctx.putImageData(imageData, 0, 0);
 };
 
+/**
+ * Binarize alpha channel to match RLE encoding behavior.
+ * Converts all pixels with alpha > 0 to alpha = 255 (fully opaque).
+ * This eliminates anti-aliasing "noise" from canvas stroke operations.
+ */
+const binarizeAlpha = (canvas: HTMLCanvasElement): void => {
+  const ctx = canvas.getContext("2d")!;
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+  for (let i = 3; i < imageData.data.length; i += 4) {
+    const alpha = imageData.data[i];
+    if (alpha !== undefined && alpha > 0) {
+      imageData.data[i] = 255;
+    }
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+};
+
 const handleMergeStrokes = async () => {
   // Check if we have anything to merge (either canvas or points)
   const hasCanvasData = tempStrokesConvertedToCanvas.value && tempStrokesCanvas.value;
@@ -1455,6 +1480,7 @@ const handleMergeStrokes = async () => {
     combinedCanvas.width = stageConfig.value.width;
     combinedCanvas.height = stageConfig.value.height;
     const combinedCtx = combinedCanvas.getContext("2d")!;
+    combinedCtx.imageSmoothingEnabled = false;
 
     // Render all strokes from their points
     for (const stroke of tempBrushStrokes.value) {
@@ -1599,6 +1625,7 @@ const convertTempStrokesToCanvas = () => {
   canvas.width = stageConfig.value.width;
   canvas.height = stageConfig.value.height;
   const ctx = canvas.getContext('2d')!;
+  ctx.imageSmoothingEnabled = false;
 
   // Render all strokes from points
   for (const stroke of tempBrushStrokes.value) {
@@ -1626,6 +1653,9 @@ const convertTempStrokesToCanvas = () => {
 
   // Apply merge color to ensure consistency
   applyColorToCanvas(canvas, mergeColor.value);
+
+  // Binarize alpha to eliminate anti-aliasing noise
+  binarizeAlpha(canvas);
 
   // Store canvas and clear points
   tempStrokesCanvas.value = canvas;
@@ -2286,6 +2316,7 @@ const handleMouseUp = async () => {
       if (tempStrokesConvertedToCanvas.value && tempStrokesCanvas.value) {
         // Already converted to canvas - draw directly on it
         const ctx = tempStrokesCanvas.value.getContext('2d')!;
+        ctx.imageSmoothingEnabled = false;
         ctx.strokeStyle = mergeColor.value;
         ctx.lineWidth = brushSize.value;
         ctx.lineCap = 'round';
@@ -2306,6 +2337,9 @@ const handleMouseUp = async () => {
             ctx.stroke();
           }
         }
+
+        // Binarize alpha to eliminate anti-aliasing noise
+        binarizeAlpha(tempStrokesCanvas.value);
 
         // Re-render display
         await renderTempStrokesCanvasToDisplay(targetFrame);
@@ -2404,6 +2438,7 @@ const handleMouseUp = async () => {
       mergedCanvas.width = stageConfig.value.width;
       mergedCanvas.height = stageConfig.value.height;
       const mergedCtx = mergedCanvas.getContext("2d")!;
+      mergedCtx.imageSmoothingEnabled = false;
 
       // First, render existing mask data for this track at this frame
       let existingKeyframeData = track.keyframes.get(targetFrame);
@@ -2450,6 +2485,9 @@ const handleMouseUp = async () => {
 
       // Apply the color to ensure consistency
       applyColorToCanvas(mergedCanvas, strokeColor);
+
+      // Binarize alpha to eliminate anti-aliasing noise
+      binarizeAlpha(mergedCanvas);
 
       // Convert the merged canvas to RLE MaskData
       const newMaskData = canvasToMaskData(

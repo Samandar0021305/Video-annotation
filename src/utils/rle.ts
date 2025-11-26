@@ -188,6 +188,9 @@ export function canvasToMaskData(
   const ctx = canvas.getContext('2d');
   if (!ctx) return null;
 
+  // Ensure no smoothing for pixel-perfect data extraction
+  ctx.imageSmoothingEnabled = false;
+
   const width = canvas.width;
   const height = canvas.height;
 
@@ -264,6 +267,9 @@ export function renderMaskToCanvas(
   const ctx = targetCanvas.getContext('2d');
   if (!ctx) return;
 
+  // Disable image smoothing for pixel-perfect rendering
+  ctx.imageSmoothingEnabled = false;
+
   if (clearFirst) {
     ctx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
   }
@@ -287,6 +293,7 @@ export function renderMaskToCanvas(
   tempCanvas.width = width;
   tempCanvas.height = height;
   const tempCtx = tempCanvas.getContext('2d')!;
+  tempCtx.imageSmoothingEnabled = false;
   tempCtx.putImageData(imageData, 0, 0);
 
   if (scale === 1) {
