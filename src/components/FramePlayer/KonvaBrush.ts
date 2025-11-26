@@ -73,7 +73,8 @@ export class KonvaBrush {
 
   setDeleteMode(mode: boolean): void {
     if (mode) {
-      this.brushColor = "rgba(0,0,0,0.7)";
+      this.brushColor = "#000000";
+      this.updateTintedBrush();
     }
   }
 
@@ -116,13 +117,14 @@ export class KonvaBrush {
   renderToCanvas(
     canvas: HTMLCanvasElement,
     points: Point[],
-    scale: number = 1
+    scale: number = 1,
+    opacityOverride?: number
   ): void {
     if (!this.tintedBrush || !this.brushLoaded) return;
 
     const ctx = canvas.getContext("2d")!;
     ctx.save();
-    ctx.globalAlpha = this.opacity;
+    ctx.globalAlpha = opacityOverride !== undefined ? opacityOverride : this.opacity;
 
     ctx.imageSmoothingEnabled = false;
 
