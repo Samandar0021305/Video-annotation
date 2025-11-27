@@ -8,9 +8,6 @@
       />
     </div>
     <div class="main-content">
-      <!-- Annotation Class Manager -->
-
-      <!-- Vertical Toolbar -->
       <VerticalToolbar
         v-model:mode="mode"
         v-model:brushSize="brushSize"
@@ -31,195 +28,84 @@
         @update:opacity="handleOpacityChange"
       />
 
-      <!-- Canvas Container -->
-      <div class="canvas-container">
-        <div
-          v-if="framesLoaded"
-          ref="containerRef"
-          class="stage-wrapper"
-          @wheel="handleWheel"
-        >
-          <v-stage
-            ref="stageRef"
-            :config="stageConfig"
-            @mousedown="handleMouseDown"
-            @mousemove="handleMouseMove"
-            @mouseup="handleMouseUp"
-            @mouseleave="handleMouseLeave"
-            @dblclick="handleDoubleClick"
-          >
-            <v-layer ref="backgroundLayerRef">
-              <v-image :config="imageConfig" />
-            </v-layer>
+      <BaseCanvas
+        v-if="framesLoaded"
+        ref="baseCanvasRef"
+        :width="stageConfig.width"
+        :height="stageConfig.height"
+        :enable-zoom="true"
+        :enable-pan="true"
+        @mousedown="handleCanvasMouseDown"
+        @mousemove="handleCanvasMouseMove"
+        @mouseup="handleCanvasMouseUp"
+        @mouseleave="handleCanvasMouseLeave"
+        @dblclick="handleCanvasDoubleClick"
+        @wheel="handleCanvasWheel"
+        @zoom-change="handleZoomChange"
+        @stage-ready="handleStageReady"
+      >
+        <template #background>
+          <v-image :config="imageConfig" />
+        </template>
 
-            <v-layer
-              ref="annotationsLayerRef"
-              :config="{ imageSmoothingEnabled: false }"
-            >
-              <v-group ref="brushAnnotationGroupRef"></v-group>
+        <template #annotations>
+          <v-group ref="brushAnnotationGroupRef"></v-group>
 
-              <v-group ref="bboxGroupRef">
-                <v-group
-                  v-for="bbox in currentFrameBboxes"
-                  :key="bbox.id"
-                  :config="{
-                    id: bbox.id,
-                    x: bbox.x,
-                    y: bbox.y,
-                    rotation: bbox.rotation,
-                    draggable: mode === 'pan',
-                    name: 'boundingBox',
-                    opacity: opacity,
-                  }"
-                  @click="handleBboxClick"
-                  @dragend="handleBboxDragEnd"
-                  @transformend="handleBboxTransformEnd"
-                >
-                  <v-rect
-                    :config="{
-                      width: bbox.width,
-                      height: bbox.height,
-                      stroke: bbox.color,
-                      strokeWidth: 2,
-                      fill: bbox.color + '20',
-                    }"
-                  />
-                  <v-label
-                    :config="{
-                      x: 0,
-                      y: 0,
-                    }"
-                  >
-                    <v-tag
-                      :config="{
-                        fill: bbox.color,
-                        pointerDirection: 'none',
-                        cornerRadius: 2,
-                      }"
-                    />
-                    <v-text
-                      :config="{
-                        text: getClassNameForBbox(bbox),
-                        fontSize: 12,
-                        fontFamily: 'Arial',
-                        fill: '#ffffff',
-                        padding: 4,
-                      }"
-                    />
-                  </v-label>
-                </v-group>
-              </v-group>
+          <BoundingBoxLayer
+            ref="bboxLayerRef"
+            :bboxes="currentFrameBboxes"
+            :selected-track-id="selectedBboxTrackId"
+            :mode="mode"
+            :opacity="opacity"
+            :classes="annotationClasses"
+            @click="handleBboxLayerClick"
+            @drag-end="handleBboxLayerDragEnd"
+            @transform-end="handleBboxTransformEnd"
+          />
 
-              <v-group ref="polygonGroupRef">
-                <template
-                  v-for="polygon in currentFramePolygons"
-                  :key="polygon.id"
-                >
-                  <v-line
-                    :config="{
-                      id: polygon.id,
-                      x: 0,
-                      y: 0,
-                      points: polygon.points.flatMap((p) => [p.x, p.y]),
-                      fill: polygon.color + '30',
-                      stroke: polygon.color,
-                      strokeWidth: 2,
-                      closed: true,
-                      draggable: canEditPolygon,
-                      name: 'polygon',
-                      opacity: opacity,
-                    }"
-                    @click="handlePolygonClick"
-                    @dragend="handlePolygonDragEnd"
-                  />
-                  <v-circle
-                    v-for="(point, pointIdx) in polygon.points"
-                    :key="`${polygon.id}-pt-${pointIdx}`"
-                    :config="{
-                      x: point.x,
-                      y: point.y,
-                      radius: 6,
-                      fill: polygon.color,
-                      stroke:
-                        timelineRef?.selectedTrackId === polygon.id
-                          ? '#fff'
-                          : polygon.color,
-                      strokeWidth:
-                        timelineRef?.selectedTrackId === polygon.id ? 2 : 1,
-                      draggable: canEditPolygon,
-                      name: 'polygonVertex',
-                      opacity: opacity,
-                    }"
-                    @dragmove="(e: any) => handlePolygonVertexDragMove(e, polygon.id, pointIdx)"
-                    @dragend="(e: any) => handlePolygonVertexDragEnd(e, polygon.id, pointIdx)"
-                    @click="() => handlePolygonVertexClick(polygon.id)"
-                  />
-                </template>
-              </v-group>
+          <PolygonLayer
+            ref="polygonLayerRef"
+            :polygons="currentFramePolygons"
+            :selected-track-id="selectedPolygonTrackId"
+            :mode="mode"
+            :opacity="opacity"
+            @click="handlePolygonLayerClick"
+            @drag-end="handlePolygonLayerDragEnd"
+            @vertex-drag-move="handlePolygonLayerVertexDragMove"
+            @vertex-drag-end="handlePolygonLayerVertexDragEnd"
+            @vertex-click="handlePolygonLayerVertexClick"
+          />
 
-              <v-group ref="skeletonGroupRef">
-                <template
-                  v-for="skeleton in currentFrameSkeletons"
-                  :key="skeleton.id"
-                >
-                  <v-line
-                    :config="{
-                      id: skeleton.id,
-                      x: 0,
-                      y: 0,
-                      points: skeleton.points.flatMap((p) => [p.x, p.y]),
-                      stroke: skeleton.color,
-                      strokeWidth: 2,
-                      lineCap: 'round',
-                      lineJoin: 'round',
-                      draggable: canEditSkeleton,
-                      name: 'skeleton',
-                      opacity: opacity,
-                    }"
-                    @click="handleSkeletonClick"
-                    @dragend="handleSkeletonDragEnd"
-                  />
-                  <v-circle
-                    v-for="(point, pointIdx) in skeleton.points"
-                    :key="`${skeleton.id}-kp-${pointIdx}`"
-                    :config="{
-                      x: point.x,
-                      y: point.y,
-                      radius: 6,
-                      fill: skeleton.color,
-                      stroke:
-                        timelineRef?.selectedTrackId === skeleton.id
-                          ? '#fff'
-                          : skeleton.color,
-                      strokeWidth:
-                        timelineRef?.selectedTrackId === skeleton.id ? 2 : 1,
-                      draggable: canEditSkeleton,
-                      name: 'skeletonKeypoint',
-                      opacity: opacity,
-                    }"
-                    @dragstart="(e: any) => handleSkeletonKeypointDragStart(e, skeleton.id, pointIdx)"
-                    @dragmove="(e: any) => handleSkeletonKeypointDragMove(e, skeleton.id, pointIdx)"
-                    @dragend="(e: any) => handleSkeletonKeypointDragEnd(e, skeleton.id, pointIdx)"
-                    @click="() => handleSkeletonKeypointClick(skeleton.id)"
-                  />
-                </template>
-              </v-group>
-            </v-layer>
+          <SkeletonLayer
+            ref="skeletonLayerRef"
+            :skeletons="currentFrameSkeletons"
+            :selected-track-id="selectedSkeletonTrackId"
+            :mode="mode"
+            :opacity="opacity"
+            @click="handleSkeletonLayerClick"
+            @drag-end="handleSkeletonLayerDragEnd"
+            @keypoint-drag-start="handleSkeletonLayerKeypointDragStart"
+            @keypoint-drag-move="handleSkeletonLayerKeypointDragMove"
+            @keypoint-drag-end="handleSkeletonLayerKeypointDragEnd"
+            @keypoint-click="handleSkeletonLayerKeypointClick"
+          />
+        </template>
 
-            <v-layer ref="interactiveLayerRef">
-              <v-group
-                ref="brushPreviewGroupRef"
-                :config="{ imageSmoothingEnabled: false }"
-              ></v-group>
-              <v-group ref="cursorGroupRef"></v-group>
-            </v-layer>
-          </v-stage>
-        </div>
-        <div v-else class="loading">Loading frames...</div>
+        <template #interactive>
+          <v-group
+            ref="brushPreviewGroupRef"
+            :config="{ imageSmoothingEnabled: false }"
+          ></v-group>
+          <v-group ref="cursorGroupRef"></v-group>
+        </template>
+
+        <template #loading> Loading frames... </template>
+      </BaseCanvas>
+      <div v-else class="canvas-container">
+        <div class="loading">Loading frames...</div>
       </div>
     </div>
 
-    <!-- Class Selector Popup -->
     <ClassSelector
       v-show="showClassSelector"
       :classes="annotationClasses"
@@ -231,57 +117,22 @@
       @close="handleClassSelectorClose"
     />
 
-    <div class="playback-controls">
-      <button @click="previousFrame" class="playback-btn">⏮ Previous</button>
-      <button @click="togglePlay" class="playback-btn play-btn">
-        {{ isPlaying ? "⏸ Pause" : "▶ Play" }}
-      </button>
-      <button @click="nextFrame" class="playback-btn">Next ⏭</button>
-      <span class="frame-info"
-        >Frame: {{ currentFrame + 1 }} / {{ physicalFrames }}</span
-      >
-
-      <div class="playback-divider"></div>
-
-      <!-- Zoom Controls -->
-      <div class="zoom-controls">
-        <span class="zoom-label">{{ Math.round(zoomLevel * 100) }}%</span>
-        <button @click="zoomIn" class="utility-btn" title="Zoom In">+</button>
-        <button @click="zoomOut" class="utility-btn" title="Zoom Out">-</button>
-        <button @click="resetZoom" class="utility-btn" title="Reset Zoom">
-          Reset
-        </button>
-      </div>
-
-      <div class="playback-divider"></div>
-
-      <!-- Utility Controls -->
-      <button
-        @click="handleClearCache"
-        class="utility-btn clear-cache-btn"
-        :disabled="isClearingCache"
-        title="Clear Cache"
-      >
-        {{ isClearingCache ? "Clearing..." : "Clear Cache" }}
-      </button>
-
-      <label class="auto-suggest-toggle" title="Auto Suggest">
-        <input type="checkbox" v-model="autoSuggest" />
-        <span>Auto {{ autoSuggest ? "ON" : "OFF" }}</span>
-      </label>
-    </div>
-
-    <!-- Timeline Scrubber -->
-    <div class="timeline-scrubber-container">
-      <input
-        type="range"
-        class="timeline-scrubber"
-        :min="0"
-        :max="physicalFrames - 1"
-        :value="currentFrame"
-        @input="handleScrubberInput"
-      />
-    </div>
+    <PlaybackControls
+      :current-frame="currentFrame"
+      :total-frames="physicalFrames"
+      :is-playing="isPlaying"
+      :zoom-level="zoomLevel"
+      v-model:auto-suggest="autoSuggest"
+      :is-clearing-cache="isClearingCache"
+      @previous-frame="previousFrame"
+      @next-frame="nextFrame"
+      @toggle-play="togglePlay"
+      @zoom-in="zoomIn"
+      @zoom-out="zoomOut"
+      @reset-zoom="resetZoom"
+      @clear-cache="handleClearCache"
+      @scrub="jumpToFrame"
+    />
 
     <FramePlayerTimeline
       ref="timelineRef"
@@ -337,27 +188,58 @@ import type { ToolClass } from "../../types/contours";
 import FramePlayerTimeline from "../../components/FramePlayerTimeline/index.vue";
 import VerticalToolbar from "../../components/VerticalToolbar/index.vue";
 import type { ToolMode } from "../../components/VerticalToolbar/index.vue";
+import PlaybackControls from "../../components/PlaybackControls/index.vue";
+import { BaseCanvas } from "../../components/BaseCanvas";
+import type {
+  CanvasMouseEvent,
+  CanvasWheelEvent,
+} from "../../components/BaseCanvas";
+import { BoundingBoxLayer } from "../../components/layers/BoundingBox";
+import { PolygonLayer } from "../../components/layers/Polygon";
+import { SkeletonLayer } from "../../components/layers/Skeleton";
 import AnnotationClassManager from "../../components/AnnotationClassManager.vue";
 import type { AnnotationClass } from "../../components/AnnotationClassManager.vue";
 import ClassSelector from "../../components/ClassSelector.vue";
 import type { MarkupType } from "../../components/ClassSelector.vue";
-
-type TrackType = "bbox" | "polygon" | "skeleton" | "brush";
+import type {
+  TrackType,
+  PendingBbox,
+  PendingPolygon,
+  PendingSkeleton,
+  PendingBrush,
+  TempBrushStroke,
+  ColocatedPoint,
+} from "./types";
+import { HOVER_THROTTLE_MS, MAX_WIDTH, MAX_HEIGHT, COLOCATED_EPSILON } from "./enums";
+import { useLayerRefs } from "./layers";
+import {
+  clearCanvas,
+  applyColorToCanvas,
+  binarizeAlpha,
+  createOffscreenCanvas,
+  initializeCanvases,
+  loadImage,
+  findColocatedPoints,
+  findNearbySkeletonPoint,
+} from "./utils";
 
 const router = useRouter();
 const framesStore = useFramesStore();
 const annotationStore = useAnnotationStore();
 
+const baseCanvasRef = ref<InstanceType<typeof BaseCanvas> | null>(null);
 const stageRef = ref<any>(null);
-const backgroundLayerRef = ref<any>(null);
-const annotationsLayerRef = ref<any>(null);
-const interactiveLayerRef = ref<any>(null);
-const brushAnnotationGroupRef = ref<any>(null);
-const bboxGroupRef = ref<any>(null);
-const polygonGroupRef = ref<any>(null);
-const skeletonGroupRef = ref<any>(null);
-const brushPreviewGroupRef = ref<any>(null);
-const cursorGroupRef = ref<any>(null);
+const {
+  backgroundLayerRef,
+  annotationsLayerRef,
+  interactiveLayerRef,
+  brushAnnotationGroupRef,
+  bboxLayerRef,
+  polygonLayerRef,
+  skeletonLayerRef,
+  brushPreviewGroupRef,
+  cursorGroupRef,
+} = useLayerRefs();
 const containerRef = ref<HTMLDivElement | null>(null);
 const timelineRef = ref<InstanceType<typeof FramePlayerTimeline> | null>(null);
 
@@ -423,7 +305,10 @@ const isEditingSegmentation = computed(
 
 // Check if tools should be disabled (when brush work is in progress)
 const toolsDisabled = computed(
-  () => hasPendingBrushStrokes.value || isEditingSegmentation.value || hasUnsavedEraserChanges.value
+  () =>
+    hasPendingBrushStrokes.value ||
+    isEditingSegmentation.value ||
+    hasUnsavedEraserChanges.value
 );
 
 const handleClassSelect = (cls: AnnotationClass) => {
@@ -454,30 +339,6 @@ const editingPolygonTrackId = ref<string | null>(null);
 const editingSkeletonTrackId = ref<string | null>(null);
 const editingBrushTrackId = ref<string | null>(null);
 
-interface PendingBbox {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  rotation: number;
-  frame: number;
-}
-
-interface PendingPolygon {
-  points: Array<{ x: number; y: number }>;
-  frame: number;
-}
-
-interface PendingSkeleton {
-  points: Array<{ x: number; y: number }>;
-  frame: number;
-}
-
-interface PendingBrush {
-  canvas: HTMLCanvasElement;
-  frame: number;
-}
-
 const pendingBbox = ref<PendingBbox | null>(null);
 const pendingPolygon = ref<PendingPolygon | null>(null);
 const pendingSkeleton = ref<PendingSkeleton | null>(null);
@@ -489,12 +350,6 @@ const getNextClassValue = () => {
     ...annotationClasses.value.map((c) => c.value ?? 0)
   );
   return maxValue + 1;
-};
-
-const getClassNameForBbox = (bbox: BoundingBox): string => {
-  if (bbox.value === undefined) return "";
-  const cls = annotationClasses.value.find((c) => c.value === bbox.value);
-  return cls?.name ?? "";
 };
 
 const handleClassSelectorSelect = (cls: AnnotationClass) => {
@@ -695,7 +550,7 @@ const handleClassSelectorSelect = (cls: AnnotationClass) => {
 
         // Render the new mask to display
         if (!workingCanvas || !displayCanvas) {
-          initializeCanvases(stageConfig.value.width, stageConfig.value.height);
+          initCanvases(stageConfig.value.width, stageConfig.value.height);
         }
         clearCanvas(workingCanvas!);
         renderMaskToCanvas(maskData, workingCanvas!, false, 1);
@@ -831,15 +686,8 @@ const drawingStartFrame = ref<number | null>(null);
 const lastPanPoint = ref<{ x: number; y: number } | null>(null);
 
 // Hover detection throttling (20 FPS to balance responsiveness vs performance)
-const HOVER_THROTTLE_MS = 50;
 let lastHoverCheckTime = 0;
 
-interface TempBrushStroke {
-  points: Array<{ x: number; y: number }>;
-  color: string;
-  size: number;
-  frame: number;
-}
 const tempBrushStrokes = ref<TempBrushStroke[]>([]);
 const showBrushMergePopup = ref(false);
 const mergeColor = ref("#FF0000");
@@ -864,19 +712,10 @@ let workingCanvas: HTMLCanvasElement | null = null;
 let displayCanvas: HTMLCanvasElement | null = null;
 let currentDisplayFrame = -1;
 
-const initializeCanvases = (width: number, height: number) => {
-  workingCanvas = document.createElement("canvas");
-  workingCanvas.width = width;
-  workingCanvas.height = height;
-
-  displayCanvas = document.createElement("canvas");
-  displayCanvas.width = width;
-  displayCanvas.height = height;
-};
-
-const clearCanvas = (canvas: HTMLCanvasElement) => {
-  const ctx = canvas.getContext("2d")!;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+const initCanvases = (width: number, height: number) => {
+  const canvases = initializeCanvases(width, height);
+  workingCanvas = canvases.workingCanvas;
+  displayCanvas = canvases.displayCanvas;
 };
 
 const {
@@ -965,9 +804,6 @@ let bboxTool: BBoxTool | null = null;
 let polygonTool: PolygonTool | null = null;
 let skeletonTool: SkeletonTool | null = null;
 
-const MAX_WIDTH = 1200;
-const MAX_HEIGHT = 800;
-
 let animationId: number | null = null;
 let lastFrameTime = 0;
 
@@ -988,17 +824,6 @@ const imageConfig = computed(() => ({
 const isPolygonDrawing = ref(false);
 const isSkeletonDrawing = ref(false);
 
-const canEditPolygon = computed(
-  () =>
-    mode.value === "pan" ||
-    (mode.value === "polygon" && !isPolygonDrawing.value)
-);
-
-const canEditSkeleton = computed(
-  () =>
-    mode.value === "pan" ||
-    (mode.value === "skeleton" && !isSkeletonDrawing.value)
-);
 
 const currentFrameBboxes = computed(() => {
   const result: BoundingBox[] = [];
@@ -1070,44 +895,12 @@ const currentFrameSkeletons = computed(() => {
   return result;
 });
 
-const loadImage = (url: string): Promise<HTMLImageElement> => {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = reject;
-    img.src = url;
-  });
-};
-
 const initializeBrush = async () => {
   brush.value = new KonvaBrush();
   await brush.value.initialize();
   brush.value.changeColor("#FF0000");
   brush.value.changeSize(brushSize.value);
   brush.value.changeOpacity(opacity.value);
-};
-
-const createOffscreenCanvas = (img: HTMLImageElement): HTMLCanvasElement => {
-  const dpr = window.devicePixelRatio || 1;
-  const logicalWidth = stageConfig.value.width;
-  const logicalHeight = stageConfig.value.height;
-
-  const canvas = document.createElement("canvas");
-  canvas.width = logicalWidth * dpr;
-  canvas.height = logicalHeight * dpr;
-  canvas.style.width = `${logicalWidth}px`;
-  canvas.style.height = `${logicalHeight}px`;
-
-  const ctx = canvas.getContext("2d", {
-    alpha: true,
-    willReadFrequently: false,
-  })!;
-
-  ctx.scale(dpr, dpr);
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(img, 0, 0, logicalWidth, logicalHeight);
-
-  return canvas;
 };
 
 const renderFrame = async (frameIndex: number) => {
@@ -1132,7 +925,7 @@ const renderFrame = async (frameIndex: number) => {
 
 const renderBrushAnnotations = async (frameIndex: number) => {
   if (!workingCanvas || !displayCanvas) {
-    initializeCanvases(stageConfig.value.width, stageConfig.value.height);
+    initCanvases(stageConfig.value.width, stageConfig.value.height);
   }
 
   // Skip re-render if frame hasn't changed and no selection/hover state changes
@@ -1265,7 +1058,7 @@ const renderBrushAnnotations = async (frameIndex: number) => {
 
 const renderBrushAnnotationsWithTempStrokes = async (frameIndex: number) => {
   if (!workingCanvas) {
-    initializeCanvases(stageConfig.value.width, stageConfig.value.height);
+    initCanvases(stageConfig.value.width, stageConfig.value.height);
   }
 
   clearCanvas(workingCanvas!);
@@ -1426,11 +1219,6 @@ const jumpToFrame = async (frame: number) => {
   await renderFrame(Math.max(0, Math.min(frame, physicalFrames.value - 1)));
 };
 
-const handleScrubberInput = (event: Event) => {
-  const target = event.target as HTMLInputElement;
-  jumpToFrame(parseInt(target.value, 10));
-};
-
 const setMode = (newMode: ToolMode) => {
   mode.value = newMode;
   const stage = stageRef.value?.getStage();
@@ -1528,71 +1316,51 @@ const finishBboxDrawing = () => {
   showClassSelectorForAnnotation("bbox", screenPos);
 };
 
-const handleBboxClick = (e: any) => {
+const handleBboxLayerClick = (trackId: string, _e: any) => {
   if (mode.value !== "pan") return;
+  if (trackId === "pending_bbox") return;
 
-  const group = e.target.findAncestor("Group");
-  if (group) {
-    const trackId = group.id();
-    if (trackId === "pending_bbox") return;
+  selectedBboxTrackId.value = trackId;
+  timelineRef.value?.selectTrack(trackId, "bbox");
+  updateTransformerSelection();
 
-    selectedBboxTrackId.value = trackId;
-    timelineRef.value?.selectTrack(trackId, "bbox");
-    updateTransformerSelection();
-
-    // Get current bbox class and show ClassSelector
-    const track = bboxTracks.value.get(trackId);
-    if (track) {
-      const bbox = getBoxAtFrame(trackId, currentFrame.value);
-      if (bbox?.value !== undefined) {
-        const currentClass = annotationClasses.value.find(
-          (c) => c.value === bbox.value
-        );
-        classSelectorInitialClass.value = currentClass || null;
-        selectedClassId.value = currentClass?.id || null;
-      } else {
-        classSelectorInitialClass.value = null;
-      }
-      editingBboxTrackId.value = trackId;
-      const screenPos = bbox
-        ? getScreenPositionFromCanvas(bbox.x, bbox.y)
-        : undefined;
-      showClassSelectorForAnnotation("bbox", screenPos);
+  const track = bboxTracks.value.get(trackId);
+  if (track) {
+    const bbox = getBoxAtFrame(trackId, currentFrame.value);
+    if (bbox?.value !== undefined) {
+      const currentClass = annotationClasses.value.find(
+        (c) => c.value === bbox.value
+      );
+      classSelectorInitialClass.value = currentClass || null;
+      selectedClassId.value = currentClass?.id || null;
+    } else {
+      classSelectorInitialClass.value = null;
     }
+    editingBboxTrackId.value = trackId;
+    const screenPos = bbox
+      ? getScreenPositionFromCanvas(bbox.x, bbox.y)
+      : undefined;
+    showClassSelectorForAnnotation("bbox", screenPos);
   }
 };
 
-const handleBboxDragEnd = (e: any) => {
-  const target = e.target;
-  const group =
-    target.getClassName() === "Group" ? target : target.findAncestor("Group");
-  if (!group) return;
-
-  const trackId = group.id();
-  if (!trackId) return;
+const handleBboxLayerDragEnd = (
+  trackId: string,
+  x: number,
+  y: number,
+  _e: any
+) => {
   const track = bboxTracks.value.get(trackId);
   if (!track) return;
 
   const currentBox = getBoxAtFrame(trackId, currentFrame.value);
   if (!currentBox) return;
 
-  const rect = group.findOne("Rect");
-
   const updatedBox: BoundingBox = {
     ...currentBox,
-    x: group.x(),
-    y: group.y(),
-    width: rect ? rect.width() * rect.scaleX() : currentBox.width,
-    height: rect ? rect.height() * rect.scaleY() : currentBox.height,
-    rotation: group.rotation(),
+    x: x,
+    y: y,
   };
-
-  if (rect) {
-    rect.scaleX(1);
-    rect.scaleY(1);
-  }
-  group.scaleX(1);
-  group.scaleY(1);
 
   updateBboxKeyframe(
     trackId,
@@ -1713,68 +1481,52 @@ const cancelPolygonDrawing = () => {
   isPolygonDrawing.value = false;
 };
 
-const handlePolygonClick = (e: any) => {
-  if (!canEditPolygon.value) return;
+const handlePolygonLayerClick = (trackId: string, _e: any) => {
+  if (mode.value !== "pan") return;
+  if (trackId === "pending_polygon") return;
 
-  const line = e.target;
-  if (line && line.id()) {
-    const trackId = line.id();
-    if (trackId === "pending_polygon") return;
+  selectedPolygonTrackId.value = trackId;
+  selectedBboxTrackId.value = null;
+  selectedSkeletonTrackId.value = null;
+  timelineRef.value?.selectTrack(trackId, "polygon");
 
-    selectedPolygonTrackId.value = trackId;
-    selectedBboxTrackId.value = null;
-    selectedSkeletonTrackId.value = null;
-    timelineRef.value?.selectTrack(trackId, "polygon");
-
-    // Get current polygon class and show ClassSelector
-    const track = polygonTracks.value.get(trackId);
-    if (track) {
-      const polygon = getPolygonAtFrame(trackId, currentFrame.value);
-      if (polygon?.value !== undefined) {
-        const currentClass = annotationClasses.value.find(
-          (c) => c.value === polygon.value
-        );
-        classSelectorInitialClass.value = currentClass || null;
-        selectedClassId.value = currentClass?.id || null;
-      } else {
-        classSelectorInitialClass.value = null;
-      }
-      editingPolygonTrackId.value = trackId;
-      // Show ClassSelector at the first point of the polygon
-      const firstPoint = polygon?.points[0];
-      const screenPos = firstPoint
-        ? getScreenPositionFromCanvas(firstPoint.x, firstPoint.y)
-        : undefined;
-      showClassSelectorForAnnotation("polygon", screenPos);
+  const track = polygonTracks.value.get(trackId);
+  if (track) {
+    const polygon = getPolygonAtFrame(trackId, currentFrame.value);
+    if (polygon?.value !== undefined) {
+      const currentClass = annotationClasses.value.find(
+        (c) => c.value === polygon.value
+      );
+      classSelectorInitialClass.value = currentClass || null;
+      selectedClassId.value = currentClass?.id || null;
+    } else {
+      classSelectorInitialClass.value = null;
     }
+    editingPolygonTrackId.value = trackId;
+    const firstPoint = polygon?.points[0];
+    const screenPos = firstPoint
+      ? getScreenPositionFromCanvas(firstPoint.x, firstPoint.y)
+      : undefined;
+    showClassSelectorForAnnotation("polygon", screenPos);
   }
 };
 
-const handlePolygonDragEnd = (e: any) => {
-  const line = e.target;
-  if (!line) return;
-
-  const trackId = line.id();
+const handlePolygonLayerDragEnd = (
+  trackId: string,
+  deltaX: number,
+  deltaY: number,
+  _e: any
+) => {
   const currentPolygon = getPolygonAtFrame(trackId, currentFrame.value);
   if (!currentPolygon) return;
-
-  const dx = line.x();
-  const dy = line.y();
-  const scaleX = line.scaleX();
-  const scaleY = line.scaleY();
 
   const updatedPolygon: Polygon = {
     ...currentPolygon,
     points: currentPolygon.points.map((p) => ({
-      x: p.x * scaleX + dx,
-      y: p.y * scaleY + dy,
+      x: p.x + deltaX,
+      y: p.y + deltaY,
     })),
   };
-
-  line.x(0);
-  line.y(0);
-  line.scaleX(1);
-  line.scaleY(1);
 
   updatePolygonKeyframe(
     trackId,
@@ -1788,29 +1540,30 @@ const handlePolygonDragEnd = (e: any) => {
   if (layer) layer.batchDraw();
 };
 
-const handlePolygonVertexClick = (polygonId: string) => {
-  if (!canEditPolygon.value) return;
-  selectedPolygonTrackId.value = polygonId;
+const handlePolygonLayerVertexClick = (trackId: string) => {
+  if (mode.value !== "pan") return;
+  selectedPolygonTrackId.value = trackId;
   selectedBboxTrackId.value = null;
   selectedSkeletonTrackId.value = null;
-  timelineRef.value?.selectTrack(polygonId, "polygon");
+  timelineRef.value?.selectTrack(trackId, "polygon");
 };
 
-const handlePolygonVertexDragMove = (
-  e: any,
-  polygonId: string,
-  pointIdx: number
+const handlePolygonLayerVertexDragMove = (
+  trackId: string,
+  pointIndex: number,
+  x: number,
+  y: number,
+  _e: any
 ) => {
-  const currentPolygon = getPolygonAtFrame(polygonId, currentFrame.value);
+  const currentPolygon = getPolygonAtFrame(trackId, currentFrame.value);
   if (!currentPolygon) return;
 
-  const circle = e.target;
   const newPoints = [...currentPolygon.points];
-  newPoints[pointIdx] = { x: circle.x(), y: circle.y() };
+  newPoints[pointIndex] = { x, y };
 
   const layer = annotationsLayerRef.value?.getNode();
   if (layer) {
-    const line = layer.findOne(`#${polygonId}`);
+    const line = layer.findOne(`#${trackId}`);
     if (line) {
       line.points(newPoints.flatMap((p) => [p.x, p.y]));
       layer.batchDraw();
@@ -1818,17 +1571,18 @@ const handlePolygonVertexDragMove = (
   }
 };
 
-const handlePolygonVertexDragEnd = (
-  e: any,
-  polygonId: string,
-  pointIdx: number
+const handlePolygonLayerVertexDragEnd = (
+  trackId: string,
+  pointIndex: number,
+  x: number,
+  y: number,
+  _e: any
 ) => {
-  const currentPolygon = getPolygonAtFrame(polygonId, currentFrame.value);
+  const currentPolygon = getPolygonAtFrame(trackId, currentFrame.value);
   if (!currentPolygon) return;
 
-  const circle = e.target;
   const newPoints = [...currentPolygon.points];
-  newPoints[pointIdx] = { x: circle.x(), y: circle.y() };
+  newPoints[pointIndex] = { x, y };
 
   const updatedPolygon: Polygon = {
     ...currentPolygon,
@@ -1836,7 +1590,7 @@ const handlePolygonVertexDragEnd = (
   };
 
   updatePolygonKeyframe(
-    polygonId,
+    trackId,
     currentFrame.value,
     updatedPolygon,
     autoSuggest.value
@@ -1895,68 +1649,52 @@ const cancelSkeletonDrawing = () => {
   isSkeletonDrawing.value = false;
 };
 
-const handleSkeletonClick = (e: any) => {
-  if (!canEditSkeleton.value) return;
+const handleSkeletonLayerClick = (trackId: string, _e: any) => {
+  if (mode.value !== "pan") return;
+  if (trackId === "pending_skeleton") return;
 
-  const line = e.target;
-  if (line && line.id()) {
-    const trackId = line.id();
-    if (trackId === "pending_skeleton") return;
+  selectedSkeletonTrackId.value = trackId;
+  selectedBboxTrackId.value = null;
+  selectedPolygonTrackId.value = null;
+  timelineRef.value?.selectTrack(trackId, "skeleton");
 
-    selectedSkeletonTrackId.value = trackId;
-    selectedBboxTrackId.value = null;
-    selectedPolygonTrackId.value = null;
-    timelineRef.value?.selectTrack(trackId, "skeleton");
-
-    // Get current skeleton class and show ClassSelector
-    const track = skeletonTracks.value.get(trackId);
-    if (track) {
-      const skeleton = getSkeletonAtFrame(trackId, currentFrame.value);
-      if (skeleton?.value !== undefined) {
-        const currentClass = annotationClasses.value.find(
-          (c) => c.value === skeleton.value
-        );
-        classSelectorInitialClass.value = currentClass || null;
-        selectedClassId.value = currentClass?.id || null;
-      } else {
-        classSelectorInitialClass.value = null;
-      }
-      editingSkeletonTrackId.value = trackId;
-      // Show ClassSelector at the first point of the skeleton
-      const firstPoint = skeleton?.points[0];
-      const screenPos = firstPoint
-        ? getScreenPositionFromCanvas(firstPoint.x, firstPoint.y)
-        : undefined;
-      showClassSelectorForAnnotation("skeleton", screenPos);
+  const track = skeletonTracks.value.get(trackId);
+  if (track) {
+    const skeleton = getSkeletonAtFrame(trackId, currentFrame.value);
+    if (skeleton?.value !== undefined) {
+      const currentClass = annotationClasses.value.find(
+        (c) => c.value === skeleton.value
+      );
+      classSelectorInitialClass.value = currentClass || null;
+      selectedClassId.value = currentClass?.id || null;
+    } else {
+      classSelectorInitialClass.value = null;
     }
+    editingSkeletonTrackId.value = trackId;
+    const firstPoint = skeleton?.points[0];
+    const screenPos = firstPoint
+      ? getScreenPositionFromCanvas(firstPoint.x, firstPoint.y)
+      : undefined;
+    showClassSelectorForAnnotation("skeleton", screenPos);
   }
 };
 
-const handleSkeletonDragEnd = (e: any) => {
-  const line = e.target;
-  if (!line) return;
-
-  const trackId = line.id();
+const handleSkeletonLayerDragEnd = (
+  trackId: string,
+  deltaX: number,
+  deltaY: number,
+  _e: any
+) => {
   const currentSkeleton = getSkeletonAtFrame(trackId, currentFrame.value);
   if (!currentSkeleton) return;
-
-  const dx = line.x();
-  const dy = line.y();
-  const scaleX = line.scaleX();
-  const scaleY = line.scaleY();
 
   const updatedSkeleton: Skeleton = {
     ...currentSkeleton,
     points: currentSkeleton.points.map((p) => ({
-      x: p.x * scaleX + dx,
-      y: p.y * scaleY + dy,
+      x: p.x + deltaX,
+      y: p.y + deltaY,
     })),
   };
-
-  line.x(0);
-  line.y(0);
-  line.scaleX(1);
-  line.scaleY(1);
 
   updateSkeletonKeyframe(
     trackId,
@@ -1970,68 +1708,21 @@ const handleSkeletonDragEnd = (e: any) => {
   if (layer) layer.batchDraw();
 };
 
-const handleSkeletonKeypointClick = (skeletonId: string) => {
-  if (!canEditSkeleton.value) return;
-  selectedSkeletonTrackId.value = skeletonId;
+const handleSkeletonLayerKeypointClick = (trackId: string) => {
+  if (mode.value !== "pan") return;
+  selectedSkeletonTrackId.value = trackId;
   selectedBboxTrackId.value = null;
   selectedPolygonTrackId.value = null;
-  timelineRef.value?.selectTrack(skeletonId, "skeleton");
-};
-
-const hexToRgb = (hex: string): [number, number, number] => {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  if (!result || !result[1] || !result[2] || !result[3]) {
-    return [0, 0, 0];
-  }
-  return [
-    parseInt(result[1], 16),
-    parseInt(result[2], 16),
-    parseInt(result[3], 16),
-  ];
-};
-
-const applyColorToCanvas = (
-  canvas: HTMLCanvasElement,
-  newColor: string
-): void => {
-  const ctx = canvas.getContext("2d")!;
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  const [r, g, b] = hexToRgb(newColor);
-
-  for (let i = 0; i < imageData.data.length; i += 4) {
-    const alpha = imageData.data[i + 3];
-    if (alpha !== undefined && alpha > 0) {
-      imageData.data[i] = r;
-      imageData.data[i + 1] = g;
-      imageData.data[i + 2] = b;
-    }
-  }
-
-  ctx.putImageData(imageData, 0, 0);
-};
-
-/**
- * Binarize alpha channel to match RLE encoding behavior.
- * Converts all pixels with alpha > 0 to alpha = 255 (fully opaque).
- * This eliminates anti-aliasing "noise" from canvas stroke operations.
- */
-const binarizeAlpha = (canvas: HTMLCanvasElement): void => {
-  const ctx = canvas.getContext("2d")!;
-  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-  for (let i = 3; i < imageData.data.length; i += 4) {
-    const alpha = imageData.data[i];
-    if (alpha !== undefined && alpha > 0) {
-      imageData.data[i] = 255;
-    }
-  }
-
-  ctx.putImageData(imageData, 0, 0);
+  timelineRef.value?.selectTrack(trackId, "skeleton");
 };
 
 const handleSaveStrokes = async () => {
   // Handle saving unsaved eraser changes first
-  if (hasUnsavedEraserChanges.value && unsavedEraserCanvas.value && selectedBrushTrackId.value) {
+  if (
+    hasUnsavedEraserChanges.value &&
+    unsavedEraserCanvas.value &&
+    selectedBrushTrackId.value
+  ) {
     const trackId = selectedBrushTrackId.value;
     const track = brushTracks.value.get(trackId);
     if (track) {
@@ -2078,7 +1769,12 @@ const handleSaveStrokes = async () => {
         if (editState) {
           const editCtx = editState.editCanvas.getContext("2d");
           if (editCtx) {
-            editCtx.clearRect(0, 0, editState.editCanvas.width, editState.editCanvas.height);
+            editCtx.clearRect(
+              0,
+              0,
+              editState.editCanvas.width,
+              editState.editCanvas.height
+            );
             editCtx.drawImage(unsavedEraserCanvas.value, 0, 0);
           }
         }
@@ -2163,7 +1859,12 @@ const handleSaveStrokes = async () => {
       const firstKeyframe = track.keyframes.values().next().value;
       if (firstKeyframe && firstKeyframe.length > 0) {
         const maskData = firstKeyframe[0];
-        if (maskData && "classID" in maskData && "className" in maskData && "color" in maskData) {
+        if (
+          maskData &&
+          "classID" in maskData &&
+          "className" in maskData &&
+          "color" in maskData
+        ) {
           // Use the existing class to save directly without showing ClassSelector
           const existingClass: AnnotationClass = {
             id: `existing_${maskData.classID}`,
@@ -2185,7 +1886,12 @@ const handleSaveStrokes = async () => {
           if (existingKeyframeData && existingKeyframeData.length > 0) {
             for (const existingMask of existingKeyframeData) {
               if ("rle" in existingMask) {
-                renderMaskToCanvas(existingMask as MaskData, mergedCanvas, false, 1);
+                renderMaskToCanvas(
+                  existingMask as MaskData,
+                  mergedCanvas,
+                  false,
+                  1
+                );
               }
             }
           }
@@ -2333,7 +2039,7 @@ const renderTempStrokesCanvasToDisplay = async (frameIndex: number) => {
   if (!tempStrokesCanvas.value) return;
 
   if (!workingCanvas) {
-    initializeCanvases(stageConfig.value.width, stageConfig.value.height);
+    initCanvases(stageConfig.value.width, stageConfig.value.height);
   }
 
   clearCanvas(workingCanvas!);
@@ -2400,99 +2106,28 @@ const renderTempStrokesCanvasToDisplay = async (frameIndex: number) => {
   updateAnnotationLayer(workingCanvas!, frameIndex);
 };
 
-const SKELETON_SNAP_THRESHOLD = 10;
-const COLOCATED_EPSILON = 0.5;
 const snapIndicator = ref<Konva.Circle | null>(null);
-
-interface ColocatedPoint {
-  skeletonId: string;
-  pointIdx: number;
-}
 
 const colocatedPoints = ref<ColocatedPoint[]>([]);
 const dragStartPosition = ref<{ x: number; y: number } | null>(null);
 
-const findColocatedPoints = (
-  pos: { x: number; y: number },
-  primarySkeletonId: string,
-  primaryPointIdx: number
-): ColocatedPoint[] => {
-  const result: ColocatedPoint[] = [];
-  const allSkeletons = currentFrameSkeletons.value;
-
-  for (const skeleton of allSkeletons) {
-    for (let i = 0; i < skeleton.points.length; i++) {
-      if (skeleton.id === primarySkeletonId && i === primaryPointIdx) {
-        continue;
-      }
-
-      const point = skeleton.points[i];
-      if (!point) continue;
-
-      const distance = Math.sqrt(
-        Math.pow(pos.x - point.x, 2) + Math.pow(pos.y - point.y, 2)
-      );
-
-      if (distance < COLOCATED_EPSILON) {
-        result.push({ skeletonId: skeleton.id, pointIdx: i });
-      }
-    }
-  }
-
-  return result;
-};
-
-const findNearbySkeletonPoint = (
-  pos: { x: number; y: number },
-  excludeSkeletonId: string,
-  excludePointIdx: number
-): { x: number; y: number } | null => {
-  const allSkeletons = currentFrameSkeletons.value;
-
-  for (const skeleton of allSkeletons) {
-    for (let i = 0; i < skeleton.points.length; i++) {
-      if (skeleton.id === excludeSkeletonId && i === excludePointIdx) {
-        continue;
-      }
-
-      const isColocated = colocatedPoints.value.some(
-        (cp) => cp.skeletonId === skeleton.id && cp.pointIdx === i
-      );
-      if (isColocated) {
-        continue;
-      }
-
-      const point = skeleton.points[i];
-      if (!point) continue;
-
-      const distance = Math.sqrt(
-        Math.pow(pos.x - point.x, 2) + Math.pow(pos.y - point.y, 2)
-      );
-
-      if (distance < SKELETON_SNAP_THRESHOLD) {
-        return { x: point.x, y: point.y };
-      }
-    }
-  }
-
-  return null;
-};
-
 const colocatedCircleRefs = ref<Konva.Circle[]>([]);
 
-const handleSkeletonKeypointDragStart = (
-  _e: any,
-  skeletonId: string,
-  pointIdx: number
+const handleSkeletonLayerKeypointDragStart = (
+  trackId: string,
+  pointIndex: number,
+  _x: number,
+  _y: number,
+  _e: any
 ) => {
-  const currentSkeleton = getSkeletonAtFrame(skeletonId, currentFrame.value);
+  const currentSkeleton = getSkeletonAtFrame(trackId, currentFrame.value);
   if (!currentSkeleton) return;
 
-  const point = currentSkeleton.points[pointIdx];
+  const point = currentSkeleton.points[pointIndex];
   if (!point) return;
 
   dragStartPosition.value = { x: point.x, y: point.y };
-  colocatedPoints.value = findColocatedPoints(point, skeletonId, pointIdx);
+  colocatedPoints.value = findColocatedPoints(point, trackId, pointIndex, currentFrameSkeletons.value);
 
   const layer = annotationsLayerRef.value?.getNode();
   if (!layer) return;
@@ -2512,32 +2147,31 @@ const handleSkeletonKeypointDragStart = (
   }
 };
 
-const handleSkeletonKeypointDragMove = (
-  e: any,
-  skeletonId: string,
-  pointIdx: number
+const handleSkeletonLayerKeypointDragMove = (
+  trackId: string,
+  pointIndex: number,
+  x: number,
+  y: number,
+  _e: any
 ) => {
-  const currentSkeleton = getSkeletonAtFrame(skeletonId, currentFrame.value);
+  const currentSkeleton = getSkeletonAtFrame(trackId, currentFrame.value);
   if (!currentSkeleton) return;
 
-  const circle = e.target;
-  const currentPos = { x: circle.x(), y: circle.y() };
+  const currentPos = { x, y };
 
   const layer = annotationsLayerRef.value?.getNode();
   if (!layer) return;
 
   const newPoints = [...currentSkeleton.points];
-  newPoints[pointIdx] = currentPos;
-  const line = layer.findOne(`#${skeletonId}`);
+  newPoints[pointIndex] = currentPos;
+  const line = layer.findOne(`#${trackId}`);
   if (line) {
     line.points(newPoints.flatMap((p) => [p.x, p.y]));
   }
 
   for (const c of colocatedCircleRefs.value) {
-    if (c !== circle) {
-      c.x(currentPos.x);
-      c.y(currentPos.y);
-    }
+    c.x(currentPos.x);
+    c.y(currentPos.y);
   }
 
   for (const cp of colocatedPoints.value) {
@@ -2557,7 +2191,7 @@ const handleSkeletonKeypointDragMove = (
     snapIndicator.value = null;
   }
 
-  const nearbyPoint = findNearbySkeletonPoint(currentPos, skeletonId, pointIdx);
+  const nearbyPoint = findNearbySkeletonPoint(currentPos, trackId, pointIndex, currentFrameSkeletons.value, colocatedPoints.value);
 
   if (nearbyPoint) {
     snapIndicator.value = new Konva.Circle({
@@ -2575,38 +2209,39 @@ const handleSkeletonKeypointDragMove = (
   layer.batchDraw();
 };
 
-const handleSkeletonKeypointDragEnd = (
-  e: any,
-  skeletonId: string,
-  pointIdx: number
+const handleSkeletonLayerKeypointDragEnd = (
+  trackId: string,
+  pointIndex: number,
+  x: number,
+  y: number,
+  _e: any
 ) => {
   if (snapIndicator.value) {
     snapIndicator.value.destroy();
     snapIndicator.value = null;
   }
 
-  const currentSkeleton = getSkeletonAtFrame(skeletonId, currentFrame.value);
+  const currentSkeleton = getSkeletonAtFrame(trackId, currentFrame.value);
   if (!currentSkeleton) return;
 
-  const circle = e.target;
-  let newX = circle.x();
-  let newY = circle.y();
+  let newX = x;
+  let newY = y;
 
   const nearbyPoint = findNearbySkeletonPoint(
     { x: newX, y: newY },
-    skeletonId,
-    pointIdx
+    trackId,
+    pointIndex,
+    currentFrameSkeletons.value,
+    colocatedPoints.value
   );
 
   if (nearbyPoint) {
     newX = nearbyPoint.x;
     newY = nearbyPoint.y;
-    circle.x(newX);
-    circle.y(newY);
   }
 
   const newPoints = [...currentSkeleton.points];
-  newPoints[pointIdx] = { x: newX, y: newY };
+  newPoints[pointIndex] = { x: newX, y: newY };
 
   const updatedSkeleton: Skeleton = {
     ...currentSkeleton,
@@ -2614,7 +2249,7 @@ const handleSkeletonKeypointDragEnd = (
   };
 
   updateSkeletonKeyframe(
-    skeletonId,
+    trackId,
     currentFrame.value,
     updatedSkeleton,
     autoSuggest.value
@@ -2651,6 +2286,53 @@ const handleSkeletonKeypointDragEnd = (
     layer.batchDraw();
   }
 };
+
+// ========== BaseCanvas Event Adapters ==========
+
+const handleStageReady = (stage: Konva.Stage) => {
+  stageRef.value = { getStage: () => stage };
+  // Update layer refs from BaseCanvas
+  if (baseCanvasRef.value) {
+    backgroundLayerRef.value = baseCanvasRef.value.backgroundLayerRef;
+    annotationsLayerRef.value = baseCanvasRef.value.annotationsLayerRef;
+    interactiveLayerRef.value = baseCanvasRef.value.interactiveLayerRef;
+  }
+};
+
+const handleZoomChange = (newZoom: number) => {
+  zoomLevel.value = newZoom;
+};
+
+const handleCanvasMouseDown = (event: CanvasMouseEvent) => {
+  // Adapt to existing handler - pass the konva event
+  handleMouseDown(event.konvaEvent);
+};
+
+const handleCanvasMouseMove = (_event: CanvasMouseEvent) => {
+  // Existing handler doesn't use event parameter
+  handleMouseMove();
+};
+
+const handleCanvasMouseUp = (_event: CanvasMouseEvent) => {
+  // Existing handler doesn't use event parameter
+  handleMouseUp();
+};
+
+const handleCanvasMouseLeave = (_event: CanvasMouseEvent) => {
+  // Existing handler doesn't use event parameter
+  handleMouseLeave();
+};
+
+const handleCanvasDoubleClick = (_event: CanvasMouseEvent) => {
+  // Existing handler doesn't use event parameter
+  handleDoubleClick();
+};
+
+const handleCanvasWheel = (_event: CanvasWheelEvent) => {
+  // Zoom is handled by BaseCanvas, but we can add extra logic here if needed
+};
+
+// ========== Original Mouse Handlers ==========
 
 const handleMouseDown = (e: any) => {
   const stage = stageRef.value?.getStage();
@@ -3087,7 +2769,7 @@ const handleMouseUp = async () => {
   const targetFrame = drawingStartFrame.value ?? currentFrame.value;
   drawingStartFrame.value = null;
 
-  const strokeCanvas = createOffscreenCanvas(currentImage.value);
+  const strokeCanvas = createOffscreenCanvas(currentImage.value, stageConfig.value.width, stageConfig.value.height);
   const strokeCtx = strokeCanvas.getContext("2d")!;
   strokeCtx.clearRect(0, 0, strokeCanvas.width, strokeCanvas.height);
   strokeCtx.globalCompositeOperation = "source-over";
@@ -3233,7 +2915,8 @@ const handleMouseUp = async () => {
 
   if (isInEraserMode) {
     // Check if we have pending temp strokes to erase from (new drawing)
-    const hasTempStrokes = tempBrushStrokes.value.length > 0 || tempStrokesConvertedToCanvas.value;
+    const hasTempStrokes =
+      tempBrushStrokes.value.length > 0 || tempStrokesConvertedToCanvas.value;
 
     if (hasTempStrokes) {
       // Erase from temp strokes (new drawing workflow)
@@ -3307,7 +2990,9 @@ const handleMouseUp = async () => {
 
         // If no keyframe at this frame but interpolation is enabled, get from previous keyframe
         if (!existingKeyframeData && track.interpolationEnabled) {
-          const frames = Array.from(track.keyframes.keys()).sort((a, b) => a - b);
+          const frames = Array.from(track.keyframes.keys()).sort(
+            (a, b) => a - b
+          );
           let beforeFrame: number | null = null;
           for (const f of frames) {
             if (f <= targetFrame) beforeFrame = f;
@@ -3348,7 +3033,7 @@ const handleMouseUp = async () => {
 
       // Render the modified canvas to display (preview only, not saved)
       if (!workingCanvas || !displayCanvas) {
-        initializeCanvases(stageConfig.value.width, stageConfig.value.height);
+        initCanvases(stageConfig.value.width, stageConfig.value.height);
       }
 
       // Update display to show erased result
@@ -3785,7 +3470,7 @@ const updateAnnotationLayer = (
 
   // Use the displayCanvas for Konva rendering
   if (!displayCanvas) {
-    initializeCanvases(stageConfig.value.width, stageConfig.value.height);
+    initCanvases(stageConfig.value.width, stageConfig.value.height);
   }
 
   const ctx = displayCanvas!.getContext("2d", { alpha: true })!;
@@ -3824,7 +3509,7 @@ const updateAnnotationLayerWithSelectionAndHover = (
 
   // Use the displayCanvas for Konva rendering
   if (!displayCanvas) {
-    initializeCanvases(stageConfig.value.width, stageConfig.value.height);
+    initCanvases(stageConfig.value.width, stageConfig.value.height);
   }
 
   // Render non-selected/non-hovered tracks at normal opacity
@@ -3931,38 +3616,6 @@ const updateAllLayersOpacity = () => {
     annotationsLayer.children?.forEach(updateChildOpacity);
     annotationsLayer.batchDraw();
   }
-};
-
-const handleWheel = (e: WheelEvent) => {
-  e.preventDefault();
-
-  const stage = stageRef.value?.getStage();
-  if (!stage) return;
-
-  const scaleBy = 1.05;
-  const oldScale = stage.scaleX();
-
-  const pointer = stage.getPointerPosition();
-  if (!pointer) return;
-
-  const mousePointTo = {
-    x: (pointer.x - stage.x()) / oldScale,
-    y: (pointer.y - stage.y()) / oldScale,
-  };
-
-  const newScale = e.deltaY > 0 ? oldScale / scaleBy : oldScale * scaleBy;
-  const clampedScale = Math.max(0.1, Math.min(20, newScale));
-
-  stage.scale({ x: clampedScale, y: clampedScale });
-
-  const newPos = {
-    x: pointer.x - mousePointTo.x * clampedScale,
-    y: pointer.y - mousePointTo.y * clampedScale,
-  };
-  stage.position(newPos);
-  stage.batchDraw();
-
-  zoomLevel.value = clampedScale;
 };
 
 const zoomIn = () => {
@@ -4228,184 +3881,8 @@ watch(
   color: #666;
 }
 
-/* Playback Controls */
-.playback-controls {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 20px;
-  background: #2d3748;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-  flex-wrap: wrap;
-}
-
-.playback-btn {
-  padding: 10px 20px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: all 0.2s;
-  background: #4a5568;
-  color: white;
-}
-
-.playback-btn:hover {
-  background: #5a6778;
-  transform: translateY(-1px);
-}
-
-.playback-btn:active {
-  transform: translateY(0);
-}
-
-.playback-btn.play-btn {
-  background: #48bb78;
-  padding: 10px 30px;
-}
-
-.playback-btn.play-btn:hover {
-  background: #38a169;
-}
-
-.frame-info {
-  color: #a0aec0;
-  font-size: 14px;
-  font-weight: 500;
-  padding: 0 10px;
-  min-width: 140px;
-  text-align: center;
-}
-
-.playback-divider {
-  width: 1px;
-  height: 24px;
-  background: #4a5568;
-}
-
-/* Zoom Controls */
-.zoom-controls {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.zoom-label {
-  color: #a0aec0;
-  font-size: 13px;
-  font-weight: 500;
-  min-width: 45px;
-  text-align: right;
-}
-
-.utility-btn {
-  padding: 6px 12px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-  transition: all 0.2s;
-  background: #4a5568;
-  color: white;
-}
-
-.utility-btn:hover {
-  background: #5a6778;
-}
-
-.utility-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.utility-btn.clear-cache-btn {
-  background: #6b7280;
-}
-
-.utility-btn.clear-cache-btn:hover:not(:disabled) {
-  background: #4b5563;
-}
-
-/* Auto Suggest Toggle */
-.auto-suggest-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  padding: 6px 12px;
-  background: #4a5568;
-  border-radius: 4px;
-  font-size: 13px;
-  font-weight: 500;
-  color: #a0aec0;
-  transition: all 0.2s;
-}
-
-.auto-suggest-toggle:hover {
-  background: #5a6778;
-}
-
-.auto-suggest-toggle input {
-  cursor: pointer;
-  width: 14px;
-  height: 14px;
-}
 .class-manager-panel {
   position: absolute;
   left: 10px;
-}
-
-.auto-suggest-toggle input:checked + span {
-  color: #48bb78;
-}
-
-/* Legacy styles for backward compatibility */
-.keyframe-nav-btn {
-  padding: 6px 12px !important;
-  font-size: 12px;
-}
-
-/* Timeline Scrubber */
-.timeline-scrubber-container {
-  padding: 8px 16px;
-  background: #1a1a2e;
-  border-radius: 8px;
-}
-
-.timeline-scrubber {
-  width: 100%;
-  height: 6px;
-  -webkit-appearance: none;
-  appearance: none;
-  background: #16213e;
-  border-radius: 3px;
-  outline: none;
-  cursor: pointer;
-}
-
-.timeline-scrubber::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 16px;
-  height: 16px;
-  background: #e94560;
-  border-radius: 50%;
-  cursor: pointer;
-  border: 2px solid white;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-}
-
-.timeline-scrubber::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
-  background: #e94560;
-  border-radius: 50%;
-  cursor: pointer;
-  border: 2px solid white;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 </style>
