@@ -1,5 +1,5 @@
 import { ref, computed, type Ref } from 'vue';
-import type { BoundingBox, BoundingBoxTrack } from '../types/boundingBox';
+import type { BoundingBox, BoundingBoxTrack } from '../components/layers';
 
 function findSurroundingKeyframes(
   keyframes: Map<number, BoundingBox>,

@@ -1,4 +1,4 @@
-import type { Skeleton } from "../../../types/skeleton";
+import type { Skeleton } from "../../../components/layers/Skeleton";
 import type { ColocatedPoint } from "../types";
 import { SKELETON_SNAP_THRESHOLD, COLOCATED_EPSILON } from "../enums";
 

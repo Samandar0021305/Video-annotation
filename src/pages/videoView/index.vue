@@ -49,7 +49,18 @@
         </template>
 
         <template #annotations>
-          <v-group ref="brushAnnotationGroupRef"></v-group>
+          <BrushAnnotationLayer
+            ref="brushAnnotationLayerRef"
+            :non-selected-canvas="brushAnnotationCanvasData.nonSelectedCanvas"
+            :selected-canvas="brushAnnotationCanvasData.selectedCanvas"
+            :hovered-canvas="brushAnnotationCanvasData.hoveredCanvas"
+            :opacity="opacity"
+            :stage-width="stageConfig.width"
+            :stage-height="stageConfig.height"
+            :frame-number="brushAnnotationCanvasData.frameNumber"
+            :render-version="brushAnnotationCanvasData.renderVersion"
+            @render-complete="handleBrushAnnotationRenderComplete"
+          />
 
           <BoundingBoxLayer
             ref="bboxLayerRef"
@@ -92,10 +103,11 @@
         </template>
 
         <template #interactive>
-          <v-group
-            ref="brushPreviewGroupRef"
-            :config="{ imageSmoothingEnabled: false }"
-          ></v-group>
+          <BrushPreviewLayer
+            ref="brushPreviewLayerRef"
+            :stage-width="stageConfig.width"
+            :stage-height="stageConfig.height"
+          />
           <v-group ref="cursorGroupRef"></v-group>
         </template>
 
@@ -157,7 +169,20 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from "vue";
 import { useRouter } from "vue-router";
 import Konva from "konva";
-import { KonvaBrush } from "../../utils/KonvaBrush";
+import {
+  KonvaBrush,
+  BBoxTool,
+  PolygonTool,
+  SkeletonTool,
+  BoundingBoxLayer,
+  PolygonLayer,
+  SkeletonLayer,
+  BrushAnnotationLayer,
+  BrushPreviewLayer,
+  type BoundingBox,
+  type Polygon,
+  type Skeleton,
+} from "../../components/layers";
 import { useFramesStore } from "../../stores/framesStore";
 import { useAnnotationStore } from "../../stores/annotationStore";
 import { useBoundingBoxTracks } from "../../composables/useBoundingBoxTracks";
@@ -167,9 +192,6 @@ import {
   useBrushTracks,
   type BrushTrack,
 } from "../../composables/useBrushTracks";
-import { BBoxTool } from "../../utils/bboxUtils";
-import { PolygonTool } from "../../utils/polygonUtils";
-import { SkeletonTool } from "../../utils/skeletonUtils";
 import {
   getSegmentationImageContoursForSaving,
   renderContoursToTargetCanvas,
@@ -181,9 +203,6 @@ import {
 } from "../../utils/rle";
 import type { MaskData } from "../../types/mask";
 import { isMaskData } from "../../composables/useBrushTracks";
-import type { BoundingBox } from "../../types/boundingBox";
-import type { Polygon } from "../../types/polygon";
-import type { Skeleton } from "../../types/skeleton";
 import type { ToolClass } from "../../types/contours";
 import FramePlayerTimeline from "../../components/FramePlayerTimeline/index.vue";
 import VerticalToolbar from "../../components/VerticalToolbar/index.vue";
@@ -194,9 +213,6 @@ import type {
   CanvasMouseEvent,
   CanvasWheelEvent,
 } from "../../components/BaseCanvas";
-import { BoundingBoxLayer } from "../../components/layers/BoundingBox";
-import { PolygonLayer } from "../../components/layers/Polygon";
-import { SkeletonLayer } from "../../components/layers/Skeleton";
 import AnnotationClassManager from "../../components/AnnotationClassManager.vue";
 import type { AnnotationClass } from "../../components/AnnotationClassManager.vue";
 import ClassSelector from "../../components/ClassSelector.vue";
@@ -233,11 +249,11 @@ const {
   backgroundLayerRef,
   annotationsLayerRef,
   interactiveLayerRef,
-  brushAnnotationGroupRef,
   bboxLayerRef,
   polygonLayerRef,
   skeletonLayerRef,
-  brushPreviewGroupRef,
+  brushAnnotationLayerRef,
+  brushPreviewLayerRef,
   cursorGroupRef,
 } = useLayerRefs();
 const containerRef = ref<HTMLDivElement | null>(null);
@@ -247,6 +263,23 @@ const framesLoaded = ref(false);
 const currentFrame = ref(0);
 const currentImage = ref<HTMLImageElement | null>(null);
 const brush = ref<KonvaBrush | null>(null);
+
+// Brush annotation layer display data
+// renderVersion is incremented to force re-render when canvas content changes
+let brushRenderVersion = 0;
+const brushAnnotationCanvasData = ref<{
+  nonSelectedCanvas: HTMLCanvasElement | null;
+  selectedCanvas: HTMLCanvasElement | null;
+  hoveredCanvas: HTMLCanvasElement | null;
+  frameNumber: number;
+  renderVersion: number;
+}>({
+  nonSelectedCanvas: null,
+  selectedCanvas: null,
+  hoveredCanvas: null,
+  frameNumber: -1,
+  renderVersion: 0,
+});
 
 const mode = ref<ToolMode>("pan");
 const brushSize = ref(20);
@@ -559,22 +592,14 @@ const handleClassSelectorSelect = (cls: AnnotationClass) => {
         const displayCtx = displayCanvas!.getContext("2d")!;
         displayCtx.drawImage(workingCanvas!, 0, 0);
 
-        // Update Konva display
-        const brushGroup = brushAnnotationGroupRef.value?.getNode();
-        if (brushGroup) {
-          brushGroup.destroyChildren();
-          const konvaImage = new Konva.Image({
-            image: displayCanvas!,
-            x: 0,
-            y: 0,
-            width: stageConfig.value.width,
-            height: stageConfig.value.height,
-            listening: false,
-            opacity: opacity.value,
-          });
-          brushGroup.add(konvaImage);
-          annotationsLayerRef.value?.getNode()?.batchDraw();
-        }
+        // Update Konva display via component
+        brushAnnotationCanvasData.value = {
+          nonSelectedCanvas: displayCanvas,
+          selectedCanvas: null,
+          hoveredCanvas: null,
+          frameNumber: brushData.frame,
+          renderVersion: ++brushRenderVersion,
+        };
 
         currentDisplayFrame = brushData.frame;
         saveAnnotations();
@@ -595,6 +620,10 @@ const handleClassSelectorSelect = (cls: AnnotationClass) => {
 
   showClassSelector.value = false;
   classSelectorInitialClass.value = null;
+};
+
+const handleBrushAnnotationRenderComplete = () => {
+  annotationsLayerRef.value?.getNode()?.batchDraw();
 };
 
 const handleClassSelectorCreate = (
@@ -1046,11 +1075,14 @@ const renderBrushAnnotations = async (frameIndex: number) => {
       frameIndex
     );
   } else {
-    const brushGroup = brushAnnotationGroupRef.value?.getNode();
-    if (brushGroup) {
-      brushGroup.destroyChildren();
-      annotationsLayerRef.value?.getNode()?.batchDraw();
-    }
+    // Clear brush annotation via component
+    brushAnnotationCanvasData.value = {
+      nonSelectedCanvas: null,
+      selectedCanvas: null,
+      hoveredCanvas: null,
+      frameNumber: frameIndex,
+      renderVersion: ++brushRenderVersion,
+    };
   }
 
   currentDisplayFrame = frameIndex;
@@ -2355,10 +2387,7 @@ const handleMouseDown = (e: any) => {
       brush.value.changeColor(mergeColor.value);
     }
 
-    const brushLayer = brushPreviewGroupRef.value?.getNode();
-    if (brushLayer) {
-      brushLayer.destroyChildren();
-    }
+    brushPreviewLayerRef.value?.clearPreview();
     return;
   }
 
@@ -2382,10 +2411,7 @@ const handleMouseDown = (e: any) => {
       brush.value.changeColor(selectedSegmentationColor.value);
     }
 
-    const brushLayer = brushPreviewGroupRef.value?.getNode();
-    if (brushLayer) {
-      brushLayer.destroyChildren();
-    }
+    brushPreviewLayerRef.value?.clearPreview();
     return;
   }
 
@@ -2512,10 +2538,7 @@ const handleMouseDown = (e: any) => {
       brush.value.changeColor(selectedSegmentationColor.value);
     }
 
-    const brushLayer = brushPreviewGroupRef.value?.getNode();
-    if (brushLayer) {
-      brushLayer.destroyChildren();
-    }
+    brushPreviewLayerRef.value?.clearPreview();
   }
 };
 
@@ -2588,18 +2611,14 @@ const handleMouseMove = () => {
 
     brush.value.continueStroke(logicalPos);
 
-    const brushGroup = brushPreviewGroupRef.value?.getNode();
-    if (brushGroup) {
-      brushGroup.destroyChildren();
-      const shape = brush.value.renderStrokeShape(
-        brush.value.getCurrentPoints(),
-        1,
-        stageConfig.value.width,
-        stageConfig.value.height
-      );
-      brushGroup.add(shape);
-      interactiveLayerRef.value?.getNode()?.batchDraw();
-    }
+    const shape = brush.value.renderStrokeShape(
+      brush.value.getCurrentPoints(),
+      1,
+      stageConfig.value.width,
+      stageConfig.value.height
+    );
+    brushPreviewLayerRef.value?.renderStrokePreview(shape);
+    interactiveLayerRef.value?.getNode()?.batchDraw();
   }
 
   // Throttled hover detection for segmentation masks (Pan mode only)
@@ -2666,11 +2685,8 @@ const handleMouseUp = async () => {
     drawingStartFrame.value = null;
 
     // Clear brush preview
-    const brushGroup = brushPreviewGroupRef.value?.getNode();
-    if (brushGroup) {
-      brushGroup.destroyChildren();
-      interactiveLayerRef.value?.getNode()?.batchDraw();
-    }
+    brushPreviewLayerRef.value?.clearPreview();
+    interactiveLayerRef.value?.getNode()?.batchDraw();
 
     if (tempStrokesEditMode.value === "brush") {
       // Brush mode - add stroke
@@ -2777,11 +2793,8 @@ const handleMouseUp = async () => {
   const eraserOpacity = isInEraserMode ? 1.0 : undefined;
   brush.value.renderToCanvas(strokeCanvas, points, 1, eraserOpacity);
 
-  const brushGroup = brushPreviewGroupRef.value?.getNode();
-  if (brushGroup) {
-    brushGroup.destroyChildren();
-    interactiveLayerRef.value?.getNode()?.batchDraw();
-  }
+  brushPreviewLayerRef.value?.clearPreview();
+  interactiveLayerRef.value?.getNode()?.batchDraw();
 
   if (isInBrushMode) {
     // Check if we're in segmentation edit mode - auto-merge into selected track
@@ -3037,8 +3050,7 @@ const handleMouseUp = async () => {
       }
 
       // Update display to show erased result
-      const brushGroup = brushAnnotationGroupRef.value?.getNode();
-      if (brushGroup && displayCanvas) {
+      if (displayCanvas) {
         // Clear and redraw all brush tracks except the one being edited
         clearCanvas(displayCanvas);
 
@@ -3057,19 +3069,14 @@ const handleMouseUp = async () => {
         const displayCtx = displayCanvas.getContext("2d")!;
         displayCtx.drawImage(modifiedCanvas, 0, 0);
 
-        // Update Konva display
-        brushGroup.destroyChildren();
-        const konvaImage = new Konva.Image({
-          image: displayCanvas,
-          x: 0,
-          y: 0,
-          width: stageConfig.value.width,
-          height: stageConfig.value.height,
-          listening: false,
-          opacity: opacity.value,
-        });
-        brushGroup.add(konvaImage);
-        annotationsLayerRef.value?.getNode()?.batchDraw();
+        // Update Konva display via component
+        brushAnnotationCanvasData.value = {
+          nonSelectedCanvas: displayCanvas,
+          selectedCanvas: null,
+          hoveredCanvas: null,
+          frameNumber: targetFrame,
+          renderVersion: ++brushRenderVersion,
+        };
       }
     } else {
       // Legacy eraser mode for contour-based tracks (non-segmentation edit mode)
@@ -3463,11 +3470,6 @@ const updateAnnotationLayer = (
     return;
   }
 
-  const brushGroup = brushAnnotationGroupRef.value?.getNode();
-  if (!brushGroup) return;
-
-  brushGroup.destroyChildren();
-
   // Use the displayCanvas for Konva rendering
   if (!displayCanvas) {
     initCanvases(stageConfig.value.width, stageConfig.value.height);
@@ -3478,19 +3480,15 @@ const updateAnnotationLayer = (
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(offscreenCanvas, 0, 0);
 
-  const konvaImage = new Konva.Image({
-    image: displayCanvas!,
-    x: 0,
-    y: 0,
-    width: stageConfig.value.width,
-    height: stageConfig.value.height,
-    listening: false,
-    opacity: opacity.value,
-  });
-
-  brushGroup.add(konvaImage);
+  // Update via component
+  brushAnnotationCanvasData.value = {
+    nonSelectedCanvas: displayCanvas,
+    selectedCanvas: null,
+    hoveredCanvas: null,
+    frameNumber: frameNumber,
+    renderVersion: ++brushRenderVersion,
+  };
   currentDisplayFrame = frameNumber;
-  annotationsLayerRef.value?.getNode()?.batchDraw();
 };
 
 /**
@@ -3502,104 +3500,26 @@ const updateAnnotationLayerWithSelectionAndHover = (
   hoveredCanvas: HTMLCanvasElement | null,
   frameNumber: number
 ) => {
-  const brushGroup = brushAnnotationGroupRef.value?.getNode();
-  if (!brushGroup) return;
-
-  brushGroup.destroyChildren();
-
   // Use the displayCanvas for Konva rendering
   if (!displayCanvas) {
     initCanvases(stageConfig.value.width, stageConfig.value.height);
   }
 
-  // Render non-selected/non-hovered tracks at normal opacity
+  // Copy nonSelectedCanvas to displayCanvas
   const ctx = displayCanvas!.getContext("2d", { alpha: true })!;
   ctx.clearRect(0, 0, displayCanvas!.width, displayCanvas!.height);
   ctx.imageSmoothingEnabled = false;
   ctx.drawImage(nonSelectedCanvas, 0, 0);
 
-  const nonSelectedImage = new Konva.Image({
-    image: displayCanvas!,
-    x: 0,
-    y: 0,
-    width: stageConfig.value.width,
-    height: stageConfig.value.height,
-    listening: false,
-    opacity: opacity.value,
-  });
-  brushGroup.add(nonSelectedImage);
-
-  // Render hovered track with brightness boost effect
-  if (hoveredCanvas) {
-    const hoveredDisplayCanvas = document.createElement("canvas");
-    hoveredDisplayCanvas.width = stageConfig.value.width;
-    hoveredDisplayCanvas.height = stageConfig.value.height;
-    const hoveredCtx = hoveredDisplayCanvas.getContext("2d", { alpha: true })!;
-    hoveredCtx.imageSmoothingEnabled = false;
-    hoveredCtx.drawImage(hoveredCanvas, 0, 0);
-
-    const hoveredImage = new Konva.Image({
-      image: hoveredDisplayCanvas,
-      x: 0,
-      y: 0,
-      width: stageConfig.value.width,
-      height: stageConfig.value.height,
-      listening: false,
-      opacity: Math.min(1, opacity.value * 1.3), // Slightly brighter on hover
-    });
-    brushGroup.add(hoveredImage);
-
-    // Add a subtle white outline/glow effect for hover
-    const glowCanvas = document.createElement("canvas");
-    glowCanvas.width = stageConfig.value.width;
-    glowCanvas.height = stageConfig.value.height;
-    const glowCtx = glowCanvas.getContext("2d", { alpha: true })!;
-    glowCtx.imageSmoothingEnabled = false;
-
-    // Create outline by drawing the mask slightly expanded with white
-    glowCtx.filter = "blur(2px)";
-    glowCtx.drawImage(hoveredCanvas, 0, 0);
-    glowCtx.globalCompositeOperation = "source-in";
-    glowCtx.fillStyle = "rgba(255, 255, 255, 0.5)";
-    glowCtx.fillRect(0, 0, glowCanvas.width, glowCanvas.height);
-
-    const glowImage = new Konva.Image({
-      image: glowCanvas,
-      x: 0,
-      y: 0,
-      width: stageConfig.value.width,
-      height: stageConfig.value.height,
-      listening: false,
-      opacity: 0.4,
-    });
-    brushGroup.add(glowImage);
-  }
-
-  // Render selected track with reduced opacity (50% of normal)
-  if (selectedCanvas) {
-    const selectedDisplayCanvas = document.createElement("canvas");
-    selectedDisplayCanvas.width = stageConfig.value.width;
-    selectedDisplayCanvas.height = stageConfig.value.height;
-    const selectedCtx = selectedDisplayCanvas.getContext("2d", {
-      alpha: true,
-    })!;
-    selectedCtx.imageSmoothingEnabled = false;
-    selectedCtx.drawImage(selectedCanvas, 0, 0);
-
-    const selectedImage = new Konva.Image({
-      image: selectedDisplayCanvas,
-      x: 0,
-      y: 0,
-      width: stageConfig.value.width,
-      height: stageConfig.value.height,
-      listening: false,
-      opacity: opacity.value * 0.5, // 50% reduced opacity for selected
-    });
-    brushGroup.add(selectedImage);
-  }
-
+  // Update via component - it handles all the rendering logic for selection/hover effects
+  brushAnnotationCanvasData.value = {
+    nonSelectedCanvas: displayCanvas,
+    selectedCanvas: selectedCanvas,
+    hoveredCanvas: hoveredCanvas,
+    frameNumber: frameNumber,
+    renderVersion: ++brushRenderVersion,
+  };
   currentDisplayFrame = frameNumber;
-  annotationsLayerRef.value?.getNode()?.batchDraw();
 };
 
 const updateAllLayersOpacity = () => {
@@ -3767,13 +3687,8 @@ watch(currentFrame, () => {
 });
 
 watch(opacity, () => {
-  const brushGroup = brushAnnotationGroupRef.value?.getNode();
-  if (!brushGroup) return;
-
-  const images = brushGroup.getChildren();
-  images.forEach((img: any) => {
-    img.opacity(opacity.value);
-  });
+  // The BrushAnnotationLayer component handles opacity updates internally via its watch
+  // We just need to trigger a redraw
   annotationsLayerRef.value?.getNode()?.batchDraw();
 });
 

@@ -1,5 +1,5 @@
 import { ref, computed, type Ref } from 'vue';
-import type { Polygon, PolygonTrack } from '../types/polygon';
+import type { Polygon, PolygonTrack } from '../components/layers';
 
 function findSurroundingKeyframes(
   keyframes: Map<number, Polygon>,

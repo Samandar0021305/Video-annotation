@@ -1,5 +1,5 @@
 import { ref, computed, type Ref } from 'vue';
-import type { Skeleton, SkeletonTrack } from '../types/skeleton';
+import type { Skeleton, SkeletonTrack } from '../components/layers';
 
 function findSurroundingKeyframes(
   keyframes: Map<number, Skeleton>,

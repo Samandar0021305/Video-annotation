@@ -1,5 +1,5 @@
 import Konva from "konva";
-import type { BoundingBox } from "../types/boundingBox";
+import type { BoundingBox } from "../types";
 
 export class BBoxTool {
   private bboxStartPos: { x: number; y: number } | null = null;

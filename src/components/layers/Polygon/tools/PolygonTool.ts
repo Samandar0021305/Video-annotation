@@ -1,5 +1,5 @@
 import Konva from "konva";
-import type { Polygon, PolygonPoint } from "../types/polygon";
+import type { Polygon, PolygonPoint } from "../types";
 
 export class PolygonTool {
   private layer: Konva.Layer | null = null;

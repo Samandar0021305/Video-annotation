@@ -411,9 +411,9 @@
 
 <script setup lang="ts">
 import { computed, ref, onBeforeUnmount } from "vue";
-import type { BoundingBoxTrack } from "../../types/boundingBox";
-import type { PolygonTrack } from "../../types/polygon";
-import type { SkeletonTrack } from "../../types/skeleton";
+import type { BoundingBoxTrack } from "../layers/BoundingBox";
+import type { PolygonTrack } from "../layers/Polygon";
+import type { SkeletonTrack } from "../layers/Skeleton";
 import type { BrushTrack } from "../../composables/useBrushTracks";
 
 type TrackType = "bbox" | "polygon" | "skeleton" | "brush";

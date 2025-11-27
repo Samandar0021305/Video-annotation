@@ -1,5 +1,5 @@
 import Konva from "konva";
-import type { Skeleton, SkeletonPoint } from "../types/skeleton";
+import type { Skeleton, SkeletonPoint } from "../types";
 
 const SKELETON_MERGE_THRESHOLD = 10;
 
