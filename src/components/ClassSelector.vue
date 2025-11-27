@@ -30,8 +30,8 @@
       <div class="action-row">
         <button
           class="action-btn delete-btn"
-          title="Delete"
-          :disabled="!searchQuery.trim()"
+          title="Delete annotation"
+          @click="handleDelete"
         >
           <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
             <path
@@ -114,6 +114,7 @@ const emit = defineEmits<{
   (e: "select", cls: AnnotationClass): void;
   (e: "create", cls: Omit<AnnotationClass, "id" | "value">): void;
   (e: "close"): void;
+  (e: "delete"): void;
 }>();
 
 const selectorRef = ref<HTMLElement | null>(null);
@@ -201,6 +202,11 @@ const handleSave = () => {
 
 const handleEnter = () => {
   handleSave();
+};
+
+const handleDelete = () => {
+  emit("delete");
+  emit("close");
 };
 
 watch(searchQuery, (newValue) => {

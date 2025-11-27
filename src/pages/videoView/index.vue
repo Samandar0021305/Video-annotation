@@ -129,6 +129,7 @@
       @select="handleClassSelectorSelect"
       @create="handleClassSelectorCreate"
       @close="handleClassSelectorClose"
+      @delete="handleClassSelectorDelete"
     />
 
     <PlaybackControls
@@ -693,6 +694,69 @@ const handleClassSelectorClose = () => {
   if (skeletonTool) {
     skeletonTool.cancelDrawing();
   }
+};
+
+const handleClassSelectorDelete = () => {
+  // Delete the annotation that was being edited or is pending
+  if (editingBboxTrackId.value) {
+    deleteBboxTrack(editingBboxTrackId.value);
+    editingBboxTrackId.value = null;
+    selectedBboxTrackId.value = null;
+    saveAnnotations();
+  } else if (editingPolygonTrackId.value) {
+    deletePolygonTrack(editingPolygonTrackId.value);
+    editingPolygonTrackId.value = null;
+    selectedPolygonTrackId.value = null;
+    saveAnnotations();
+  } else if (editingSkeletonTrackId.value) {
+    deleteSkeletonTrack(editingSkeletonTrackId.value);
+    editingSkeletonTrackId.value = null;
+    selectedSkeletonTrackId.value = null;
+    saveAnnotations();
+  } else if (editingBrushTrackId.value) {
+    deleteBrushTrack(editingBrushTrackId.value);
+    editingBrushTrackId.value = null;
+    selectedBrushTrackId.value = null;
+    saveAnnotations();
+    renderFrame(currentFrame.value);
+  }
+
+  // Clear any pending annotations (newly drawn but not yet saved)
+  pendingBbox.value = null;
+  pendingPolygon.value = null;
+  pendingSkeleton.value = null;
+
+  // Clean up pending brush
+  if (pendingBrush.value) {
+    pendingBrush.value = null;
+    tempBrushStrokes.value = [];
+    tempStrokesCanvas.value = null;
+    tempStrokesConvertedToCanvas.value = false;
+    tempStrokesEditMode.value = SegEditMode.BRUSH;
+    bufferFrame.value = null;
+    renderFrame(currentFrame.value);
+  }
+
+  // Cancel any in-progress drawing tools
+  if (bboxTool) {
+    bboxTool.cancelDrawing();
+  }
+  if (polygonTool) {
+    polygonTool.cancelDrawing();
+  }
+  if (skeletonTool) {
+    skeletonTool.cancelDrawing();
+  }
+
+  classSelectorInitialClass.value = null;
+  showClassSelector.value = false;
+
+  // Update transformer after state changes
+  nextTick(() => {
+    if (bboxTool) {
+      bboxTool.updateTransformerSelection(null);
+    }
+  });
 };
 
 const getScreenPositionFromCanvas = (
