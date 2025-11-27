@@ -1,5 +1,5 @@
 import { ref, computed, type Ref } from 'vue';
-import type { BoundingBox, BoundingBoxTrack } from '../types/boundingBox';
+import type { BoundingBox, BoundingBoxTrack } from '../components/layers';
 
 function findSurroundingKeyframes(
   keyframes: Map<number, BoundingBox>,
@@ -48,7 +48,7 @@ export function useBoundingBoxTracks(currentFrame: Ref<number>) {
       ranges: [[initialFrame, rangeEnd]],
       hiddenAreas: [],
       color: box.color,
-      classId: box.classId
+      classId: box.classId ?? 0
     };
 
     tracks.value.set(trackId, track);

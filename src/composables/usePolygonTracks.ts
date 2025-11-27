@@ -1,5 +1,5 @@
 import { ref, computed, type Ref } from 'vue';
-import type { Polygon, PolygonTrack } from '../types/polygon';
+import type { Polygon, PolygonTrack } from '../components/layers';
 
 function findSurroundingKeyframes(
   keyframes: Map<number, Polygon>,
@@ -48,7 +48,7 @@ export function usePolygonTracks(currentFrame: Ref<number>) {
       ranges: [[initialFrame, rangeEnd]],
       hiddenAreas: [],
       color: polygon.color,
-      classId: polygon.classId
+      classId: polygon.classId ?? 0
     };
 
     tracks.value.set(trackId, track);

@@ -3,6 +3,14 @@ import { showErrorToast } from "../utils/toast";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
+export interface AnnotationClass {
+  id: string;
+  name: string;
+  color: string;
+  markupType: "bbox" | "mask" | "polygon" | "skeleton";
+  value: number;
+}
+
 export interface AnnotationData {
   bbox: any[];
   polygon: any[];
@@ -10,8 +18,14 @@ export interface AnnotationData {
   brush: any[];
 }
 
+export interface AnnotationDataWithClasses extends AnnotationData {
+  classes?: AnnotationClass[];
+}
+
 export interface ApiResponse {
-  result: AnnotationData;
+  result: AnnotationDataWithClasses;
+  id: string;
+  classes?: AnnotationClass[];
 }
 
 function getConfigWithAuth() {
@@ -27,7 +41,7 @@ function getConfigWithAuth() {
 }
 export async function loadAnnotations(
   videoFilename: string
-): Promise<AnnotationData> {
+): Promise<AnnotationDataWithClasses> {
   try {
     const config = getConfigWithAuth();
     const response = await axios.get<ApiResponse>(
@@ -35,14 +49,20 @@ export async function loadAnnotations(
       config
     );
 
-    return (
-      response.data.result || {
-        bbox: [],
-        polygon: [],
-        skeleton: [],
-        brush: [],
-      }
-    );
+    const result = response.data.result || {
+      bbox: [],
+      polygon: [],
+      skeleton: [],
+      brush: [],
+    };
+
+    return {
+      bbox: result.bbox || [],
+      polygon: result.polygon || [],
+      skeleton: result.skeleton || [],
+      brush: result.brush || [],
+      classes: result.classes || [],
+    };
   } catch (error: any) {
     if (error.response?.status === 404) {
       return {
@@ -50,6 +70,7 @@ export async function loadAnnotations(
         polygon: [],
         skeleton: [],
         brush: [],
+        classes: [],
       };
     }
     const errorMessage = `Failed to load annotations: ${error.message}`;
@@ -60,7 +81,8 @@ export async function loadAnnotations(
 
 export async function saveAnnotations(
   videoFilename: string,
-  annotations: AnnotationData
+  annotations: AnnotationData,
+  classes: AnnotationClass[] = []
 ): Promise<void> {
   try {
     const config = getConfigWithAuth();
@@ -68,7 +90,7 @@ export async function saveAnnotations(
     await axios.put(
       `${API_BASE_URL}/${videoFilename}/`,
       {
-        result: annotations,
+        result: { ...annotations, classes },
         id: videoFilename,
       },
       config

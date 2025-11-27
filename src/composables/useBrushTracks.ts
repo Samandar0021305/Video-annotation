@@ -725,6 +725,108 @@ export function useBrushTracks(currentFrame: Ref<number>) {
     return hoveredTrackId.value === trackId;
   }
 
+  /**
+   * Update mask position by applying a delta offset to all masks in a track at the current frame
+   * @param trackId - The track to update
+   * @param dx - Delta X offset
+   * @param dy - Delta Y offset
+   * @param frame - The frame to update
+   * @param canvasWidth - Canvas width for boundary checking
+   * @param canvasHeight - Canvas height for boundary checking
+   * @param autoSuggestEnabled - If true, creates keyframe at next frame with original data
+   */
+  function updateMaskPosition(
+    trackId: string,
+    dx: number,
+    dy: number,
+    frame: number,
+    canvasWidth: number,
+    canvasHeight: number,
+    autoSuggestEnabled: boolean = false
+  ): void {
+    const track = tracks.value.get(trackId);
+    if (!track) return;
+
+    // Get the mask data at this frame (either from keyframe or interpolated)
+    let keyframeData = track.keyframes.get(frame);
+    let originalData: MaskData[] | null = null;
+
+    // If no keyframe at this frame, check if interpolation is enabled
+    if (!keyframeData && track.interpolationEnabled) {
+      const { before } = findSurroundingKeyframes(track.keyframes, frame);
+      if (before && isMaskData(before[1])) {
+        // Deep copy the interpolated data to create a new keyframe
+        keyframeData = before[1].map(mask => ({ ...mask }));
+        originalData = before[1]; // Keep reference to original for auto-suggest
+      }
+    } else if (keyframeData && isMaskData(keyframeData)) {
+      // Deep copy the existing keyframe data for auto-suggest
+      originalData = keyframeData.map(mask => ({ ...mask }));
+    }
+
+    if (!keyframeData || !isMaskData(keyframeData)) return;
+
+    // Update each mask's bounding box coordinates
+    const updatedMasks = keyframeData.map((mask) => {
+      // Calculate new bounds with boundary checking
+      let newLeft = Math.round(mask.left + dx);
+      let newTop = Math.round(mask.top + dy);
+      let newRight = Math.round(mask.right + dx);
+      let newBottom = Math.round(mask.bottom + dy);
+
+      // Clamp to canvas boundaries
+      const maskWidth = mask.right - mask.left;
+      const maskHeight = mask.bottom - mask.top;
+
+      if (newLeft < 0) {
+        newLeft = 0;
+        newRight = maskWidth;
+      }
+      if (newTop < 0) {
+        newTop = 0;
+        newBottom = maskHeight;
+      }
+      if (newRight >= canvasWidth) {
+        newRight = canvasWidth - 1;
+        newLeft = newRight - maskWidth;
+      }
+      if (newBottom >= canvasHeight) {
+        newBottom = canvasHeight - 1;
+        newTop = newBottom - maskHeight;
+      }
+
+      return {
+        ...mask,
+        left: newLeft,
+        top: newTop,
+        right: newRight,
+        bottom: newBottom,
+      };
+    });
+
+    // Set the updated keyframe at current frame
+    track.keyframes.set(frame, updatedMasks);
+
+    // Auto-suggest logic: create keyframe at next frame with original position
+    if (autoSuggestEnabled && originalData) {
+      const nextFrame = frame + 1;
+      const isNextFrameInRange = track.ranges.some(
+        ([start, end]) => nextFrame >= start && nextFrame < end
+      );
+
+      // If next frame doesn't have a keyframe and is in range, create one with original data
+      if (!track.keyframes.has(nextFrame) && isNextFrameInRange) {
+        track.keyframes.set(nextFrame, originalData);
+      }
+    }
+
+    // Also update the edit state if this track is selected
+    const editState = trackEditStates.value.get(trackId);
+    if (editState) {
+      editState.originalMasks = updatedMasks;
+    }
+  }
+
   return {
     tracks,
     selectedTrackId,
@@ -765,6 +867,7 @@ export function useBrushTracks(currentFrame: Ref<number>) {
     changeSelectedTrackColor,
     getSelectedTrackColor,
     isTrackSelected,
-    isTrackHovered
+    isTrackHovered,
+    updateMaskPosition
   };
 }

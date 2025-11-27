@@ -1,5 +1,5 @@
 import { ref, computed, type Ref } from 'vue';
-import type { Skeleton, SkeletonTrack } from '../types/skeleton';
+import type { Skeleton, SkeletonTrack } from '../components/layers';
 
 function findSurroundingKeyframes(
   keyframes: Map<number, Skeleton>,
@@ -48,7 +48,7 @@ export function useSkeletonTracks(currentFrame: Ref<number>) {
       ranges: [[initialFrame, rangeEnd]],
       hiddenAreas: [],
       color: skeleton.color,
-      classId: skeleton.classId
+      classId: skeleton.classId ?? 0
     };
 
     tracks.value.set(trackId, track);

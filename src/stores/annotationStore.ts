@@ -1,21 +1,25 @@
-import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
+import { defineStore } from "pinia";
+import { ref, computed } from "vue";
 import {
   loadAnnotations,
   saveAnnotations,
   tracksMapToArray,
   tracksArrayToMap,
-} from '../services/annotationApi';
+  type AnnotationClass,
+} from "../services/annotationApi";
 
-export const useAnnotationStore = defineStore('annotations', () => {
+export const useAnnotationStore = defineStore("annotations", () => {
   // State - using Maps for efficient track access by ID
   const bboxTracks = ref<Map<string, any>>(new Map());
   const polygonTracks = ref<Map<string, any>>(new Map());
   const skeletonTracks = ref<Map<string, any>>(new Map());
   const brushTracks = ref<Map<string, any>>(new Map());
 
+  // Classes
+  const classes = ref<AnnotationClass[]>([]);
+
   // Metadata
-  const videoFileName = ref<string>('');
+  const videoFileName = ref<string>("");
   const isLoading = ref<boolean>(false);
   const isSaving = ref<boolean>(false);
 
@@ -40,9 +44,10 @@ export const useAnnotationStore = defineStore('annotations', () => {
       polygonTracks.value = tracksArrayToMap(data.polygon || []);
       skeletonTracks.value = tracksArrayToMap(data.skeleton || []);
       brushTracks.value = tracksArrayToMap(data.brush || []);
+      classes.value = data.classes || [];
       videoFileName.value = fileName;
     } catch (error) {
-      console.error('Failed to load annotations:', error);
+      console.error("Failed to load annotations:", error);
       throw error;
     } finally {
       isLoading.value = false;
@@ -60,9 +65,9 @@ export const useAnnotationStore = defineStore('annotations', () => {
         skeleton: tracksMapToArray(skeletonTracks.value),
         brush: tracksMapToArray(brushTracks.value),
       };
-      await saveAnnotations(videoFileName.value, payload);
+      await saveAnnotations(videoFileName.value, payload, classes.value);
     } catch (error) {
-      console.error('Failed to save annotations:', error);
+      console.error("Failed to save annotations:", error);
       throw error;
     } finally {
       isSaving.value = false;
@@ -74,6 +79,7 @@ export const useAnnotationStore = defineStore('annotations', () => {
     polygonTracks.value.clear();
     skeletonTracks.value.clear();
     brushTracks.value.clear();
+    classes.value = [];
 
     // Save empty state to API
     await save();
@@ -149,12 +155,30 @@ export const useAnnotationStore = defineStore('annotations', () => {
     brushTracks.value = data.brush;
   }
 
+  // Class operations
+  function setClasses(newClasses: AnnotationClass[]) {
+    classes.value = newClasses;
+  }
+
+  function addClass(cls: AnnotationClass) {
+    classes.value.push(cls);
+  }
+
+  function deleteClass(classId: string) {
+    classes.value = classes.value.filter((c) => c.id !== classId);
+  }
+
+  function getClassByValue(value: number) {
+    return classes.value.find((c) => c.value === value);
+  }
+
   return {
     // State
     bboxTracks,
     polygonTracks,
     skeletonTracks,
     brushTracks,
+    classes,
     videoFileName,
     isLoading,
     isSaving,
@@ -188,5 +212,11 @@ export const useAnnotationStore = defineStore('annotations', () => {
     setBrushTrack,
     deleteBrushTrack,
     getBrushTrack,
+
+    // Class operations
+    setClasses,
+    addClass,
+    deleteClass,
+    getClassByValue,
   };
 });
