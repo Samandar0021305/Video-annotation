@@ -1,272 +1,196 @@
 import Konva from "konva";
+import { interpolatePoints, loadBrushImage } from "./brushUtils";
 
-interface BrushOptions {
-  brushSize: number;
-  brushColor: string;
-  brushImage?: HTMLImageElement;
-  onStrokeComplete?: (canvas: HTMLCanvasElement) => void;
+const BRUSH_IMAGE_BASE64 =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFkAAABZCAYAAABVC4ivAAAAAXNSR0IArs4c6QAAAoVJREFUeF7t3FFygyAQxvHkZn3rPXqw3qNvvVk7sWNjFGQXdleUfx4zCPHHN4BEvd86/nx9vP1If9775/ddWja6XDc/TAMqReoF/jBkD9Q9/CPBw5GjcVPw0eAhyD3AHontitwr7hrcO9luyGcBXoJ7YZsjnxHXO9mmyFcAnsEtU22CfCVcj1Q3I18Z2CrVTcgjAFtAVyOPBNwKXYU8InALtBp5ZOBaaBUywM+1h2aJJ0YGeLv7IYUWIQOc30SVQIMs/QcgU84EmRSXe6EEvZtkgMvAkhUHyHLH3ZJ7ac4ik2K9fg4aZL2lOtFJZFJcL59KM8j1ntkj19AbZFLcrg5yu2Gxhl1kUlz0ExdYQr8MFyCLDYsFQS4S2RSYof+TTIptYJe1gGxvuqkR5Ghkhgo/8UeapzEZZJD9BAJqJskgBwgENDElmfHYXxpkf+MbyCAHCAQ0QZJBDhAIaIIkgxwgENAESQY5QCCgCZIcgcxWp68yu3C+vlPtIIMcIBDQBEmORGby89HmlgAf15daQQY5QMC5CW44dAae18dzM9w66wSeTTKrDBtxHmewcdytBWRnZB4xcwZeT3jJiW/+kruK6nqDx37r3FRHqZFZaah8p33j3BG8ikFnmS1djUyaZT3Q9OYWJsIycgn4UQMveio7qi48UoVFyAwbaWdJisVJZtjYIkuB1cgk+g9bA1yFPDq0FrgaeVToGuAm5NGga4GbkUeBbgE2Qb46dCuwGfIVl3gWuLOL+GJEemF0hb1oS2DzJC874ozY1rhuSV4n/izYXsCuST4LtiduWJJ7xI6AXZ63+cQnnSCPWPpF4x6W5FwneIzdR6Guz/HQJJdSr4HvBTR1Tr/cNFJHatpA6gAAAABJRU5ErkJggg==";
+
+interface Point {
+  x: number;
+  y: number;
 }
 
-export class KonvaSegmentationBrush {
-  private stage: Konva.Stage;
-  private tempLayer: Konva.Layer;
-  private tempCanvas: HTMLCanvasElement;
-  private tempCtx: CanvasRenderingContext2D;
-  private tempKonvaImage: Konva.Image | null = null;
-  private offscreenCanvas: HTMLCanvasElement;
-  private offscreenCtx: CanvasRenderingContext2D;
-  private isDrawing = false;
-
-  private brushSize: number;
-  private brushColor: string;
+export class KonvaBrush {
   private brushImage: HTMLImageElement | null = null;
-  private deleteMode = false;
+  private tintedBrush: HTMLCanvasElement | null = null;
+  private brushColor: string = "#000000";
+  private brushSize: number = 20;
+  private opacity: number = 0.2;
+  private brushLoaded: boolean = false;
+  private lastPoint: Point | null = null;
+  private drawingPoints: Point[] = [];
+  private interval: number = 5;
+  private dpr: number = window.devicePixelRatio || 1;
 
-  private onStrokeComplete?: (canvas: HTMLCanvasElement) => void;
-
-  constructor(
-    stage: Konva.Stage,
-    width: number,
-    height: number,
-    options: BrushOptions
-  ) {
-    this.stage = stage;
-    this.brushSize = options.brushSize;
-    this.brushColor = options.brushColor;
-    this.onStrokeComplete = options.onStrokeComplete;
-
-    this.tempLayer = new Konva.Layer();
-    this.stage.add(this.tempLayer);
-
-    this.tempCanvas = document.createElement("canvas");
-    this.tempCanvas.width = width;
-    this.tempCanvas.height = height;
-    this.tempCtx = this.tempCanvas.getContext("2d", {
-      willReadFrequently: true,
-    })!;
-    this.tempCtx.imageSmoothingEnabled = false;
-
-    this.offscreenCanvas = document.createElement("canvas");
-    this.offscreenCanvas.width = width;
-    this.offscreenCanvas.height = height;
-    this.offscreenCtx = this.offscreenCanvas.getContext("2d", {
-      willReadFrequently: true,
-    })!;
-    this.offscreenCtx.imageSmoothingEnabled = false;
-
-    if (options.brushImage) {
-      this.brushImage = options.brushImage;
-    } else {
-      this.loadDefaultBrush();
+  async initialize(): Promise<void> {
+    try {
+      this.brushImage = await loadBrushImage(BRUSH_IMAGE_BASE64);
+      this.brushLoaded = true;
+      this.updateTintedBrush();
+    } catch (error) {
+      console.error("Failed to load brush:", error);
+      this.brushLoaded = false;
     }
   }
 
-  private async loadDefaultBrush() {
-    const brushDataUrl =
-      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFkAAABZCAYAAABVC4ivAAAAAXNSR0IArs4c6QAAAoVJREFUeF7t3FFygyAQxvHkZn3rPXqw3qNvvVk7sWNjFGQXdleUfx4zCPHHN4BEvd86/nx9vP1If9775/ddWja6XDc/TAMqReoF/jBkD9Q9/CPBw5GjcVPw0eAhyD3AHontitwr7hrcO9luyGcBXoJ7YZsjnxHXO9mmyFcAnsEtU22CfCVcj1Q3I18Z2CrVTcgjAFtAVyOPBNwKXYU8InALtBp5ZOBaaBUywM+1h2aJJ0YGeLv7IYUWIQOc30SVQIMs/QcgU84EmRSXe6EEvZtkgMvAkhUHyHLH3ZJ7ac4ik2K9fg4aZL2lOtFJZFJcL59KM8j1ntkj19AbZFLcrg5yu2Gxhl1kUlz0ExdYQr8MFyCLDYsFQS4S2RSYof+TTIptYJe1gGxvuqkR5Ghkhgo/8UeapzEZZJD9BAJqJskgBwgENDElmfHYXxpkf+MbyCAHCAQ0QZJBDhAIaIIkgxwgENAESQY5QCCgCZIcgcxWp68yu3C+vlPtIIMcIBDQBEmORGby89HmlgAf15daQQY5QMC5CW44dAae18dzM9w66wSeTTKrDBtxHmewcdytBWRnZB4xcwZeT3jJiW/+kruK6nqDx37r3FRHqZFZaah8p33j3BG8ikFnmS1djUyaZT3Q9OYWJsIycgn4UQMveio7qi48UoVFyAwbaWdJisVJZtjYIkuB1cgk+g9bA1yFPDq0FrgaeVToGuAm5NGga4GbkUeBbgE2Qb46dCuwGfIVl3gWuLOL+GJEemF0hb1oS2DzJC874ozY1rhuSV4n/izYXsCuST4LtiduWJJ7xI6AXZ63+cQnnSCPWPpF4x6W5FwneIzdR6Guz/HQJJdSr4HvBTR1Tr/cNFJHatpA6gAAAABJRU5ErkJggg==";
+  private updateTintedBrush(): void {
+    if (!this.brushImage || !this.brushLoaded) return;
 
-    return new Promise<void>((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        this.brushImage = img;
-        this.applyColorTint();
-        resolve();
-      };
-      img.src = brushDataUrl;
-    });
+    const canvas = document.createElement("canvas");
+    const srcWidth = this.brushImage.width;
+    const srcHeight = this.brushImage.height;
+
+    canvas.width = srcWidth * this.dpr;
+    canvas.height = srcHeight * this.dpr;
+    canvas.style.width = `${srcWidth}px`;
+    canvas.style.height = `${srcHeight}px`;
+
+    const ctx = canvas.getContext("2d", { alpha: true })!;
+    ctx.scale(this.dpr, this.dpr);
+
+    ctx.imageSmoothingEnabled = false;
+
+    ctx.drawImage(this.brushImage, 0, 0);
+    ctx.globalCompositeOperation = "source-atop";
+    ctx.fillStyle = this.brushColor;
+    ctx.fillRect(0, 0, srcWidth, srcHeight);
+    ctx.globalCompositeOperation = "source-over";
+
+    this.tintedBrush = canvas;
   }
 
-  public setBrushSize(size: number) {
+  changeColor(color: string): void {
+    this.brushColor = color;
+    this.updateTintedBrush();
+  }
+
+  changeOpacity(value: number): void {
+    this.opacity = value;
+  }
+
+  changeSize(size: number): void {
     this.brushSize = size;
   }
 
-  public setBrushColor(color: string) {
-    this.brushColor = color;
-    this.applyColorTint();
+  setDeleteMode(mode: boolean): void {
+    if (mode) {
+      this.brushColor = "#000000";
+      this.updateTintedBrush();
+    }
   }
 
-  public setDeleteMode(enabled: boolean) {
-    this.deleteMode = enabled;
+  getBrushSize(): number {
+    return this.brushSize;
   }
 
-  public setOpacity(opacity: number) {
-    this.tempLayer.opacity(opacity);
+  isLoaded(): boolean {
+    return this.brushLoaded;
   }
 
-  private applyColorTint() {
-    if (!this.brushImage) return;
-
-    const tempCanvas = document.createElement("canvas");
-    tempCanvas.width = this.brushImage.width;
-    tempCanvas.height = this.brushImage.height;
-    const tempCtx = tempCanvas.getContext("2d")!;
-
-    tempCtx.drawImage(this.brushImage, 0, 0);
-
-    tempCtx.globalCompositeOperation = "source-in";
-    tempCtx.fillStyle = this.brushColor;
-    tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
-
-    const tintedImage = new Image();
-    tintedImage.src = tempCanvas.toDataURL();
-    tintedImage.onload = () => {
-      this.brushImage = tintedImage;
-    };
+  startStroke(point: Point): void {
+    this.lastPoint = point;
+    this.drawingPoints = [point];
   }
 
-  public onMouseDown(_e: Konva.KonvaEventObject<MouseEvent>) {
-    if (!this.brushImage) return;
+  continueStroke(point: Point): void {
+    if (!this.lastPoint) return;
 
-    const pos = this.tempLayer.getRelativePointerPosition();
-    if (!pos) return;
+    const interpolated = interpolatePoints(
+      this.lastPoint,
+      point,
+      this.interval
+    );
+    this.drawingPoints.push(...interpolated);
+    this.lastPoint = point;
+  }
 
-    this.isDrawing = true;
+  endStroke(): Point[] {
+    const points = [...this.drawingPoints];
+    this.drawingPoints = [];
+    this.lastPoint = null;
+    return points;
+  }
 
-    this.tempCtx.clearRect(0, 0, this.tempCanvas.width, this.tempCanvas.height);
+  getCurrentPoints(): Point[] {
+    return [...this.drawingPoints];
+  }
 
-    this.tempCtx.save();
-    this.tempCtx.globalCompositeOperation = "source-over";
+  renderToCanvas(
+    canvas: HTMLCanvasElement,
+    points: Point[],
+    scale: number = 1,
+    opacityOverride?: number
+  ): void {
+    if (!this.tintedBrush || !this.brushLoaded) return;
 
-    this.drawBrushStamp(pos.x, pos.y);
+    const ctx = canvas.getContext("2d")!;
+    ctx.save();
+    // IMPORTANT: Default to full opacity (1.0) for storage to avoid noise from semi-transparent pixels
+    // Visual opacity should be applied at the Konva layer level, not during canvas rendering
+    ctx.globalAlpha = opacityOverride !== undefined ? opacityOverride : 1.0;
 
-    this.tempCtx.restore();
+    ctx.imageSmoothingEnabled = false;
 
-    if (!this.tempKonvaImage) {
-      this.tempKonvaImage = new Konva.Image({
-        image: this.tempCanvas,
-        x: 0,
-        y: 0,
-        listening: false,
+    points.forEach((point) => {
+      const size = Math.round(this.brushSize / scale);
+      const x = Math.round(point.x - size / 2);
+      const y = Math.round(point.y - size / 2);
+      ctx.drawImage(this.tintedBrush!, x, y, size, size);
+    });
+
+    ctx.restore();
+  }
+
+  renderStrokeShape(
+    points: Point[],
+    scale: number = 1,
+    canvasWidth?: number,
+    canvasHeight?: number
+  ): Konva.Shape {
+    const tintedBrush = this.tintedBrush;
+    const brushLoaded = this.brushLoaded;
+    const opacity = this.opacity;
+    const brushSize = this.brushSize;
+
+    let preRenderedBuffer: HTMLCanvasElement | null = null;
+    if (tintedBrush && brushLoaded && points.length > 0) {
+      const width = canvasWidth || 1920;
+      const height = canvasHeight || 1080;
+      preRenderedBuffer = document.createElement("canvas");
+      preRenderedBuffer.width = width;
+      preRenderedBuffer.height = height;
+      const bufferCtx = preRenderedBuffer.getContext("2d")!;
+      bufferCtx.imageSmoothingEnabled = false;
+
+      points.forEach((point) => {
+        const size = Math.round(brushSize / scale);
+        const x = Math.round(point.x - size / 2);
+        const y = Math.round(point.y - size / 2);
+        bufferCtx.drawImage(tintedBrush!, x, y, size, size);
       });
-      this.tempLayer.add(this.tempKonvaImage);
     }
 
-    this.tempLayer.batchDraw();
-  }
+    return new Konva.Shape({
+      sceneFunc: (context) => {
+        if (!preRenderedBuffer) return;
 
-  public onMouseMove(_e: Konva.KonvaEventObject<MouseEvent>) {
-    if (!this.isDrawing || !this.brushImage) return;
-
-    const pos = this.tempLayer.getRelativePointerPosition();
-    if (!pos) return;
-
-    this.tempCtx.save();
-    this.tempCtx.globalCompositeOperation = "source-over";
-
-    this.drawBrushStamp(pos.x, pos.y);
-
-    this.tempCtx.restore();
-
-    if (this.tempKonvaImage) {
-      this.tempKonvaImage.getLayer()?.batchDraw();
-    }
-  }
-
-  public onMouseUp(_e: Konva.KonvaEventObject<MouseEvent>) {
-    if (!this.isDrawing) return;
-
-    this.isDrawing = false;
-
-    this.transferToOffscreenCanvas();
-
-    if (this.onStrokeComplete) {
-      this.onStrokeComplete(this.offscreenCanvas);
-    }
-  }
-
-  public clearTempCanvas() {
-    this.tempCtx.clearRect(0, 0, this.tempCanvas.width, this.tempCanvas.height);
-    this.tempLayer.batchDraw();
-  }
-
-  private drawBrushStamp(x: number, y: number) {
-    if (!this.brushImage) return;
-
-    let destX = x - this.brushSize / 2;
-    let destY = y - this.brushSize / 2;
-
-    destX = Math.floor(destX);
-    destY = Math.floor(destY);
-
-    this.tempCtx.drawImage(
-      this.brushImage,
-      destX,
-      destY,
-      this.brushSize,
-      this.brushSize
-    );
-  }
-  private transferToOffscreenCanvas() {
-    this.offscreenCtx.save();
-
-    if (this.deleteMode) {
-      this.offscreenCtx.globalCompositeOperation = "destination-out";
-    } else {
-      this.offscreenCtx.globalCompositeOperation = "source-over";
-    }
-
-    this.offscreenCtx.drawImage(this.tempCanvas, 0, 0);
-
-    this.offscreenCtx.restore();
-    this.offscreenCtx.globalCompositeOperation = "source-over";
-  }
-
-  public getOffscreenCanvas(): HTMLCanvasElement {
-    return this.offscreenCanvas;
-  }
-
-  public clearOffscreenCanvas() {
-    this.offscreenCtx.clearRect(
-      0,
-      0,
-      this.offscreenCanvas.width,
-      this.offscreenCanvas.height
-    );
-  }
-
-  public async loadFromCanvas(canvas: HTMLCanvasElement) {
-    this.offscreenCtx.clearRect(
-      0,
-      0,
-      this.offscreenCanvas.width,
-      this.offscreenCanvas.height
-    );
-    this.offscreenCtx.drawImage(canvas, 0, 0);
-  }
-
-  public async loadFromDataURL(dataURL: string) {
-    return new Promise<void>((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        this.offscreenCtx.clearRect(
-          0,
-          0,
-          this.offscreenCanvas.width,
-          this.offscreenCanvas.height
-        );
-        this.offscreenCtx.drawImage(img, 0, 0);
-        resolve();
-      };
-      img.onerror = reject;
-      img.src = dataURL;
+        context.save();
+        context.globalAlpha = opacity;
+        context.imageSmoothingEnabled = false;
+        context.drawImage(preRenderedBuffer, 0, 0);
+        context.restore();
+      },
+      listening: false,
     });
   }
 
-  public destroy() {
-    if (this.tempKonvaImage) {
-      this.tempKonvaImage.destroy();
-    }
-    this.tempLayer.destroy();
+  createCursorShape(x: number, y: number, scale: number = 1): Konva.Circle {
+    return new Konva.Circle({
+      x,
+      y,
+      radius: this.brushSize / scale / 2,
+      fill: "rgba(255, 255, 255, 0.6)",
+      listening: false,
+      name: "brushCursor",
+    });
   }
 }
-
-export const createKonvaSegmentationBrush = async (
-  stage: Konva.Stage,
-  width: number,
-  height: number,
-  options: BrushOptions
-): Promise<KonvaSegmentationBrush> => {
-  const brush = new KonvaSegmentationBrush(stage, width, height, options);
-  await brush["loadDefaultBrush"]();
-  return brush;
-};

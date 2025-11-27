@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
-import FramePlayer from "../components/FramePlayer/index.vue";
-import VideoFrameExtractor from "../components/VideoFrameExtractor/index.vue";
+import FramePlayer from "../pages/videoView/index.vue";
+import VideoFrameExtractor from "../pages/VideoFrameExtractor/index.vue";
 
 const routes = [
   {

@@ -11,193 +11,25 @@
       <!-- Annotation Class Manager -->
 
       <!-- Vertical Toolbar -->
-      <div class="vertical-toolbar">
-        <div class="toolbar-section">
-          <div class="toolbar-title">Tools</div>
-          <button
-            :class="['tool-btn', { active: mode === 'pan' }]"
-            @click="setMode('pan')"
-            title="Pan"
-            :disabled="toolsDisabled"
-          >
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-              <path
-                d="M10 9h4V6h3l-5-5-5 5h3v3zm-1 1H6V7l-5 5 5 5v-3h3v-4zm14 2l-5-5v3h-3v4h3v3l5-5zm-9 3h-4v3H7l5 5 5-5h-3v-3z"
-              />
-            </svg>
-            <span>Pan</span>
-          </button>
-          <button
-            :class="['tool-btn', { active: mode === 'brush' }]"
-            @click="setMode('brush')"
-            title="Brush"
-          >
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-              <path
-                d="M7 14c-1.66 0-3 1.34-3 3 0 1.31-1.16 2-2 2 .92 1.22 2.49 2 4 2 2.21 0 4-1.79 4-4 0-1.66-1.34-3-3-3zm13.71-9.37l-1.34-1.34a.996.996 0 00-1.41 0L9 12.25 11.75 15l8.96-8.96a.996.996 0 000-1.41z"
-              />
-            </svg>
-            <span>Brush</span>
-          </button>
-          <button
-            :class="['tool-btn', { active: mode === 'eraser' }]"
-            @click="setMode('eraser')"
-            title="Eraser"
-          >
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-              <path
-                d="M16.24 3.56l4.95 4.94c.78.79.78 2.05 0 2.84L12 20.53a4.008 4.008 0 01-5.66 0L2.81 17c-.78-.79-.78-2.05 0-2.84l10.6-10.6c.79-.78 2.05-.78 2.83 0zM4.22 15.58l3.54 3.53c.78.79 2.04.79 2.83 0l3.53-3.53-4.95-4.95-4.95 4.95z"
-              />
-            </svg>
-            <span>Eraser</span>
-          </button>
-          <button
-            :class="['tool-btn', { active: mode === 'bbox' }]"
-            @click="setMode('bbox')"
-            title="Bounding Box"
-            :disabled="toolsDisabled"
-          >
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-              <path
-                d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z"
-              />
-            </svg>
-            <span>BBox</span>
-          </button>
-          <button
-            :class="['tool-btn', { active: mode === 'polygon' }]"
-            @click="setMode('polygon')"
-            title="Polygon"
-            :disabled="toolsDisabled"
-          >
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-              <path
-                d="M17.63 5.84C17.27 5.33 16.67 5 16 5H8c-.67 0-1.27.33-1.63.84L2 12l4.37 6.16c.36.51.96.84 1.63.84h8c.67 0 1.27-.33 1.63-.84L22 12l-4.37-6.16z"
-              />
-            </svg>
-            <span>Polygon</span>
-          </button>
-          <button
-            :class="['tool-btn', { active: mode === 'skeleton' }]"
-            @click="setMode('skeleton')"
-            title="Skeleton"
-            :disabled="toolsDisabled"
-          >
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-              <path
-                d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"
-              />
-            </svg>
-            <span>Skeleton</span>
-          </button>
-          <button
-            @click="handleDeleteSelected"
-            class="tool-btn delete-btn"
-            :disabled="!timelineRef?.selectedTrackId"
-            title="Delete Selected"
-          >
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-              <path
-                d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
-              />
-            </svg>
-            <span>Delete</span>
-          </button>
-        </div>
-
-        <div class="toolbar-divider"></div>
-
-        <div
-          v-if="mode === 'brush' || mode === 'eraser'"
-          class="toolbar-section"
-        >
-          <div class="toolbar-title">Size</div>
-          <div class="size-control">
-            <input
-              type="range"
-              min="5"
-              max="100"
-              v-model.number="brushSize"
-              @input="handleSizeChange"
-              class="vertical-slider"
-            />
-            <span class="size-value">{{ brushSize }}px</span>
-          </div>
-        </div>
-
-        <!-- Color Picker (not for brush - color comes from class) -->
-        <div v-if="mode === 'bbox'" class="toolbar-section">
-          <div class="toolbar-title">Color</div>
-          <input type="color" v-model="bboxColor" class="color-picker" />
-        </div>
-        <div v-if="mode === 'polygon'" class="toolbar-section">
-          <div class="toolbar-title">Color</div>
-          <input type="color" v-model="polygonColor" class="color-picker" />
-        </div>
-        <div v-if="mode === 'skeleton'" class="toolbar-section">
-          <div class="toolbar-title">Color</div>
-          <input type="color" v-model="skeletonColor" class="color-picker" />
-        </div>
-
-        <div class="toolbar-divider"></div>
-
-        <!-- Opacity -->
-        <div class="toolbar-section">
-          <div class="toolbar-title">Opacity</div>
-          <div class="opacity-control">
-            <input
-              type="range"
-              min="0.05"
-              max="1"
-              step="0.05"
-              v-model.number="opacity"
-              @input="handleOpacityChange"
-              class="vertical-slider"
-            />
-            <span class="opacity-value">{{ Math.round(opacity * 100) }}%</span>
-          </div>
-        </div>
-
-        <!-- Brush Actions (shown when strokes exist or editing segmentation) -->
-        <template v-if="hasPendingBrushStrokes || isEditingSegmentation">
-          <div class="toolbar-divider"></div>
-          <div class="toolbar-section brush-actions">
-            <button
-              class="action-btn clear-btn"
-              @click="handleClearStrokes"
-              title="Clear all strokes"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                width="18"
-                height="18"
-                fill="currentColor"
-              >
-                <path
-                  d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
-                />
-              </svg>
-              <span>Clear All</span>
-            </button>
-            <button
-              class="action-btn save-btn"
-              @click="handleSaveStrokes"
-              title="Save annotation"
-              :disabled="!hasPendingBrushStrokes && !hasUnsavedEraserChanges"
-            >
-              <svg
-                viewBox="0 0 24 24"
-                width="18"
-                height="18"
-                fill="currentColor"
-              >
-                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-              </svg>
-              <span>Save</span>
-            </button>
-          </div>
-        </template>
-      </div>
+      <VerticalToolbar
+        v-model:mode="mode"
+        v-model:brushSize="brushSize"
+        v-model:bboxColor="bboxColor"
+        v-model:polygonColor="polygonColor"
+        v-model:skeletonColor="skeletonColor"
+        v-model:opacity="opacity"
+        :tools-disabled="toolsDisabled"
+        :can-delete="!!timelineRef?.selectedTrackId"
+        :has-pending-brush-strokes="hasPendingBrushStrokes"
+        :is-editing-segmentation="isEditingSegmentation"
+        :has-unsaved-eraser-changes="hasUnsavedEraserChanges"
+        @delete="handleDeleteSelected"
+        @clear="handleClearStrokes"
+        @save="handleSaveStrokes"
+        @update:mode="setMode"
+        @update:brush-size="handleSizeChange"
+        @update:opacity="handleOpacityChange"
+      />
 
       <!-- Canvas Container -->
       <div class="canvas-container">
@@ -474,7 +306,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from "vue";
 import { useRouter } from "vue-router";
 import Konva from "konva";
-import { KonvaBrush } from "./KonvaBrush";
+import { KonvaBrush } from "../../utils/KonvaBrush";
 import { useFramesStore } from "../../stores/framesStore";
 import { useAnnotationStore } from "../../stores/annotationStore";
 import { useBoundingBoxTracks } from "../../composables/useBoundingBoxTracks";
@@ -502,11 +334,13 @@ import type { BoundingBox } from "../../types/boundingBox";
 import type { Polygon } from "../../types/polygon";
 import type { Skeleton } from "../../types/skeleton";
 import type { ToolClass } from "../../types/contours";
-import FramePlayerTimeline from "./FramePlayerTimeline.vue";
-import AnnotationClassManager from "../AnnotationClassManager.vue";
-import type { AnnotationClass } from "../AnnotationClassManager.vue";
-import ClassSelector from "../ClassSelector.vue";
-import type { MarkupType } from "../ClassSelector.vue";
+import FramePlayerTimeline from "../../components/FramePlayerTimeline/index.vue";
+import VerticalToolbar from "../../components/VerticalToolbar/index.vue";
+import type { ToolMode } from "../../components/VerticalToolbar/index.vue";
+import AnnotationClassManager from "../../components/AnnotationClassManager.vue";
+import type { AnnotationClass } from "../../components/AnnotationClassManager.vue";
+import ClassSelector from "../../components/ClassSelector.vue";
+import type { MarkupType } from "../../components/ClassSelector.vue";
 
 type TrackType = "bbox" | "polygon" | "skeleton" | "brush";
 
@@ -532,9 +366,7 @@ const currentFrame = ref(0);
 const currentImage = ref<HTMLImageElement | null>(null);
 const brush = ref<KonvaBrush | null>(null);
 
-const mode = ref<"brush" | "eraser" | "pan" | "bbox" | "polygon" | "skeleton">(
-  "pan"
-);
+const mode = ref<ToolMode>("pan");
 const brushSize = ref(20);
 const brushColor = ref("#FF0000");
 const bboxColor = ref("#FF0000");
@@ -1599,9 +1431,7 @@ const handleScrubberInput = (event: Event) => {
   jumpToFrame(parseInt(target.value, 10));
 };
 
-const setMode = (
-  newMode: "brush" | "eraser" | "pan" | "bbox" | "polygon" | "skeleton"
-) => {
+const setMode = (newMode: ToolMode) => {
   mode.value = newMode;
   const stage = stageRef.value?.getStage();
   if (!stage) return;
@@ -4351,168 +4181,6 @@ watch(
   flex-shrink: 0;
   max-height: calc(100vh - 200px);
   overflow-y: auto;
-}
-
-/* Vertical Toolbar */
-.vertical-toolbar {
-  display: flex;
-  flex-direction: column;
-  background: #2d3748;
-  border-radius: 12px;
-  padding: 12px;
-  gap: 8px;
-  min-width: 100px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-}
-
-.toolbar-section {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.toolbar-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: #a0aec0;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  padding: 0 4px;
-}
-
-.toolbar-divider {
-  height: 1px;
-  background: #4a5568;
-  margin: 8px 0;
-}
-
-.tool-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 10px 8px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: #a0aec0;
-  cursor: pointer;
-  transition: all 0.2s;
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.tool-btn:hover {
-  background: #4a5568;
-  color: white;
-}
-
-.tool-btn.active {
-  background: #4299e1;
-  color: white;
-}
-
-.tool-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.tool-btn.delete-btn {
-  color: #fc8181;
-}
-
-.tool-btn.delete-btn:hover:not(:disabled) {
-  background: #e53e3e;
-  color: white;
-}
-
-.tool-btn svg {
-  flex-shrink: 0;
-}
-
-/* Brush Actions */
-.brush-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.action-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  border: none;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.action-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.clear-btn {
-  background: #fc8181;
-  color: white;
-}
-
-.clear-btn:hover:not(:disabled) {
-  background: #e53e3e;
-}
-
-.save-btn {
-  background: #48bb78;
-  color: white;
-}
-
-.save-btn:hover:not(:disabled) {
-  background: #38a169;
-}
-
-/* Size and Opacity Controls */
-.size-control,
-.opacity-control {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 4px;
-}
-
-.vertical-slider {
-  width: 80px;
-  cursor: pointer;
-}
-
-.size-value,
-.opacity-value {
-  font-size: 12px;
-  color: #a0aec0;
-  font-weight: 500;
-}
-
-/* Color Picker in Toolbar */
-.vertical-toolbar .color-picker {
-  width: 100%;
-  height: 32px;
-  border: 2px solid #4a5568;
-  border-radius: 6px;
-  cursor: pointer;
-  padding: 2px;
-  background: transparent;
-}
-
-.vertical-toolbar .color-picker::-webkit-color-swatch-wrapper {
-  padding: 0;
-}
-
-.vertical-toolbar .color-picker::-webkit-color-swatch {
-  border: none;
-  border-radius: 4px;
 }
 
 /* Canvas Container */
