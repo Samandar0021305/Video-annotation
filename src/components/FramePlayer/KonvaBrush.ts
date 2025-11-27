@@ -140,27 +140,43 @@ export class KonvaBrush {
     ctx.restore();
   }
 
-  renderStrokeShape(points: Point[], scale: number = 1): Konva.Shape {
+  renderStrokeShape(
+    points: Point[],
+    scale: number = 1,
+    canvasWidth?: number,
+    canvasHeight?: number
+  ): Konva.Shape {
     const tintedBrush = this.tintedBrush;
     const brushLoaded = this.brushLoaded;
     const opacity = this.opacity;
     const brushSize = this.brushSize;
 
+    let preRenderedBuffer: HTMLCanvasElement | null = null;
+    if (tintedBrush && brushLoaded && points.length > 0) {
+      const width = canvasWidth || 1920;
+      const height = canvasHeight || 1080;
+      preRenderedBuffer = document.createElement("canvas");
+      preRenderedBuffer.width = width;
+      preRenderedBuffer.height = height;
+      const bufferCtx = preRenderedBuffer.getContext("2d")!;
+      bufferCtx.imageSmoothingEnabled = false;
+
+      points.forEach((point) => {
+        const size = Math.round(brushSize / scale);
+        const x = Math.round(point.x - size / 2);
+        const y = Math.round(point.y - size / 2);
+        bufferCtx.drawImage(tintedBrush!, x, y, size, size);
+      });
+    }
+
     return new Konva.Shape({
       sceneFunc: (context) => {
-        if (!tintedBrush || !brushLoaded) return;
+        if (!preRenderedBuffer) return;
 
         context.save();
         context.globalAlpha = opacity;
         context.imageSmoothingEnabled = false;
-
-        points.forEach((point) => {
-          const size = Math.round(brushSize / scale);
-          const x = Math.round(point.x - size / 2);
-          const y = Math.round(point.y - size / 2);
-          context.drawImage(tintedBrush!, x, y, size, size);
-        });
-
+        context.drawImage(preRenderedBuffer, 0, 0);
         context.restore();
       },
       listening: false,

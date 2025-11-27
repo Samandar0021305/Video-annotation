@@ -2425,7 +2425,9 @@ const handleMouseMove = () => {
       brushGroup.destroyChildren();
       const shape = brush.value.renderStrokeShape(
         brush.value.getCurrentPoints(),
-        1
+        1,
+        stageConfig.value.width,
+        stageConfig.value.height
       );
       brushGroup.add(shape);
       interactiveLayerRef.value?.getNode()?.batchDraw();
@@ -3625,7 +3627,7 @@ watch(hoveredBrushTrackId, async () => {
   display: flex;
   gap: 16px;
   align-items: flex-start;
-  position: relative;
+  /* position: relative; */
 }
 
 /* Vertical Toolbar */
@@ -3767,6 +3769,7 @@ watch(hoveredBrushTrackId, async () => {
   transition: all 0.3s ease;
   z-index: 100;
   pointer-events: none;
+  right: 10px;
 }
 
 .right-panel.visible {

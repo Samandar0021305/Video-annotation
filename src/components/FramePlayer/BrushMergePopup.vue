@@ -169,7 +169,6 @@ onUnmounted(() => {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   z-index: 1000;
   color: #ffffff;
-  left: 45vh;
 }
 
 .popup-header {
