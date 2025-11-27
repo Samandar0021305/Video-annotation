@@ -39,24 +39,7 @@
             />
           </svg>
         </button>
-        <button
-          class="action-btn"
-          title="Move up"
-          :disabled="!searchQuery.trim()"
-        >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-            <path d="M7 14l5-5 5 5z" />
-          </svg>
-        </button>
-        <button
-          class="action-btn"
-          title="Move down"
-          :disabled="!searchQuery.trim()"
-        >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-            <path d="M7 10l5 5 5-5z" />
-          </svg>
-        </button>
+
         <button
           class="save-btn"
           :disabled="!searchQuery.trim()"

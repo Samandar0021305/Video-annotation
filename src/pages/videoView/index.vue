@@ -735,6 +735,12 @@ const drawingStartFrame = ref<number | null>(null);
 
 const lastPanPoint = ref<{ x: number; y: number } | null>(null);
 
+// Mask dragging state
+const isDraggingMask = ref(false);
+const draggingMaskTrackId = ref<string | null>(null);
+const maskDragStartPoint = ref<{ x: number; y: number } | null>(null);
+const maskDragCurrentDelta = ref<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
+
 // Hover detection throttling (20 FPS to balance responsiveness vs performance)
 let lastHoverCheckTime = 0;
 
@@ -818,6 +824,7 @@ const {
   setHoveredTrack,
   setSegmentationEditMode,
   getSelectedTrackColor,
+  updateMaskPosition,
 } = useBrushTracks(currentFrame);
 
 const brushClasses = computed(() => {
@@ -1108,6 +1115,123 @@ const renderBrushAnnotations = async (frameIndex: number) => {
   }
 
   currentDisplayFrame = frameIndex;
+};
+
+/**
+ * Render frame with a mask offset for drag preview
+ * This renders the dragging mask at an offset position for visual feedback
+ */
+const renderFrameWithMaskOffset = async (
+  frameIndex: number,
+  dragTrackId: string,
+  offsetX: number,
+  offsetY: number
+) => {
+  if (!workingCanvas || !displayCanvas) {
+    initCanvases(stageConfig.value.width, stageConfig.value.height);
+  }
+
+  clearCanvas(workingCanvas!);
+
+  let hasAnnotations = false;
+
+  // Create a separate canvas for the dragging track
+  const draggingTrackCanvas = document.createElement("canvas");
+  draggingTrackCanvas.width = stageConfig.value.width;
+  draggingTrackCanvas.height = stageConfig.value.height;
+
+  // Render all visible brush tracks
+  for (const [trackId] of visibleBrushTracks.value) {
+    const track = visibleBrushTracks.value.get(trackId);
+    if (!track) continue;
+
+    // Check ranges
+    const ranges = track.ranges || [];
+    const isInRange =
+      ranges.length === 0
+        ? true
+        : ranges.some(
+            ([start, end]) => frameIndex >= start && frameIndex < end
+          );
+    if (!isInRange) continue;
+
+    const isDragging = trackId === dragTrackId;
+    const targetCanvas = isDragging ? draggingTrackCanvas : workingCanvas!;
+
+    const keyframeData = track.keyframes.get(frameIndex);
+    if (keyframeData && keyframeData.length > 0) {
+      if (isMaskData(keyframeData)) {
+        if (isDragging) {
+          // Render with offset for dragging track
+          const offsetMasks = keyframeData.map((mask) => ({
+            ...mask,
+            left: mask.left + offsetX,
+            top: mask.top + offsetY,
+            right: mask.right + offsetX,
+            bottom: mask.bottom + offsetY,
+          }));
+          renderMasksToCanvas(offsetMasks, targetCanvas, false, 1);
+        } else {
+          renderMasksToCanvas(keyframeData, targetCanvas, false, 1);
+        }
+      } else {
+        // Legacy contour rendering (no offset support)
+        await renderContoursToTargetCanvas(
+          brushClasses.value,
+          keyframeData,
+          1,
+          targetCanvas,
+          false
+        );
+      }
+      hasAnnotations = true;
+    } else if (track.interpolationEnabled) {
+      const frames = Array.from(track.keyframes.keys()).sort((a, b) => a - b);
+      let beforeFrame: number | null = null;
+      for (const f of frames) {
+        if (f <= frameIndex) beforeFrame = f;
+        else break;
+      }
+      if (beforeFrame !== null) {
+        const beforeData = track.keyframes.get(beforeFrame);
+        if (beforeData && beforeData.length > 0) {
+          if (isMaskData(beforeData)) {
+            if (isDragging) {
+              const offsetMasks = beforeData.map((mask) => ({
+                ...mask,
+                left: mask.left + offsetX,
+                top: mask.top + offsetY,
+                right: mask.right + offsetX,
+                bottom: mask.bottom + offsetY,
+              }));
+              renderMasksToCanvas(offsetMasks, targetCanvas, false, 1);
+            } else {
+              renderMasksToCanvas(beforeData, targetCanvas, false, 1);
+            }
+          } else {
+            await renderContoursToTargetCanvas(
+              brushClasses.value,
+              beforeData,
+              1,
+              targetCanvas,
+              false
+            );
+          }
+          hasAnnotations = true;
+        }
+      }
+    }
+  }
+
+  if (hasAnnotations) {
+    // Update display with dragging track shown with selection-like styling
+    updateAnnotationLayerWithSelectionAndHover(
+      workingCanvas!,
+      draggingTrackCanvas,
+      null,
+      frameIndex
+    );
+  }
 };
 
 const renderBrushAnnotationsWithTempStrokes = async (frameIndex: number) => {
@@ -2478,7 +2602,17 @@ const handleMouseDown = (e: any) => {
           currentFrame.value
         );
         if (trackId) {
-          // Clicked on a segmentation - select it
+          // Check if this segmentation is already selected - start dragging
+          if (selectedBrushTrackId.value === trackId && showSegmentationToolbar.value) {
+            // Start dragging the selected segmentation
+            isDraggingMask.value = true;
+            draggingMaskTrackId.value = trackId;
+            maskDragStartPoint.value = { x: logicalPos.x, y: logicalPos.y };
+            maskDragCurrentDelta.value = { dx: 0, dy: 0 };
+            stage.container().style.cursor = "move";
+            return;
+          }
+          // Clicked on a different segmentation - select it
           handleSelectSegmentationAtPoint(logicalPos.x, logicalPos.y);
           return;
         }
@@ -2589,6 +2723,20 @@ const handleMouseMove = () => {
   const screenPos = getStagePointerPosition();
   if (!screenPos) return;
 
+  // Handle mask dragging
+  if (isDraggingMask.value && maskDragStartPoint.value && draggingMaskTrackId.value) {
+    const logicalPos = getLogicalPointerPosition();
+    if (!logicalPos) return;
+
+    const dx = logicalPos.x - maskDragStartPoint.value.x;
+    const dy = logicalPos.y - maskDragStartPoint.value.y;
+    maskDragCurrentDelta.value = { dx, dy };
+
+    // Re-render with drag offset for visual feedback
+    renderFrameWithMaskOffset(currentFrame.value, draggingMaskTrackId.value, dx, dy);
+    return;
+  }
+
   if (isPanning.value && lastPanPoint.value) {
     const stage = stageRef.value?.getStage();
     if (!stage) return;
@@ -2698,6 +2846,41 @@ const handleMouseMove = () => {
 
 const handleMouseUp = async () => {
   const stage = stageRef.value?.getStage();
+
+  // Handle mask drag end
+  if (isDraggingMask.value && draggingMaskTrackId.value) {
+    const { dx, dy } = maskDragCurrentDelta.value;
+
+    // Only update if there was actual movement
+    if (dx !== 0 || dy !== 0) {
+      // Update the mask position in the data
+      updateMaskPosition(
+        draggingMaskTrackId.value,
+        dx,
+        dy,
+        currentFrame.value,
+        stageConfig.value.width,
+        stageConfig.value.height
+      );
+
+      // Re-render the frame with updated positions
+      currentDisplayFrame = -1; // Force re-render
+      await renderFrame(currentFrame.value);
+      saveAnnotations();
+    }
+
+    // Reset drag state
+    isDraggingMask.value = false;
+    draggingMaskTrackId.value = null;
+    maskDragStartPoint.value = null;
+    maskDragCurrentDelta.value = { dx: 0, dy: 0 };
+
+    if (stage) {
+      stage.container().style.cursor = "default";
+    }
+    return;
+  }
+
   if (stage && isPanning.value) {
     stage.container().style.cursor =
       mode.value === ToolModeEnum.PAN

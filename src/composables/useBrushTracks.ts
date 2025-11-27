@@ -725,6 +725,76 @@ export function useBrushTracks(currentFrame: Ref<number>) {
     return hoveredTrackId.value === trackId;
   }
 
+  /**
+   * Update mask position by applying a delta offset to all masks in a track at the current frame
+   * @param trackId - The track to update
+   * @param dx - Delta X offset
+   * @param dy - Delta Y offset
+   * @param frame - The frame to update
+   * @param canvasWidth - Canvas width for boundary checking
+   * @param canvasHeight - Canvas height for boundary checking
+   */
+  function updateMaskPosition(
+    trackId: string,
+    dx: number,
+    dy: number,
+    frame: number,
+    canvasWidth: number,
+    canvasHeight: number
+  ): void {
+    const track = tracks.value.get(trackId);
+    if (!track) return;
+
+    const keyframeData = track.keyframes.get(frame);
+    if (!keyframeData || !isMaskData(keyframeData)) return;
+
+    // Update each mask's bounding box coordinates
+    const updatedMasks = keyframeData.map((mask) => {
+      // Calculate new bounds with boundary checking
+      let newLeft = Math.round(mask.left + dx);
+      let newTop = Math.round(mask.top + dy);
+      let newRight = Math.round(mask.right + dx);
+      let newBottom = Math.round(mask.bottom + dy);
+
+      // Clamp to canvas boundaries
+      const maskWidth = mask.right - mask.left;
+      const maskHeight = mask.bottom - mask.top;
+
+      if (newLeft < 0) {
+        newLeft = 0;
+        newRight = maskWidth;
+      }
+      if (newTop < 0) {
+        newTop = 0;
+        newBottom = maskHeight;
+      }
+      if (newRight >= canvasWidth) {
+        newRight = canvasWidth - 1;
+        newLeft = newRight - maskWidth;
+      }
+      if (newBottom >= canvasHeight) {
+        newBottom = canvasHeight - 1;
+        newTop = newBottom - maskHeight;
+      }
+
+      return {
+        ...mask,
+        left: newLeft,
+        top: newTop,
+        right: newRight,
+        bottom: newBottom,
+      };
+    });
+
+    track.keyframes.set(frame, updatedMasks);
+
+    // Also update the edit state if this track is selected
+    const editState = trackEditStates.value.get(trackId);
+    if (editState) {
+      editState.originalMasks = updatedMasks;
+    }
+  }
+
   return {
     tracks,
     selectedTrackId,
@@ -765,6 +835,7 @@ export function useBrushTracks(currentFrame: Ref<number>) {
     changeSelectedTrackColor,
     getSelectedTrackColor,
     isTrackSelected,
-    isTrackHovered
+    isTrackHovered,
+    updateMaskPosition
   };
 }
