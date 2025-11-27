@@ -2853,14 +2853,15 @@ const handleMouseUp = async () => {
 
     // Only update if there was actual movement
     if (dx !== 0 || dy !== 0) {
-      // Update the mask position in the data
+      // Update the mask position in the data (with auto-suggest support)
       updateMaskPosition(
         draggingMaskTrackId.value,
         dx,
         dy,
         currentFrame.value,
         stageConfig.value.width,
-        stageConfig.value.height
+        stageConfig.value.height,
+        autoSuggest.value
       );
 
       // Re-render the frame with updated positions
