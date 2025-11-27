@@ -1,6 +1,15 @@
 <template>
   <div class="frame-player">
+    <div class="class-manager-panel">
+      <AnnotationClassManager
+        v-model="annotationClasses"
+        v-model:selectedClassId="selectedClassId"
+        @select="handleClassSelect"
+      />
+    </div>
     <div class="main-content">
+      <!-- Annotation Class Manager -->
+
       <!-- Vertical Toolbar -->
       <div class="vertical-toolbar">
         <div class="toolbar-section">
@@ -456,6 +465,8 @@ import type { ToolClass } from "../../types/contours";
 import FramePlayerTimeline from "./FramePlayerTimeline.vue";
 import BrushMergePopup from "./BrushMergePopup.vue";
 import SegmentationToolbar from "./SegmentationToolbar.vue";
+import AnnotationClassManager from "../AnnotationClassManager.vue";
+import type { AnnotationClass } from "../AnnotationClassManager.vue";
 
 type TrackType = "bbox" | "polygon" | "skeleton" | "brush";
 
@@ -492,6 +503,26 @@ const skeletonColor = ref("#0000FF");
 const opacity = ref(0.7);
 const zoomLevel = ref(1);
 const autoSuggest = ref(false);
+
+const annotationClasses = ref<AnnotationClass[]>([]);
+const selectedClassId = ref<string | null>(null);
+
+const handleClassSelect = (cls: AnnotationClass) => {
+  if (cls.markupType === "bbox") {
+    bboxColor.value = cls.color;
+    setMode("bbox");
+  } else if (cls.markupType === "mask") {
+    brushColor.value = cls.color;
+    brush.value?.changeColor(cls.color);
+    setMode("brush");
+  } else if (cls.markupType === "polygon") {
+    polygonColor.value = cls.color;
+    setMode("polygon");
+  } else if (cls.markupType === "skeleton") {
+    skeletonColor.value = cls.color;
+    setMode("skeleton");
+  }
+};
 
 const isDrawing = ref(false);
 const isPanning = ref(false);
@@ -3630,6 +3661,13 @@ watch(hoveredBrushTrackId, async () => {
   /* position: relative; */
 }
 
+/* Class Manager Panel */
+.class-manager-panel {
+  flex-shrink: 0;
+  max-height: calc(100vh - 200px);
+  overflow-y: auto;
+}
+
 /* Vertical Toolbar */
 .vertical-toolbar {
   display: flex;
@@ -3919,6 +3957,10 @@ watch(hoveredBrushTrackId, async () => {
   cursor: pointer;
   width: 14px;
   height: 14px;
+}
+.class-manager-panel {
+  position: absolute;
+  left: 10px;
 }
 
 .auto-suggest-toggle input:checked + span {
