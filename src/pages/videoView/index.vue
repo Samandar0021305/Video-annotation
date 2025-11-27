@@ -3404,6 +3404,11 @@ const handleDeselectSegmentation = async () => {
   showSegmentationToolbar.value = false;
   setSegmentationEditMode("none");
 
+  // Clear editing state to re-enable tools
+  editingBrushTrackId.value = null;
+  classSelectorInitialClass.value = null;
+  showClassSelector.value = false;
+
   // Restore default cursor
   const stage = stageRef.value?.getStage();
   if (stage) {
