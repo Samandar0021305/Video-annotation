@@ -5,6 +5,8 @@
         v-model="annotationClasses"
         v-model:selectedClassId="selectedClassId"
         @select="handleClassSelect"
+        @add="handleClassAdd"
+        @delete="handleClassDelete"
       />
     </div>
     <div class="main-content">
@@ -371,6 +373,14 @@ const handleClassSelect = (cls: AnnotationClass) => {
   }
 };
 
+const handleClassAdd = () => {
+  saveAnnotations();
+};
+
+const handleClassDelete = () => {
+  saveAnnotations();
+};
+
 // Class Selector state
 const showClassSelector = ref(false);
 const classSelectorMarkupType = ref<MarkupTypeValue>(MarkupType.BBOX);
@@ -647,6 +657,8 @@ const handleClassSelectorCreate = (
   };
   annotationClasses.value.push(newClass);
   handleClassSelectorSelect(newClass);
+  // Save annotations after class creation to persist the new class
+  saveAnnotations();
 };
 
 const handleClassSelectorClose = () => {
@@ -3760,16 +3772,6 @@ watch(hoveredBrushTrackId, async () => {
   }
 });
 
-// Save when annotation classes change
-watch(
-  annotationClasses,
-  () => {
-    if (framesLoaded.value) {
-      saveAnnotations();
-    }
-  },
-  { deep: true }
-);
 </script>
 
 <style scoped>

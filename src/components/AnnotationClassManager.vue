@@ -99,6 +99,7 @@ const emit = defineEmits<{
   (e: "update:modelValue", classes: AnnotationClass[]): void;
   (e: "update:selectedClassId", id: string | null): void;
   (e: "select", cls: AnnotationClass): void;
+  (e: "add", cls: AnnotationClass): void;
   (e: "delete", id: string): void;
 }>();
 
@@ -133,6 +134,7 @@ const addClass = () => {
   };
 
   classes.value = [...classes.value, newClass];
+  emit("add", newClass);
 
   newClassName.value = "";
   newClassColor.value = "#FF0000";
