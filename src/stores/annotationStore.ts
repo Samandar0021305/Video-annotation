@@ -1,14 +1,14 @@
-import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
+import { defineStore } from "pinia";
+import { ref, computed } from "vue";
 import {
   loadAnnotations,
   saveAnnotations,
   tracksMapToArray,
   tracksArrayToMap,
   type AnnotationClass,
-} from '../services/annotationApi';
+} from "../services/annotationApi";
 
-export const useAnnotationStore = defineStore('annotations', () => {
+export const useAnnotationStore = defineStore("annotations", () => {
   // State - using Maps for efficient track access by ID
   const bboxTracks = ref<Map<string, any>>(new Map());
   const polygonTracks = ref<Map<string, any>>(new Map());
@@ -19,7 +19,7 @@ export const useAnnotationStore = defineStore('annotations', () => {
   const classes = ref<AnnotationClass[]>([]);
 
   // Metadata
-  const videoFileName = ref<string>('');
+  const videoFileName = ref<string>("");
   const isLoading = ref<boolean>(false);
   const isSaving = ref<boolean>(false);
 
@@ -47,7 +47,7 @@ export const useAnnotationStore = defineStore('annotations', () => {
       classes.value = data.classes || [];
       videoFileName.value = fileName;
     } catch (error) {
-      console.error('Failed to load annotations:', error);
+      console.error("Failed to load annotations:", error);
       throw error;
     } finally {
       isLoading.value = false;
@@ -67,7 +67,7 @@ export const useAnnotationStore = defineStore('annotations', () => {
       };
       await saveAnnotations(videoFileName.value, payload, classes.value);
     } catch (error) {
-      console.error('Failed to save annotations:', error);
+      console.error("Failed to save annotations:", error);
       throw error;
     } finally {
       isSaving.value = false;
@@ -79,6 +79,7 @@ export const useAnnotationStore = defineStore('annotations', () => {
     polygonTracks.value.clear();
     skeletonTracks.value.clear();
     brushTracks.value.clear();
+    classes.value = [];
 
     // Save empty state to API
     await save();
@@ -164,11 +165,11 @@ export const useAnnotationStore = defineStore('annotations', () => {
   }
 
   function deleteClass(classId: string) {
-    classes.value = classes.value.filter(c => c.id !== classId);
+    classes.value = classes.value.filter((c) => c.id !== classId);
   }
 
   function getClassByValue(value: number) {
-    return classes.value.find(c => c.value === value);
+    return classes.value.find((c) => c.value === value);
   }
 
   return {

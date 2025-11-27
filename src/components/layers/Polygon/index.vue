@@ -2,6 +2,7 @@
   <v-group ref="groupRef">
     <template v-for="polygon in polygons" :key="polygon.id">
       <v-line
+        :ref="(el: any) => setLineRef(polygon.id, el)"
         :config="{
           id: polygon.id,
           x: 0,
@@ -16,11 +17,13 @@
           opacity: opacity,
         }"
         @click="onPolygonClick"
+        @dragmove="onPolygonDragMove"
         @dragend="onPolygonDragEnd"
       />
       <v-circle
         v-for="(point, pointIdx) in polygon.points"
         :key="`${polygon.id}-pt-${pointIdx}`"
+        :ref="(el: any) => setCircleRef(polygon.id, pointIdx, el)"
         :config="{
           x: point.x,
           y: point.y,
@@ -62,6 +65,27 @@ const emit = defineEmits<{
 
 const groupRef = ref<{ getNode: () => Konva.Group } | null>(null);
 
+// Store references to line and circle elements for real-time updates during drag
+const lineRefs = new Map<string, { getNode: () => Konva.Line }>();
+const circleRefs = new Map<string, { getNode: () => Konva.Circle }>();
+
+const setLineRef = (polygonId: string, el: any) => {
+  if (el) {
+    lineRefs.set(polygonId, el);
+  } else {
+    lineRefs.delete(polygonId);
+  }
+};
+
+const setCircleRef = (polygonId: string, pointIdx: number, el: any) => {
+  const key = `${polygonId}-${pointIdx}`;
+  if (el) {
+    circleRefs.set(key, el);
+  } else {
+    circleRefs.delete(key);
+  }
+};
+
 const canDrag = computed(() => props.mode === "pan");
 
 const onPolygonClick = (e: any) => {
@@ -70,12 +94,44 @@ const onPolygonClick = (e: any) => {
   emit("click", trackId, e);
 };
 
-const onPolygonDragEnd = (e: any) => {
-  const line = e.target;
+// Handle real-time dragging - move circles along with the line
+const onPolygonDragMove = (e: any) => {
+  const line = e.target as Konva.Line;
   const trackId = line.id();
+  const deltaX = line.x();
+  const deltaY = line.y();
+
+  // Find the polygon to get the number of points
+  const polygon = props.polygons.find((p) => p.id === trackId);
+  if (!polygon) return;
+
+  // Update all circle positions in real-time
+  polygon.points.forEach((point, pointIdx) => {
+    const circleRef = circleRefs.get(`${trackId}-${pointIdx}`);
+    if (circleRef) {
+      const circle = circleRef.getNode();
+      if (circle) {
+        circle.x(point.x + deltaX);
+        circle.y(point.y + deltaY);
+      }
+    }
+  });
+};
+
+const onPolygonDragEnd = (e: any) => {
+  const line = e.target as Konva.Line;
+  const trackId = line.id();
+
+  // Get the total drag distance BEFORE resetting
+  const deltaX = line.x();
+  const deltaY = line.y();
+
+  // Reset line position
   line.x(0);
   line.y(0);
-  emit("drag-end", trackId, e.evt.movementX, e.evt.movementY, e);
+
+  // Emit the correct delta values
+  emit("drag-end", trackId, deltaX, deltaY, e);
 };
 
 const onVertexDragMove = (e: any, trackId: string, pointIdx: number) => {

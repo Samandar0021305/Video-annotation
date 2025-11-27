@@ -2,6 +2,7 @@
   <v-group ref="groupRef">
     <template v-for="skeleton in skeletons" :key="skeleton.id">
       <v-line
+        :ref="(el: any) => setLineRef(skeleton.id, el)"
         :config="{
           id: skeleton.id,
           x: 0,
@@ -16,11 +17,13 @@
           opacity: opacity,
         }"
         @click="onSkeletonClick"
+        @dragmove="onSkeletonDragMove"
         @dragend="onSkeletonDragEnd"
       />
       <v-circle
         v-for="(point, pointIdx) in skeleton.points"
         :key="`${skeleton.id}-kp-${pointIdx}`"
+        :ref="(el: any) => setCircleRef(skeleton.id, pointIdx, el)"
         :config="{
           x: point.x,
           y: point.y,
@@ -64,6 +67,27 @@ const emit = defineEmits<{
 
 const groupRef = ref<{ getNode: () => Konva.Group } | null>(null);
 
+// Store references to line and circle elements for real-time updates during drag
+const lineRefs = new Map<string, { getNode: () => Konva.Line }>();
+const circleRefs = new Map<string, { getNode: () => Konva.Circle }>();
+
+const setLineRef = (skeletonId: string, el: any) => {
+  if (el) {
+    lineRefs.set(skeletonId, el);
+  } else {
+    lineRefs.delete(skeletonId);
+  }
+};
+
+const setCircleRef = (skeletonId: string, pointIdx: number, el: any) => {
+  const key = `${skeletonId}-${pointIdx}`;
+  if (el) {
+    circleRefs.set(key, el);
+  } else {
+    circleRefs.delete(key);
+  }
+};
+
 const canDrag = computed(() => props.mode === "pan");
 
 const onSkeletonClick = (e: any) => {
@@ -72,12 +96,44 @@ const onSkeletonClick = (e: any) => {
   emit("click", trackId, e);
 };
 
-const onSkeletonDragEnd = (e: any) => {
-  const line = e.target;
+// Handle real-time dragging - move keypoints along with the line
+const onSkeletonDragMove = (e: any) => {
+  const line = e.target as Konva.Line;
   const trackId = line.id();
+  const deltaX = line.x();
+  const deltaY = line.y();
+
+  // Find the skeleton to get the number of points
+  const skeleton = props.skeletons.find((s) => s.id === trackId);
+  if (!skeleton) return;
+
+  // Update all keypoint positions in real-time
+  skeleton.points.forEach((point, pointIdx) => {
+    const circleRef = circleRefs.get(`${trackId}-${pointIdx}`);
+    if (circleRef) {
+      const circle = circleRef.getNode();
+      if (circle) {
+        circle.x(point.x + deltaX);
+        circle.y(point.y + deltaY);
+      }
+    }
+  });
+};
+
+const onSkeletonDragEnd = (e: any) => {
+  const line = e.target as Konva.Line;
+  const trackId = line.id();
+
+  // Get the total drag distance BEFORE resetting
+  const deltaX = line.x();
+  const deltaY = line.y();
+
+  // Reset line position
   line.x(0);
   line.y(0);
-  emit("drag-end", trackId, e.evt.movementX, e.evt.movementY, e);
+
+  // Emit the correct delta values
+  emit("drag-end", trackId, deltaX, deltaY, e);
 };
 
 const onKeypointDragStart = (e: any, trackId: string, pointIdx: number) => {
