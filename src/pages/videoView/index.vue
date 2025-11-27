@@ -171,14 +171,14 @@ import { useRouter } from "vue-router";
 import Konva from "konva";
 import {
   KonvaBrush,
-  BBoxTool,
-  PolygonTool,
-  SkeletonTool,
   BoundingBoxLayer,
   PolygonLayer,
   SkeletonLayer,
   BrushAnnotationLayer,
   BrushPreviewLayer,
+  BBoxTool,
+  PolygonTool,
+  SkeletonTool,
   type BoundingBox,
   type Polygon,
   type Skeleton,
@@ -216,7 +216,6 @@ import type {
 import AnnotationClassManager from "../../components/AnnotationClassManager.vue";
 import type { AnnotationClass } from "../../components/AnnotationClassManager.vue";
 import ClassSelector from "../../components/ClassSelector.vue";
-import type { MarkupType } from "../../components/ClassSelector.vue";
 import type {
   TrackType,
   PendingBbox,
@@ -226,7 +225,17 @@ import type {
   TempBrushStroke,
   ColocatedPoint,
 } from "./types";
-import { HOVER_THROTTLE_MS, MAX_WIDTH, MAX_HEIGHT, COLOCATED_EPSILON } from "./enums";
+import {
+  HOVER_THROTTLE_MS,
+  MAX_WIDTH,
+  MAX_HEIGHT,
+  COLOCATED_EPSILON,
+  MarkupType,
+  TrackType as TrackTypeEnum,
+  ToolMode as ToolModeEnum,
+  SegmentationEditMode as SegEditMode,
+  type MarkupTypeValue,
+} from "./enums";
 import { useLayerRefs } from "./layers";
 import {
   clearCanvas,
@@ -281,7 +290,7 @@ const brushAnnotationCanvasData = ref<{
   renderVersion: 0,
 });
 
-const mode = ref<ToolMode>("pan");
+const mode = ref<ToolMode>(ToolModeEnum.PAN);
 const brushSize = ref(20);
 const brushColor = ref("#FF0000");
 const bboxColor = ref("#FF0000");
@@ -295,16 +304,16 @@ const annotationClasses = ref<AnnotationClass[]>([]);
 const selectedClassId = ref<string | null>(null);
 
 const hasBboxClasses = computed(() =>
-  annotationClasses.value.some((c) => c.markupType === "bbox")
+  annotationClasses.value.some((c) => c.markupType === MarkupType.BBOX)
 );
 const hasPolygonClasses = computed(() =>
-  annotationClasses.value.some((c) => c.markupType === "polygon")
+  annotationClasses.value.some((c) => c.markupType === MarkupType.POLYGON)
 );
 const hasSkeletonClasses = computed(() =>
-  annotationClasses.value.some((c) => c.markupType === "skeleton")
+  annotationClasses.value.some((c) => c.markupType === MarkupType.SKELETON)
 );
 const hasMaskClasses = computed(() =>
-  annotationClasses.value.some((c) => c.markupType === "mask")
+  annotationClasses.value.some((c) => c.markupType === MarkupType.MASK)
 );
 
 const visibleBboxTracks = computed(() =>
@@ -346,25 +355,25 @@ const toolsDisabled = computed(
 
 const handleClassSelect = (cls: AnnotationClass) => {
   selectedClassId.value = cls.id;
-  if (cls.markupType === "bbox") {
+  if (cls.markupType === MarkupType.BBOX) {
     bboxColor.value = cls.color;
-    setMode("bbox");
-  } else if (cls.markupType === "mask") {
+    setMode(ToolModeEnum.BBOX);
+  } else if (cls.markupType === MarkupType.MASK) {
     brushColor.value = cls.color;
     brush.value?.changeColor(cls.color);
-    setMode("brush");
-  } else if (cls.markupType === "polygon") {
+    setMode(ToolModeEnum.BRUSH);
+  } else if (cls.markupType === MarkupType.POLYGON) {
     polygonColor.value = cls.color;
-    setMode("polygon");
-  } else if (cls.markupType === "skeleton") {
+    setMode(ToolModeEnum.POLYGON);
+  } else if (cls.markupType === MarkupType.SKELETON) {
     skeletonColor.value = cls.color;
-    setMode("skeleton");
+    setMode(ToolModeEnum.SKELETON);
   }
 };
 
 // Class Selector state
 const showClassSelector = ref(false);
-const classSelectorMarkupType = ref<MarkupType>("bbox");
+const classSelectorMarkupType = ref<MarkupTypeValue>(MarkupType.BBOX);
 const classSelectorPosition = ref({ x: 100, y: 100 });
 const classSelectorInitialClass = ref<AnnotationClass | null>(null);
 const editingBboxTrackId = ref<string | null>(null);
@@ -497,7 +506,7 @@ const handleClassSelectorSelect = (cls: AnnotationClass) => {
       physicalFrames.value
     );
     selectedBboxTrackId.value = trackId;
-    timelineRef.value?.selectTrack(trackId, "bbox");
+    timelineRef.value?.selectTrack(trackId, TrackTypeEnum.BBOX);
     pendingBbox.value = null;
     saveAnnotations();
   }
@@ -518,7 +527,7 @@ const handleClassSelectorSelect = (cls: AnnotationClass) => {
       physicalFrames.value
     );
     selectedPolygonTrackId.value = trackId;
-    timelineRef.value?.selectTrack(trackId, "polygon");
+    timelineRef.value?.selectTrack(trackId, TrackTypeEnum.POLYGON);
     pendingPolygon.value = null;
     saveAnnotations();
   }
@@ -539,7 +548,7 @@ const handleClassSelectorSelect = (cls: AnnotationClass) => {
       physicalFrames.value
     );
     selectedSkeletonTrackId.value = trackId;
-    timelineRef.value?.selectTrack(trackId, "skeleton");
+    timelineRef.value?.selectTrack(trackId, TrackTypeEnum.SKELETON);
     pendingSkeleton.value = null;
     saveAnnotations();
   }
@@ -579,7 +588,7 @@ const handleClassSelectorSelect = (cls: AnnotationClass) => {
           physicalFrames.value
         );
         selectedBrushTrackId.value = null;
-        timelineRef.value?.selectTrack(trackId, "brush");
+        timelineRef.value?.selectTrack(trackId, TrackTypeEnum.BRUSH);
 
         // Render the new mask to display
         if (!workingCanvas || !displayCanvas) {
@@ -610,7 +619,7 @@ const handleClassSelectorSelect = (cls: AnnotationClass) => {
     tempBrushStrokes.value = [];
     tempStrokesCanvas.value = null;
     tempStrokesConvertedToCanvas.value = false;
-    tempStrokesEditMode.value = "brush";
+    tempStrokesEditMode.value = SegEditMode.BRUSH;
     bufferFrame.value = null;
     pendingBrush.value = null;
     // Deselect any editing track to re-enable other tools
@@ -657,7 +666,7 @@ const handleClassSelectorClose = () => {
     tempBrushStrokes.value = [];
     tempStrokesCanvas.value = null;
     tempStrokesConvertedToCanvas.value = false;
-    tempStrokesEditMode.value = "brush";
+    tempStrokesEditMode.value = SegEditMode.BRUSH;
     bufferFrame.value = null;
     // Re-render to clear temp strokes from display
     renderFrame(currentFrame.value);
@@ -694,7 +703,7 @@ const getScreenPositionFromCanvas = (
 };
 
 const showClassSelectorForAnnotation = (
-  markupType: MarkupType,
+  markupType: MarkupTypeValue,
   position?: { x: number; y: number }
 ) => {
   classSelectorMarkupType.value = markupType;
@@ -724,7 +733,9 @@ const bufferFrame = ref<number | null>(null);
 
 // Temp strokes canvas editing state (for eraser in BrushMergePopup)
 const tempStrokesCanvas = ref<HTMLCanvasElement | null>(null);
-const tempStrokesEditMode = ref<"brush" | "eraser">("brush");
+const tempStrokesEditMode = ref<
+  typeof SegEditMode.BRUSH | typeof SegEditMode.ERASER
+>(SegEditMode.BRUSH);
 const tempStrokesConvertedToCanvas = ref(false);
 
 const frameImages = ref<Map<number, HTMLImageElement>>(new Map());
@@ -852,7 +863,6 @@ const imageConfig = computed(() => ({
 
 const isPolygonDrawing = ref(false);
 const isSkeletonDrawing = ref(false);
-
 
 const currentFrameBboxes = computed(() => {
   const result: BoundingBox[] = [];
@@ -1262,25 +1272,31 @@ const setMode = (newMode: ToolMode) => {
     interactiveLayerRef.value?.getNode()?.batchDraw();
   }
 
-  if (newMode === "pan") {
+  if (newMode === ToolModeEnum.PAN) {
     stage.container().style.cursor = "default";
-  } else if (newMode === "bbox" || newMode === "polygon") {
+  } else if (
+    newMode === ToolModeEnum.BBOX ||
+    newMode === ToolModeEnum.POLYGON
+  ) {
     stage.container().style.cursor = "crosshair";
-  } else if (newMode === "brush" || newMode === "eraser") {
+  } else if (
+    newMode === ToolModeEnum.BRUSH ||
+    newMode === ToolModeEnum.ERASER
+  ) {
     stage.container().style.cursor = "none";
   }
 
-  if (newMode === "eraser" && brush.value) {
+  if (newMode === ToolModeEnum.ERASER && brush.value) {
     brush.value.setDeleteMode(true);
-  } else if (newMode === "brush" && brush.value) {
+  } else if (newMode === ToolModeEnum.BRUSH && brush.value) {
     brush.value.changeColor("#FF0000");
   }
 
-  if (newMode !== "polygon" && polygonTool?.isDrawingActive()) {
+  if (newMode !== ToolModeEnum.POLYGON && polygonTool?.isDrawingActive()) {
     cancelPolygonDrawing();
   }
 
-  if (newMode !== "skeleton" && skeletonTool?.isDrawingActive()) {
+  if (newMode !== ToolModeEnum.SKELETON && skeletonTool?.isDrawingActive()) {
     cancelSkeletonDrawing();
   }
 };
@@ -1345,15 +1361,15 @@ const finishBboxDrawing = () => {
   };
 
   const screenPos = getScreenPositionFromCanvas(bbox.x, bbox.y);
-  showClassSelectorForAnnotation("bbox", screenPos);
+  showClassSelectorForAnnotation(MarkupType.BBOX, screenPos);
 };
 
 const handleBboxLayerClick = (trackId: string, _e: any) => {
-  if (mode.value !== "pan") return;
+  if (mode.value !== ToolModeEnum.PAN) return;
   if (trackId === "pending_bbox") return;
 
   selectedBboxTrackId.value = trackId;
-  timelineRef.value?.selectTrack(trackId, "bbox");
+  timelineRef.value?.selectTrack(trackId, TrackTypeEnum.BBOX);
   updateTransformerSelection();
 
   const track = bboxTracks.value.get(trackId);
@@ -1372,7 +1388,7 @@ const handleBboxLayerClick = (trackId: string, _e: any) => {
     const screenPos = bbox
       ? getScreenPositionFromCanvas(bbox.x, bbox.y)
       : undefined;
-    showClassSelectorForAnnotation("bbox", screenPos);
+    showClassSelectorForAnnotation(MarkupType.BBOX, screenPos);
   }
 };
 
@@ -1504,7 +1520,7 @@ const completePolygonDrawing = () => {
   const screenPos = firstPoint
     ? getScreenPositionFromCanvas(firstPoint.x, firstPoint.y)
     : undefined;
-  showClassSelectorForAnnotation("polygon", screenPos);
+  showClassSelectorForAnnotation(MarkupType.POLYGON, screenPos);
 };
 
 const cancelPolygonDrawing = () => {
@@ -1514,13 +1530,13 @@ const cancelPolygonDrawing = () => {
 };
 
 const handlePolygonLayerClick = (trackId: string, _e: any) => {
-  if (mode.value !== "pan") return;
+  if (mode.value !== ToolModeEnum.PAN) return;
   if (trackId === "pending_polygon") return;
 
   selectedPolygonTrackId.value = trackId;
   selectedBboxTrackId.value = null;
   selectedSkeletonTrackId.value = null;
-  timelineRef.value?.selectTrack(trackId, "polygon");
+  timelineRef.value?.selectTrack(trackId, TrackTypeEnum.POLYGON);
 
   const track = polygonTracks.value.get(trackId);
   if (track) {
@@ -1539,7 +1555,7 @@ const handlePolygonLayerClick = (trackId: string, _e: any) => {
     const screenPos = firstPoint
       ? getScreenPositionFromCanvas(firstPoint.x, firstPoint.y)
       : undefined;
-    showClassSelectorForAnnotation("polygon", screenPos);
+    showClassSelectorForAnnotation(MarkupType.POLYGON, screenPos);
   }
 };
 
@@ -1573,11 +1589,11 @@ const handlePolygonLayerDragEnd = (
 };
 
 const handlePolygonLayerVertexClick = (trackId: string) => {
-  if (mode.value !== "pan") return;
+  if (mode.value !== ToolModeEnum.PAN) return;
   selectedPolygonTrackId.value = trackId;
   selectedBboxTrackId.value = null;
   selectedSkeletonTrackId.value = null;
-  timelineRef.value?.selectTrack(trackId, "polygon");
+  timelineRef.value?.selectTrack(trackId, TrackTypeEnum.POLYGON);
 };
 
 const handlePolygonLayerVertexDragMove = (
@@ -1672,7 +1688,7 @@ const completeSkeletonDrawing = () => {
   const screenPos = firstPoint
     ? getScreenPositionFromCanvas(firstPoint.x, firstPoint.y)
     : undefined;
-  showClassSelectorForAnnotation("skeleton", screenPos);
+  showClassSelectorForAnnotation(MarkupType.SKELETON, screenPos);
 };
 
 const cancelSkeletonDrawing = () => {
@@ -1682,13 +1698,13 @@ const cancelSkeletonDrawing = () => {
 };
 
 const handleSkeletonLayerClick = (trackId: string, _e: any) => {
-  if (mode.value !== "pan") return;
+  if (mode.value !== ToolModeEnum.PAN) return;
   if (trackId === "pending_skeleton") return;
 
   selectedSkeletonTrackId.value = trackId;
   selectedBboxTrackId.value = null;
   selectedPolygonTrackId.value = null;
-  timelineRef.value?.selectTrack(trackId, "skeleton");
+  timelineRef.value?.selectTrack(trackId, TrackTypeEnum.SKELETON);
 
   const track = skeletonTracks.value.get(trackId);
   if (track) {
@@ -1707,7 +1723,7 @@ const handleSkeletonLayerClick = (trackId: string, _e: any) => {
     const screenPos = firstPoint
       ? getScreenPositionFromCanvas(firstPoint.x, firstPoint.y)
       : undefined;
-    showClassSelectorForAnnotation("skeleton", screenPos);
+    showClassSelectorForAnnotation(MarkupType.SKELETON, screenPos);
   }
 };
 
@@ -1741,11 +1757,11 @@ const handleSkeletonLayerDragEnd = (
 };
 
 const handleSkeletonLayerKeypointClick = (trackId: string) => {
-  if (mode.value !== "pan") return;
+  if (mode.value !== ToolModeEnum.PAN) return;
   selectedSkeletonTrackId.value = trackId;
   selectedBboxTrackId.value = null;
   selectedPolygonTrackId.value = null;
-  timelineRef.value?.selectTrack(trackId, "skeleton");
+  timelineRef.value?.selectTrack(trackId, TrackTypeEnum.SKELETON);
 };
 
 const handleSaveStrokes = async () => {
@@ -1902,7 +1918,7 @@ const handleSaveStrokes = async () => {
             id: `existing_${maskData.classID}`,
             name: maskData.className,
             color: maskData.color,
-            markupType: "mask",
+            markupType: MarkupType.MASK,
             value: maskData.classID,
           };
 
@@ -1967,7 +1983,7 @@ const handleSaveStrokes = async () => {
           tempBrushStrokes.value = [];
           tempStrokesCanvas.value = null;
           tempStrokesConvertedToCanvas.value = false;
-          tempStrokesEditMode.value = "brush";
+          tempStrokesEditMode.value = SegEditMode.BRUSH;
           bufferFrame.value = null;
           showBrushMergePopup.value = false;
           selectedBrushTrackId.value = null;
@@ -1991,7 +2007,7 @@ const handleSaveStrokes = async () => {
     stageConfig.value.width / 2,
     stageConfig.value.height / 2
   );
-  showClassSelectorForAnnotation("mask", screenPos);
+  showClassSelectorForAnnotation(MarkupType.MASK, screenPos);
 };
 
 const handleClearStrokes = async () => {
@@ -2001,7 +2017,7 @@ const handleClearStrokes = async () => {
   tempBrushStrokes.value = [];
   tempStrokesCanvas.value = null;
   tempStrokesConvertedToCanvas.value = false;
-  tempStrokesEditMode.value = "brush";
+  tempStrokesEditMode.value = SegEditMode.BRUSH;
   showBrushMergePopup.value = false;
 
   // Clear unsaved eraser changes
@@ -2159,7 +2175,12 @@ const handleSkeletonLayerKeypointDragStart = (
   if (!point) return;
 
   dragStartPosition.value = { x: point.x, y: point.y };
-  colocatedPoints.value = findColocatedPoints(point, trackId, pointIndex, currentFrameSkeletons.value);
+  colocatedPoints.value = findColocatedPoints(
+    point,
+    trackId,
+    pointIndex,
+    currentFrameSkeletons.value
+  );
 
   const layer = annotationsLayerRef.value?.getNode();
   if (!layer) return;
@@ -2223,7 +2244,13 @@ const handleSkeletonLayerKeypointDragMove = (
     snapIndicator.value = null;
   }
 
-  const nearbyPoint = findNearbySkeletonPoint(currentPos, trackId, pointIndex, currentFrameSkeletons.value, colocatedPoints.value);
+  const nearbyPoint = findNearbySkeletonPoint(
+    currentPos,
+    trackId,
+    pointIndex,
+    currentFrameSkeletons.value,
+    colocatedPoints.value
+  );
 
   if (nearbyPoint) {
     snapIndicator.value = new Konva.Circle({
@@ -2383,7 +2410,7 @@ const handleMouseDown = (e: any) => {
     brush.value.startStroke(logicalPos);
 
     // Set brush color for drawing
-    if (tempStrokesEditMode.value === "brush") {
+    if (tempStrokesEditMode.value === SegEditMode.BRUSH) {
       brush.value.changeColor(mergeColor.value);
     }
 
@@ -2392,8 +2419,10 @@ const handleMouseDown = (e: any) => {
   }
 
   // Check for segmentation edit mode FIRST - this takes priority over pan mode
-  const isInSegmentationBrushMode = segmentationEditMode.value === "brush";
-  const isInSegmentationEraserMode = segmentationEditMode.value === "eraser";
+  const isInSegmentationBrushMode =
+    segmentationEditMode.value === SegEditMode.BRUSH;
+  const isInSegmentationEraserMode =
+    segmentationEditMode.value === SegEditMode.ERASER;
 
   if (
     (isInSegmentationBrushMode || isInSegmentationEraserMode) &&
@@ -2415,7 +2444,7 @@ const handleMouseDown = (e: any) => {
     return;
   }
 
-  if (mode.value === "pan" || e.evt.altKey) {
+  if (mode.value === ToolModeEnum.PAN || e.evt.altKey) {
     const target = e.target;
     const isClickOnAnnotation =
       target !== stage &&
@@ -2462,7 +2491,7 @@ const handleMouseDown = (e: any) => {
     }
   }
 
-  if (mode.value === "polygon") {
+  if (mode.value === ToolModeEnum.POLYGON) {
     const target = e.target;
     const isClickOnPolygonVertex = target.name() === "polygonVertex";
     const isClickOnPolygon = target.name() === "polygon";
@@ -2485,7 +2514,7 @@ const handleMouseDown = (e: any) => {
     return;
   }
 
-  if (mode.value === "skeleton") {
+  if (mode.value === ToolModeEnum.SKELETON) {
     const target = e.target;
     const isClickOnSkeletonKeypoint = target.name() === "skeletonKeypoint";
     const isClickOnSkeleton = target.name() === "skeleton";
@@ -2508,7 +2537,7 @@ const handleMouseDown = (e: any) => {
     return;
   }
 
-  if (mode.value === "bbox") {
+  if (mode.value === ToolModeEnum.BBOX) {
     const logicalPos = getLogicalPointerPosition();
     if (!logicalPos) return;
     isDrawing.value = true;
@@ -2518,9 +2547,11 @@ const handleMouseDown = (e: any) => {
 
   // Check for main brush/eraser mode OR segmentation edit mode from toolbar
   const isInBrushMode =
-    mode.value === "brush" || segmentationEditMode.value === "brush";
+    mode.value === ToolModeEnum.BRUSH ||
+    segmentationEditMode.value === SegEditMode.BRUSH;
   const isInEraserMode =
-    mode.value === "eraser" || segmentationEditMode.value === "eraser";
+    mode.value === ToolModeEnum.ERASER ||
+    segmentationEditMode.value === SegEditMode.ERASER;
 
   if ((isInBrushMode || isInEraserMode) && brush.value?.isLoaded()) {
     const logicalPos = getLogicalPointerPosition();
@@ -2532,7 +2563,7 @@ const handleMouseDown = (e: any) => {
 
     // Set brush color to match selected segmentation when in edit mode
     if (
-      segmentationEditMode.value === "brush" &&
+      segmentationEditMode.value === SegEditMode.BRUSH &&
       selectedSegmentationColor.value
     ) {
       brush.value.changeColor(selectedSegmentationColor.value);
@@ -2565,21 +2596,21 @@ const handleMouseMove = () => {
     return;
   }
 
-  if (mode.value === "polygon" && polygonTool?.isDrawingActive()) {
+  if (mode.value === ToolModeEnum.POLYGON && polygonTool?.isDrawingActive()) {
     const logicalPos = getLogicalPointerPosition();
     if (!logicalPos) return;
     updatePolygonPreviewWithMouse(logicalPos);
     return;
   }
 
-  if (mode.value === "skeleton" && skeletonTool?.isDrawingActive()) {
+  if (mode.value === ToolModeEnum.SKELETON && skeletonTool?.isDrawingActive()) {
     const logicalPos = getLogicalPointerPosition();
     if (!logicalPos) return;
     updateSkeletonPreviewWithMouse(logicalPos);
     return;
   }
 
-  if (mode.value === "bbox" && isDrawing.value) {
+  if (mode.value === ToolModeEnum.BBOX && isDrawing.value) {
     const logicalPos = getLogicalPointerPosition();
     if (!logicalPos) return;
     updateBboxPreview(logicalPos);
@@ -2588,15 +2619,17 @@ const handleMouseMove = () => {
 
   // Check for brush/eraser mode (main or segmentation edit)
   const isInBrushMode =
-    mode.value === "brush" || segmentationEditMode.value === "brush";
+    mode.value === ToolModeEnum.BRUSH ||
+    segmentationEditMode.value === SegEditMode.BRUSH;
   const isInEraserMode =
-    mode.value === "eraser" || segmentationEditMode.value === "eraser";
+    mode.value === ToolModeEnum.ERASER ||
+    segmentationEditMode.value === SegEditMode.ERASER;
 
   if (
-    (mode.value !== "pan" || isInBrushMode || isInEraserMode) &&
-    mode.value !== "bbox" &&
-    mode.value !== "polygon" &&
-    mode.value !== "skeleton" &&
+    (mode.value !== ToolModeEnum.PAN || isInBrushMode || isInEraserMode) &&
+    mode.value !== ToolModeEnum.BBOX &&
+    mode.value !== ToolModeEnum.POLYGON &&
+    mode.value !== ToolModeEnum.SKELETON &&
     brush.value
   ) {
     const logicalPos = getLogicalPointerPosition();
@@ -2623,7 +2656,7 @@ const handleMouseMove = () => {
 
   // Throttled hover detection for segmentation masks (Pan mode only)
   if (
-    mode.value === "pan" &&
+    mode.value === ToolModeEnum.PAN &&
     !isPanning.value &&
     !isDrawing.value &&
     !showSegmentationToolbar.value
@@ -2655,9 +2688,10 @@ const handleMouseUp = async () => {
   const stage = stageRef.value?.getStage();
   if (stage && isPanning.value) {
     stage.container().style.cursor =
-      mode.value === "pan"
+      mode.value === ToolModeEnum.PAN
         ? "default"
-        : mode.value === "bbox" || mode.value === "polygon"
+        : mode.value === ToolModeEnum.BBOX ||
+          mode.value === ToolModeEnum.POLYGON
         ? "crosshair"
         : "none";
   }
@@ -2665,7 +2699,7 @@ const handleMouseUp = async () => {
   isPanning.value = false;
   lastPanPoint.value = null;
 
-  if (mode.value === "bbox" && isDrawing.value) {
+  if (mode.value === ToolModeEnum.BBOX && isDrawing.value) {
     isDrawing.value = false;
     finishBboxDrawing();
     return;
@@ -2688,7 +2722,7 @@ const handleMouseUp = async () => {
     brushPreviewLayerRef.value?.clearPreview();
     interactiveLayerRef.value?.getNode()?.batchDraw();
 
-    if (tempStrokesEditMode.value === "brush") {
+    if (tempStrokesEditMode.value === SegEditMode.BRUSH) {
       // Brush mode - add stroke
       if (tempStrokesConvertedToCanvas.value && tempStrokesCanvas.value) {
         // Already converted to canvas - draw directly on it
@@ -2767,9 +2801,11 @@ const handleMouseUp = async () => {
 
   // Check for brush/eraser mode (main or segmentation edit)
   const isInBrushMode =
-    mode.value === "brush" || segmentationEditMode.value === "brush";
+    mode.value === ToolModeEnum.BRUSH ||
+    segmentationEditMode.value === SegEditMode.BRUSH;
   const isInEraserMode =
-    mode.value === "eraser" || segmentationEditMode.value === "eraser";
+    mode.value === ToolModeEnum.ERASER ||
+    segmentationEditMode.value === SegEditMode.ERASER;
 
   if (!isDrawing.value || !brush.value || !currentImage.value) return;
   if (!isInBrushMode && !isInEraserMode) return;
@@ -2785,7 +2821,11 @@ const handleMouseUp = async () => {
   const targetFrame = drawingStartFrame.value ?? currentFrame.value;
   drawingStartFrame.value = null;
 
-  const strokeCanvas = createOffscreenCanvas(currentImage.value, stageConfig.value.width, stageConfig.value.height);
+  const strokeCanvas = createOffscreenCanvas(
+    currentImage.value,
+    stageConfig.value.width,
+    stageConfig.value.height
+  );
   const strokeCtx = strokeCanvas.getContext("2d")!;
   strokeCtx.clearRect(0, 0, strokeCanvas.width, strokeCanvas.height);
   strokeCtx.globalCompositeOperation = "source-over";
@@ -2798,7 +2838,10 @@ const handleMouseUp = async () => {
 
   if (isInBrushMode) {
     // Check if we're in segmentation edit mode - auto-merge into selected track
-    if (segmentationEditMode.value === "brush" && selectedBrushTrackId.value) {
+    if (
+      segmentationEditMode.value === SegEditMode.BRUSH &&
+      selectedBrushTrackId.value
+    ) {
       const selectedTrackId = selectedBrushTrackId.value;
       const strokeColor = selectedSegmentationColor.value;
 
@@ -2964,13 +3007,14 @@ const handleMouseUp = async () => {
     const selectedType = timelineRef.value?.selectedTrackType;
     // Check if editing existing segmentation: either via segmentationEditMode OR selectedBrushTrackId with eraser tool
     const isEditingExistingSegmentation =
-      segmentationEditMode.value === "eraser" ||
-      (selectedBrushTrackId.value !== null && mode.value === "eraser");
+      segmentationEditMode.value === SegEditMode.ERASER ||
+      (selectedBrushTrackId.value !== null &&
+        mode.value === ToolModeEnum.ERASER);
 
     // Allow erasing if editing existing segmentation, or if brush track is selected in timeline
     if (
       !selectedTrackId ||
-      (!isEditingExistingSegmentation && selectedType !== "brush")
+      (!isEditingExistingSegmentation && selectedType !== TrackTypeEnum.BRUSH)
     ) {
       isDrawing.value = false;
       return;
@@ -3167,12 +3211,12 @@ const handleMouseLeave = () => {
     interactiveLayerRef.value?.getNode()?.batchDraw();
   }
 
-  if (mode.value === "polygon" && polygonTool?.isDrawingActive()) {
+  if (mode.value === ToolModeEnum.POLYGON && polygonTool?.isDrawingActive()) {
     updatePolygonPreview();
     return;
   }
 
-  if (mode.value === "bbox" && isDrawing.value) {
+  if (mode.value === ToolModeEnum.BBOX && isDrawing.value) {
     if (bboxTool) {
       bboxTool.cancelDrawing();
     }
@@ -3184,13 +3228,13 @@ const handleMouseLeave = () => {
 };
 
 const handleDoubleClick = () => {
-  if (mode.value === "polygon" && polygonTool?.isDrawingActive()) {
+  if (mode.value === ToolModeEnum.POLYGON && polygonTool?.isDrawingActive()) {
     const currentPoints = polygonTool.getCurrentPoints();
     if (currentPoints.length >= 3) {
       completePolygonDrawing();
     }
   }
-  if (mode.value === "skeleton" && skeletonTool?.isDrawingActive()) {
+  if (mode.value === ToolModeEnum.SKELETON && skeletonTool?.isDrawingActive()) {
     const currentPoints = skeletonTool.getCurrentPoints();
     if (currentPoints.length >= 2) {
       completeSkeletonDrawing();
@@ -3199,20 +3243,20 @@ const handleDoubleClick = () => {
 };
 
 const handleSelectTrack = (trackId: string, type: TrackType) => {
-  if (type === "bbox") {
+  if (type === TrackTypeEnum.BBOX) {
     selectedBboxTrackId.value = trackId;
     selectedPolygonTrackId.value = null;
     selectedSkeletonTrackId.value = null;
     updateTransformerSelection();
-  } else if (type === "polygon") {
+  } else if (type === TrackTypeEnum.POLYGON) {
     selectedPolygonTrackId.value = trackId;
     selectedBboxTrackId.value = null;
     selectedSkeletonTrackId.value = null;
-  } else if (type === "skeleton") {
+  } else if (type === TrackTypeEnum.SKELETON) {
     selectedSkeletonTrackId.value = trackId;
     selectedBboxTrackId.value = null;
     selectedPolygonTrackId.value = null;
-  } else if (type === "brush") {
+  } else if (type === TrackTypeEnum.BRUSH) {
     selectedBrushTrackId.value = trackId;
     selectedBboxTrackId.value = null;
     selectedPolygonTrackId.value = null;
@@ -3221,19 +3265,19 @@ const handleSelectTrack = (trackId: string, type: TrackType) => {
 };
 
 const handleToggleInterpolation = (trackId: string, type: TrackType) => {
-  if (type === "bbox") {
+  if (type === TrackTypeEnum.BBOX) {
     toggleBboxInterpolation(trackId);
-  } else if (type === "polygon") {
+  } else if (type === TrackTypeEnum.POLYGON) {
     togglePolygonInterpolation(trackId);
-  } else if (type === "skeleton") {
+  } else if (type === TrackTypeEnum.SKELETON) {
     toggleSkeletonInterpolation(trackId);
-  } else if (type === "brush") {
+  } else if (type === TrackTypeEnum.BRUSH) {
     toggleBrushInterpolation(trackId);
   }
 };
 
 const handleAddKeyframe = (trackId: string, type: TrackType) => {
-  if (type === "bbox") {
+  if (type === TrackTypeEnum.BBOX) {
     const currentBox = getBoxAtFrame(trackId, currentFrame.value);
     if (currentBox) {
       updateBboxKeyframe(
@@ -3243,7 +3287,7 @@ const handleAddKeyframe = (trackId: string, type: TrackType) => {
         autoSuggest.value
       );
     }
-  } else if (type === "polygon") {
+  } else if (type === TrackTypeEnum.POLYGON) {
     const currentPolygon = getPolygonAtFrame(trackId, currentFrame.value);
     if (currentPolygon) {
       updatePolygonKeyframe(
@@ -3253,7 +3297,7 @@ const handleAddKeyframe = (trackId: string, type: TrackType) => {
         autoSuggest.value
       );
     }
-  } else if (type === "skeleton") {
+  } else if (type === TrackTypeEnum.SKELETON) {
     const currentSkeleton = getSkeletonAtFrame(trackId, currentFrame.value);
     if (currentSkeleton) {
       updateSkeletonKeyframe(
@@ -3275,13 +3319,13 @@ const handleUpdateRange = (
   end: number
 ) => {
   let track;
-  if (type === "bbox") {
+  if (type === TrackTypeEnum.BBOX) {
     track = bboxTracks.value.get(trackId);
-  } else if (type === "polygon") {
+  } else if (type === TrackTypeEnum.POLYGON) {
     track = polygonTracks.value.get(trackId);
-  } else if (type === "skeleton") {
+  } else if (type === TrackTypeEnum.SKELETON) {
     track = skeletonTracks.value.get(trackId);
-  } else if (type === "brush") {
+  } else if (type === TrackTypeEnum.BRUSH) {
     track = brushTracks.value.get(trackId);
   }
 
@@ -3306,16 +3350,16 @@ const handleDeleteSelected = () => {
 
   if (!trackId || !trackType) return;
 
-  if (trackType === "bbox") {
+  if (trackType === TrackTypeEnum.BBOX) {
     deleteBboxTrack(trackId);
     selectedBboxTrackId.value = null;
-  } else if (trackType === "polygon") {
+  } else if (trackType === TrackTypeEnum.POLYGON) {
     deletePolygonTrack(trackId);
     selectedPolygonTrackId.value = null;
-  } else if (trackType === "skeleton") {
+  } else if (trackType === TrackTypeEnum.SKELETON) {
     deleteSkeletonTrack(trackId);
     selectedSkeletonTrackId.value = null;
-  } else if (trackType === "brush") {
+  } else if (trackType === TrackTypeEnum.BRUSH) {
     deleteBrushTrack(trackId);
     selectedBrushTrackId.value = null;
   }
@@ -3382,7 +3426,7 @@ const handleSelectSegmentationAtPoint = async (x: number, y: number) => {
 
     // Update timeline selection
     selectedBrushTrackId.value = trackId;
-    timelineRef.value?.selectTrack(trackId, "brush");
+    timelineRef.value?.selectTrack(trackId, TrackTypeEnum.BRUSH);
 
     // Get current brush class and show ClassSelector
     const track = brushTracks.value.get(trackId);
@@ -3406,7 +3450,7 @@ const handleSelectSegmentationAtPoint = async (x: number, y: number) => {
       editingBrushTrackId.value = trackId;
       // Show ClassSelector at the click position
       const screenPos = getScreenPositionFromCanvas(x, y);
-      showClassSelectorForAnnotation("mask", screenPos);
+      showClassSelectorForAnnotation(MarkupType.MASK, screenPos);
     }
 
     // Force re-render to show selection with reduced opacity
@@ -3693,7 +3737,7 @@ watch(opacity, () => {
 });
 
 watch(mode, async (_newMode, oldMode) => {
-  if (tempBrushStrokes.value.length > 0 && oldMode === "brush") {
+  if (tempBrushStrokes.value.length > 0 && oldMode === ToolModeEnum.BRUSH) {
     await handleClearStrokes();
   }
 });
@@ -3779,15 +3823,6 @@ watch(
   opacity: 1;
   pointer-events: auto;
   margin-right: 16px;
-}
-
-.stage-wrapper {
-  border: 2px solid #ddd;
-  border-radius: 8px;
-  overflow: hidden;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  background: #fff;
-  position: relative;
 }
 
 .loading {

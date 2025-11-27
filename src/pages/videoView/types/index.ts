@@ -1,4 +1,14 @@
-export type TrackType = "bbox" | "polygon" | "skeleton" | "brush";
+import type { TrackTypeValue, ToolModeValue, SegmentationEditModeValue } from "../enums";
+
+// Re-export enum types for convenience
+export type TrackType = TrackTypeValue;
+export type ToolMode = ToolModeValue;
+export type SegmentationEditMode = SegmentationEditModeValue;
+
+export interface Point {
+  x: number;
+  y: number;
+}
 
 export interface PendingBbox {
   x: number;
@@ -10,12 +20,12 @@ export interface PendingBbox {
 }
 
 export interface PendingPolygon {
-  points: Array<{ x: number; y: number }>;
+  points: Point[];
   frame: number;
 }
 
 export interface PendingSkeleton {
-  points: Array<{ x: number; y: number }>;
+  points: Point[];
   frame: number;
 }
 
@@ -25,7 +35,7 @@ export interface PendingBrush {
 }
 
 export interface TempBrushStroke {
-  points: Array<{ x: number; y: number }>;
+  points: Point[];
   color: string;
   size: number;
   frame: number;
@@ -36,7 +46,19 @@ export interface ColocatedPoint {
   pointIdx: number;
 }
 
-export interface Point {
-  x: number;
-  y: number;
+export interface BrushAnnotationCanvasData {
+  nonSelectedCanvas: HTMLCanvasElement | null;
+  selectedCanvas: HTMLCanvasElement | null;
+  hoveredCanvas: HTMLCanvasElement | null;
+  frameNumber: number;
+  renderVersion: number;
+}
+
+export interface DrawingState {
+  isDrawing: boolean;
+  isPanning: boolean;
+  isPlaying: boolean;
+  isPolygonDrawing: boolean;
+  isSkeletonDrawing: boolean;
+  drawingStartFrame: number | null;
 }

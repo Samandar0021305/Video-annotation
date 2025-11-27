@@ -1,11 +1,6 @@
 <template>
   <div class="canvas-container">
-    <div
-      v-if="ready"
-      ref="containerRef"
-      class="stage-wrapper"
-      @wheel="onWheel"
-    >
+    <div v-if="ready" ref="containerRef" class="stage-wrapper" @wheel="onWheel">
       <v-stage
         ref="stageRef"
         :config="stageConfig"
@@ -46,7 +41,11 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from "vue";
 import type Konva from "konva";
-import type { BaseCanvasProps, CanvasMouseEvent, CanvasWheelEvent } from "./types";
+import type {
+  BaseCanvasProps,
+  CanvasMouseEvent,
+  CanvasWheelEvent,
+} from "./types";
 import { useStage } from "./composables";
 
 const props = withDefaults(defineProps<BaseCanvasProps>(), {
@@ -191,8 +190,6 @@ defineExpose({
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
-  background: #1a1a2e;
   border-radius: 8px;
   margin: 0 16px;
   position: relative;
@@ -202,7 +199,6 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
   width: 100%;
   height: 100%;
 }
