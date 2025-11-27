@@ -48,7 +48,7 @@ export function useBoundingBoxTracks(currentFrame: Ref<number>) {
       ranges: [[initialFrame, rangeEnd]],
       hiddenAreas: [],
       color: box.color,
-      classId: box.classId
+      classId: box.classId ?? 0
     };
 
     tracks.value.set(trackId, track);

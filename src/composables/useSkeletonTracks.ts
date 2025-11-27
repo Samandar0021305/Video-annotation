@@ -48,7 +48,7 @@ export function useSkeletonTracks(currentFrame: Ref<number>) {
       ranges: [[initialFrame, rangeEnd]],
       hiddenAreas: [],
       color: skeleton.color,
-      classId: skeleton.classId
+      classId: skeleton.classId ?? 0
     };
 
     tracks.value.set(trackId, track);
