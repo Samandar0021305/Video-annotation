@@ -8,7 +8,8 @@ export interface Polygon {
   points: PolygonPoint[];
   label?: string;
   color: string;
-  classId: number;
+  classId?: number;
+  value?: number;
 }
 
 export interface PolygonTrack {

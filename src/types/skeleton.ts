@@ -8,7 +8,8 @@ export interface Skeleton {
   points: SkeletonPoint[];
   label?: string;
   color: string;
-  classId: number;
+  classId?: number;
+  value?: number;
 }
 
 export interface SkeletonTrack {

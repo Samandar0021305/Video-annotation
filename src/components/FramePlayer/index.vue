@@ -217,6 +217,29 @@
                       fill: bbox.color + '20',
                     }"
                   />
+                  <v-label
+                    :config="{
+                      x: 0,
+                      y: 0,
+                    }"
+                  >
+                    <v-tag
+                      :config="{
+                        fill: bbox.color,
+                        pointerDirection: 'none',
+                        cornerRadius: 2,
+                      }"
+                    />
+                    <v-text
+                      :config="{
+                        text: getClassNameForBbox(bbox),
+                        fontSize: 12,
+                        fontFamily: 'Arial',
+                        fill: '#ffffff',
+                        padding: 4,
+                      }"
+                    />
+                  </v-label>
                 </v-group>
               </v-group>
 
@@ -362,6 +385,18 @@
       </div>
     </div>
 
+    <!-- Class Selector Popup -->
+    <ClassSelector
+      v-show="showClassSelector"
+      :classes="annotationClasses"
+      :initial-position="classSelectorPosition"
+      :filter-markup-type="classSelectorMarkupType"
+      :initial-class="classSelectorInitialClass"
+      @select="handleClassSelectorSelect"
+      @create="handleClassSelectorCreate"
+      @close="handleClassSelectorClose"
+    />
+
     <div class="playback-controls">
       <button @click="previousFrame" class="playback-btn">⏮ Previous</button>
       <button @click="togglePlay" class="playback-btn play-btn">
@@ -419,10 +454,10 @@
       :current-frame="currentFrame"
       :total-frames="physicalFrames"
       :fps="30"
-      :bbox-tracks="bboxTracks"
-      :polygon-tracks="polygonTracks"
-      :skeleton-tracks="skeletonTracks"
-      :brush-tracks="brushTracks"
+      :bbox-tracks="visibleBboxTracks"
+      :polygon-tracks="visiblePolygonTracks"
+      :skeleton-tracks="visibleSkeletonTracks"
+      :brush-tracks="visibleBrushTracks"
       @jump-to-frame="jumpToFrame"
       @select-track="handleSelectTrack"
       @toggle-interpolation="handleToggleInterpolation"
@@ -443,7 +478,7 @@ import { useAnnotationStore } from "../../stores/annotationStore";
 import { useBoundingBoxTracks } from "../../composables/useBoundingBoxTracks";
 import { usePolygonTracks } from "../../composables/usePolygonTracks";
 import { useSkeletonTracks } from "../../composables/useSkeletonTracks";
-import { useBrushTracks } from "../../composables/useBrushTracks";
+import { useBrushTracks, type BrushTrack } from "../../composables/useBrushTracks";
 import { BBoxTool } from "../../utils/bboxUtils";
 import { PolygonTool } from "../../utils/polygonUtils";
 import { SkeletonTool } from "../../utils/skeletonUtils";
@@ -467,6 +502,8 @@ import BrushMergePopup from "./BrushMergePopup.vue";
 import SegmentationToolbar from "./SegmentationToolbar.vue";
 import AnnotationClassManager from "../AnnotationClassManager.vue";
 import type { AnnotationClass } from "../AnnotationClassManager.vue";
+import ClassSelector from "../ClassSelector.vue";
+import type { MarkupType } from "../ClassSelector.vue";
 
 type TrackType = "bbox" | "polygon" | "skeleton" | "brush";
 
@@ -507,7 +544,34 @@ const autoSuggest = ref(false);
 const annotationClasses = ref<AnnotationClass[]>([]);
 const selectedClassId = ref<string | null>(null);
 
+const hasBboxClasses = computed(() =>
+  annotationClasses.value.some((c) => c.markupType === "bbox")
+);
+const hasPolygonClasses = computed(() =>
+  annotationClasses.value.some((c) => c.markupType === "polygon")
+);
+const hasSkeletonClasses = computed(() =>
+  annotationClasses.value.some((c) => c.markupType === "skeleton")
+);
+const hasMaskClasses = computed(() =>
+  annotationClasses.value.some((c) => c.markupType === "mask")
+);
+
+const visibleBboxTracks = computed(() =>
+  hasBboxClasses.value ? bboxTracks.value : new Map()
+);
+const visiblePolygonTracks = computed(() =>
+  hasPolygonClasses.value ? polygonTracks.value : new Map()
+);
+const visibleSkeletonTracks = computed(() =>
+  hasSkeletonClasses.value ? skeletonTracks.value : new Map()
+);
+const visibleBrushTracks = computed((): Map<string, BrushTrack> =>
+  hasMaskClasses.value ? brushTracks.value : new Map<string, BrushTrack>()
+);
+
 const handleClassSelect = (cls: AnnotationClass) => {
+  selectedClassId.value = cls.id;
   if (cls.markupType === "bbox") {
     bboxColor.value = cls.color;
     setMode("bbox");
@@ -522,6 +586,365 @@ const handleClassSelect = (cls: AnnotationClass) => {
     skeletonColor.value = cls.color;
     setMode("skeleton");
   }
+};
+
+// Class Selector state
+const showClassSelector = ref(false);
+const classSelectorMarkupType = ref<MarkupType>("bbox");
+const classSelectorPosition = ref({ x: 100, y: 100 });
+const classSelectorInitialClass = ref<AnnotationClass | null>(null);
+const editingBboxTrackId = ref<string | null>(null);
+const editingPolygonTrackId = ref<string | null>(null);
+const editingSkeletonTrackId = ref<string | null>(null);
+const editingBrushTrackId = ref<string | null>(null);
+
+interface PendingBbox {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  frame: number;
+}
+
+interface PendingPolygon {
+  points: Array<{ x: number; y: number }>;
+  frame: number;
+}
+
+interface PendingSkeleton {
+  points: Array<{ x: number; y: number }>;
+  frame: number;
+}
+
+interface PendingBrush {
+  canvas: HTMLCanvasElement;
+  frame: number;
+}
+
+const pendingBbox = ref<PendingBbox | null>(null);
+const pendingPolygon = ref<PendingPolygon | null>(null);
+const pendingSkeleton = ref<PendingSkeleton | null>(null);
+const pendingBrush = ref<PendingBrush | null>(null);
+
+const getNextClassValue = () => {
+  if (annotationClasses.value.length === 0) return 0;
+  const maxValue = Math.max(...annotationClasses.value.map((c) => c.value ?? 0));
+  return maxValue + 1;
+};
+
+const getClassNameForBbox = (bbox: BoundingBox): string => {
+  if (bbox.value === undefined) return "";
+  const cls = annotationClasses.value.find((c) => c.value === bbox.value);
+  return cls?.name ?? "";
+};
+
+const handleClassSelectorSelect = (cls: AnnotationClass) => {
+  selectedClassId.value = cls.id;
+
+  // Handle editing existing bbox class
+  if (editingBboxTrackId.value) {
+    const track = bboxTracks.value.get(editingBboxTrackId.value);
+    if (track) {
+      for (const [frame, bbox] of track.keyframes) {
+        track.keyframes.set(frame, {
+          ...bbox,
+          color: cls.color,
+          value: cls.value,
+        });
+      }
+      track.color = cls.color;
+      track.classId = cls.value;
+      bboxTracks.value.set(editingBboxTrackId.value, { ...track });
+    }
+    editingBboxTrackId.value = null;
+    classSelectorInitialClass.value = null;
+    showClassSelector.value = false;
+    saveAnnotations();
+    return;
+  }
+
+  // Handle editing existing polygon class
+  if (editingPolygonTrackId.value) {
+    const track = polygonTracks.value.get(editingPolygonTrackId.value);
+    if (track) {
+      for (const [frame, polygon] of track.keyframes) {
+        track.keyframes.set(frame, {
+          ...polygon,
+          color: cls.color,
+          value: cls.value,
+        });
+      }
+      track.color = cls.color;
+      track.classId = cls.value;
+      polygonTracks.value.set(editingPolygonTrackId.value, { ...track });
+    }
+    editingPolygonTrackId.value = null;
+    classSelectorInitialClass.value = null;
+    showClassSelector.value = false;
+    saveAnnotations();
+    return;
+  }
+
+  // Handle editing existing skeleton class
+  if (editingSkeletonTrackId.value) {
+    const track = skeletonTracks.value.get(editingSkeletonTrackId.value);
+    if (track) {
+      for (const [frame, skeleton] of track.keyframes) {
+        track.keyframes.set(frame, {
+          ...skeleton,
+          color: cls.color,
+          value: cls.value,
+        });
+      }
+      track.color = cls.color;
+      track.classId = cls.value;
+      skeletonTracks.value.set(editingSkeletonTrackId.value, { ...track });
+    }
+    editingSkeletonTrackId.value = null;
+    classSelectorInitialClass.value = null;
+    showClassSelector.value = false;
+    saveAnnotations();
+    return;
+  }
+
+  // Handle editing existing brush class
+  if (editingBrushTrackId.value) {
+    const track = brushTracks.value.get(editingBrushTrackId.value);
+    if (track) {
+      for (const [frame, keyframeData] of track.keyframes) {
+        // Update color in each mask
+        const updatedMasks = keyframeData.map((mask: any) => ({
+          ...mask,
+          color: cls.color,
+          className: cls.name,
+          classID: cls.value,
+        }));
+        track.keyframes.set(frame, updatedMasks);
+      }
+      brushTracks.value.set(editingBrushTrackId.value, { ...track });
+    }
+    editingBrushTrackId.value = null;
+    classSelectorInitialClass.value = null;
+    showClassSelector.value = false;
+    // Re-render brush annotations with new color
+    renderFrame(currentFrame.value);
+    saveAnnotations();
+    return;
+  }
+
+  if (pendingBbox.value) {
+    const bbox = pendingBbox.value;
+    const trackId = createBboxTrack(
+      bbox.frame,
+      {
+        id: `bbox_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+        x: bbox.x,
+        y: bbox.y,
+        width: bbox.width,
+        height: bbox.height,
+        rotation: bbox.rotation,
+        color: cls.color,
+        value: cls.value,
+      },
+      undefined,
+      physicalFrames.value
+    );
+    selectedBboxTrackId.value = trackId;
+    timelineRef.value?.selectTrack(trackId, "bbox");
+    pendingBbox.value = null;
+    saveAnnotations();
+  }
+
+  if (pendingPolygon.value) {
+    const polygon = pendingPolygon.value;
+    const trackId = createPolygonTrack(
+      polygon.frame,
+      {
+        id: `polygon_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+        points: polygon.points,
+        color: cls.color,
+        value: cls.value,
+      },
+      undefined,
+      physicalFrames.value
+    );
+    selectedPolygonTrackId.value = trackId;
+    timelineRef.value?.selectTrack(trackId, "polygon");
+    pendingPolygon.value = null;
+    saveAnnotations();
+  }
+
+  if (pendingSkeleton.value) {
+    const skeleton = pendingSkeleton.value;
+    const trackId = createSkeletonTrack(
+      skeleton.frame,
+      {
+        id: `skeleton_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+        points: skeleton.points,
+        color: cls.color,
+        value: cls.value,
+      },
+      undefined,
+      physicalFrames.value
+    );
+    selectedSkeletonTrackId.value = trackId;
+    timelineRef.value?.selectTrack(trackId, "skeleton");
+    pendingSkeleton.value = null;
+    saveAnnotations();
+  }
+
+  if (pendingBrush.value) {
+    const brushData = pendingBrush.value;
+
+    // Apply selected class color to the canvas
+    applyColorToCanvas(brushData.canvas, cls.color);
+
+    // Binarize alpha to ensure clean RLE encoding
+    binarizeAlpha(brushData.canvas);
+
+    // Convert canvas to RLE-based MaskData
+    const maskData = canvasToMaskData(
+      brushData.canvas,
+      cls.color,
+      cls.name,
+      cls.value
+    );
+
+    if (maskData) {
+      // Check if mask has content
+      const hasContent = maskData.rle.some(
+        (val, idx) => idx % 2 === 1 && val > 0
+      );
+
+      if (hasContent) {
+        // Create array with single mask
+        const masks: MaskData[] = [maskData];
+
+        // Create track with the RLE mask data
+        const trackId = createBrushTrack(
+          brushData.frame,
+          masks,
+          cls.name,
+          physicalFrames.value
+        );
+        selectedBrushTrackId.value = null;
+        timelineRef.value?.selectTrack(trackId, "brush");
+
+        // Render the new mask to display
+        if (!workingCanvas || !displayCanvas) {
+          initializeCanvases(stageConfig.value.width, stageConfig.value.height);
+        }
+        clearCanvas(workingCanvas!);
+        renderMaskToCanvas(maskData, workingCanvas!, false, 1);
+
+        // Add new mask on top of existing displayCanvas
+        const displayCtx = displayCanvas!.getContext("2d")!;
+        displayCtx.drawImage(workingCanvas!, 0, 0);
+
+        // Update Konva display
+        const brushGroup = brushAnnotationGroupRef.value?.getNode();
+        if (brushGroup) {
+          brushGroup.destroyChildren();
+          const konvaImage = new Konva.Image({
+            image: displayCanvas!,
+            x: 0,
+            y: 0,
+            width: stageConfig.value.width,
+            height: stageConfig.value.height,
+            listening: false,
+            opacity: opacity.value,
+          });
+          brushGroup.add(konvaImage);
+          annotationsLayerRef.value?.getNode()?.batchDraw();
+        }
+
+        currentDisplayFrame = brushData.frame;
+        saveAnnotations();
+      }
+    }
+
+    // Clear temp strokes and pending brush state
+    tempBrushStrokes.value = [];
+    tempStrokesCanvas.value = null;
+    tempStrokesConvertedToCanvas.value = false;
+    tempStrokesEditMode.value = "brush";
+    bufferFrame.value = null;
+    pendingBrush.value = null;
+  }
+
+  showClassSelector.value = false;
+  classSelectorInitialClass.value = null;
+};
+
+const handleClassSelectorCreate = (classData: Omit<AnnotationClass, "id" | "value">) => {
+  const newClass: AnnotationClass = {
+    id: `class_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+    name: classData.name,
+    color: classData.color,
+    markupType: classData.markupType,
+    value: getNextClassValue(),
+  };
+  annotationClasses.value.push(newClass);
+  handleClassSelectorSelect(newClass);
+};
+
+const handleClassSelectorClose = () => {
+  pendingBbox.value = null;
+  pendingPolygon.value = null;
+  pendingSkeleton.value = null;
+  editingBboxTrackId.value = null;
+  editingPolygonTrackId.value = null;
+  editingSkeletonTrackId.value = null;
+  editingBrushTrackId.value = null;
+  classSelectorInitialClass.value = null;
+  showClassSelector.value = false;
+
+  // Clean up pending brush if cancelled
+  if (pendingBrush.value) {
+    pendingBrush.value = null;
+    tempBrushStrokes.value = [];
+    tempStrokesCanvas.value = null;
+    tempStrokesConvertedToCanvas.value = false;
+    tempStrokesEditMode.value = "brush";
+    bufferFrame.value = null;
+    // Re-render to clear temp strokes from display
+    renderFrame(currentFrame.value);
+  }
+
+  if (bboxTool) {
+    bboxTool.cancelDrawing();
+  }
+  if (polygonTool) {
+    polygonTool.cancelDrawing();
+  }
+  if (skeletonTool) {
+    skeletonTool.cancelDrawing();
+  }
+};
+
+const getScreenPositionFromCanvas = (canvasX: number, canvasY: number): { x: number; y: number } => {
+  const stage = stageRef.value?.getStage();
+  const container = containerRef.value;
+  if (!stage || !container) {
+    return { x: 100, y: 100 };
+  }
+  const containerRect = container.getBoundingClientRect();
+  const stagePos = stage.position();
+  const scale = stage.scaleX();
+
+  const screenX = containerRect.left + canvasX * scale + stagePos.x;
+  const screenY = containerRect.top + canvasY * scale + stagePos.y;
+
+  return { x: screenX + 10, y: screenY + 10 };
+};
+
+const showClassSelectorForAnnotation = (markupType: MarkupType, position?: { x: number; y: number }) => {
+  classSelectorMarkupType.value = markupType;
+  if (position) {
+    classSelectorPosition.value = position;
+  }
+  showClassSelector.value = true;
 };
 
 const isDrawing = ref(false);
@@ -714,33 +1137,70 @@ const stageOffset = computed(() => {
 
 const currentFrameBboxes = computed(() => {
   const result: BoundingBox[] = [];
-  for (const [trackId] of bboxTracks.value) {
-    const box = getBoxAtFrame(trackId, currentFrame.value);
-    if (box) {
-      result.push(box);
+  // Only show saved bboxes if there are bbox classes
+  if (hasBboxClasses.value) {
+    for (const [trackId] of bboxTracks.value) {
+      const box = getBoxAtFrame(trackId, currentFrame.value);
+      if (box) {
+        result.push(box);
+      }
     }
+  }
+  // Always show pending bbox when ClassSelector is open (even without classes yet)
+  if (pendingBbox.value && showClassSelector.value) {
+    result.push({
+      id: "pending_bbox",
+      x: pendingBbox.value.x,
+      y: pendingBbox.value.y,
+      width: pendingBbox.value.width,
+      height: pendingBbox.value.height,
+      rotation: pendingBbox.value.rotation,
+      color: bboxColor.value,
+    });
   }
   return result;
 });
 
 const currentFramePolygons = computed(() => {
   const result: Polygon[] = [];
-  for (const [trackId] of polygonTracks.value) {
-    const polygon = getPolygonAtFrame(trackId, currentFrame.value);
-    if (polygon) {
-      result.push(polygon);
+  // Only show saved polygons if there are polygon classes
+  if (hasPolygonClasses.value) {
+    for (const [trackId] of polygonTracks.value) {
+      const polygon = getPolygonAtFrame(trackId, currentFrame.value);
+      if (polygon) {
+        result.push(polygon);
+      }
     }
+  }
+  // Always show pending polygon when ClassSelector is open (even without classes yet)
+  if (pendingPolygon.value && showClassSelector.value) {
+    result.push({
+      id: "pending_polygon",
+      points: pendingPolygon.value.points,
+      color: polygonColor.value,
+    });
   }
   return result;
 });
 
 const currentFrameSkeletons = computed(() => {
   const result: Skeleton[] = [];
-  for (const [trackId] of skeletonTracks.value) {
-    const skeleton = getSkeletonAtFrame(trackId, currentFrame.value);
-    if (skeleton) {
-      result.push(skeleton);
+  // Only show saved skeletons if there are skeleton classes
+  if (hasSkeletonClasses.value) {
+    for (const [trackId] of skeletonTracks.value) {
+      const skeleton = getSkeletonAtFrame(trackId, currentFrame.value);
+      if (skeleton) {
+        result.push(skeleton);
+      }
     }
+  }
+  // Always show pending skeleton when ClassSelector is open (even without classes yet)
+  if (pendingSkeleton.value && showClassSelector.value) {
+    result.push({
+      id: "pending_skeleton",
+      points: pendingSkeleton.value.points,
+      color: skeletonColor.value,
+    });
   }
   return result;
 });
@@ -842,8 +1302,9 @@ const renderBrushAnnotations = async (frameIndex: number) => {
     hoveredTrackCanvas.height = stageConfig.value.height;
   }
 
-  for (const [trackId] of brushTracks.value) {
-    const track = brushTracks.value.get(trackId);
+  // Use visibleBrushTracks to respect hasMaskClasses visibility control
+  for (const [trackId] of visibleBrushTracks.value) {
+    const track = visibleBrushTracks.value.get(trackId);
     if (!track) continue;
 
     // Check ranges - if no ranges defined, show on all frames
@@ -1197,15 +1658,17 @@ const finishBboxDrawing = () => {
   const bbox = bboxTool.finishDrawing(bboxColor.value);
   if (!bbox) return;
 
-  const trackId = createBboxTrack(
-    currentFrame.value,
-    bbox,
-    undefined,
-    physicalFrames.value
-  );
-  selectedBboxTrackId.value = trackId;
-  timelineRef.value?.selectTrack(trackId, "bbox");
-  saveAnnotations();
+  pendingBbox.value = {
+    x: bbox.x,
+    y: bbox.y,
+    width: bbox.width,
+    height: bbox.height,
+    rotation: bbox.rotation,
+    frame: currentFrame.value,
+  };
+
+  const screenPos = getScreenPositionFromCanvas(bbox.x, bbox.y);
+  showClassSelectorForAnnotation("bbox", screenPos);
 };
 
 const handleBboxClick = (e: any) => {
@@ -1214,9 +1677,27 @@ const handleBboxClick = (e: any) => {
   const group = e.target.findAncestor("Group");
   if (group) {
     const trackId = group.id();
+    if (trackId === "pending_bbox") return;
+
     selectedBboxTrackId.value = trackId;
     timelineRef.value?.selectTrack(trackId, "bbox");
     updateTransformerSelection();
+
+    // Get current bbox class and show ClassSelector
+    const track = bboxTracks.value.get(trackId);
+    if (track) {
+      const bbox = getBoxAtFrame(trackId, currentFrame.value);
+      if (bbox?.value !== undefined) {
+        const currentClass = annotationClasses.value.find((c) => c.value === bbox.value);
+        classSelectorInitialClass.value = currentClass || null;
+        selectedClassId.value = currentClass?.id || null;
+      } else {
+        classSelectorInitialClass.value = null;
+      }
+      editingBboxTrackId.value = trackId;
+      const screenPos = bbox ? getScreenPositionFromCanvas(bbox.x, bbox.y) : undefined;
+      showClassSelectorForAnnotation("bbox", screenPos);
+    }
   }
 };
 
@@ -1352,15 +1833,15 @@ const completePolygonDrawing = () => {
   isPolygonDrawing.value = false;
   if (!polygon) return;
 
-  const trackId = createPolygonTrack(
-    currentFrame.value,
-    polygon,
-    undefined,
-    physicalFrames.value
-  );
-  selectedPolygonTrackId.value = trackId;
-  timelineRef.value?.selectTrack(trackId, "polygon");
-  saveAnnotations();
+  pendingPolygon.value = {
+    points: polygon.points,
+    frame: currentFrame.value,
+  };
+
+  // Show ClassSelector at the first point of the polygon
+  const firstPoint = polygon.points[0];
+  const screenPos = firstPoint ? getScreenPositionFromCanvas(firstPoint.x, firstPoint.y) : undefined;
+  showClassSelectorForAnnotation("polygon", screenPos);
 };
 
 const cancelPolygonDrawing = () => {
@@ -1375,10 +1856,30 @@ const handlePolygonClick = (e: any) => {
   const line = e.target;
   if (line && line.id()) {
     const trackId = line.id();
+    if (trackId === "pending_polygon") return;
+
     selectedPolygonTrackId.value = trackId;
     selectedBboxTrackId.value = null;
     selectedSkeletonTrackId.value = null;
     timelineRef.value?.selectTrack(trackId, "polygon");
+
+    // Get current polygon class and show ClassSelector
+    const track = polygonTracks.value.get(trackId);
+    if (track) {
+      const polygon = getPolygonAtFrame(trackId, currentFrame.value);
+      if (polygon?.value !== undefined) {
+        const currentClass = annotationClasses.value.find((c) => c.value === polygon.value);
+        classSelectorInitialClass.value = currentClass || null;
+        selectedClassId.value = currentClass?.id || null;
+      } else {
+        classSelectorInitialClass.value = null;
+      }
+      editingPolygonTrackId.value = trackId;
+      // Show ClassSelector at the first point of the polygon
+      const firstPoint = polygon?.points[0];
+      const screenPos = firstPoint ? getScreenPositionFromCanvas(firstPoint.x, firstPoint.y) : undefined;
+      showClassSelectorForAnnotation("polygon", screenPos);
+    }
   }
 };
 
@@ -1508,15 +2009,15 @@ const completeSkeletonDrawing = () => {
   isSkeletonDrawing.value = false;
   if (!skeleton) return;
 
-  const trackId = createSkeletonTrack(
-    currentFrame.value,
-    skeleton,
-    undefined,
-    physicalFrames.value
-  );
-  selectedSkeletonTrackId.value = trackId;
-  timelineRef.value?.selectTrack(trackId, "skeleton");
-  saveAnnotations();
+  pendingSkeleton.value = {
+    points: skeleton.points,
+    frame: currentFrame.value,
+  };
+
+  // Show ClassSelector at the first point of the skeleton
+  const firstPoint = skeleton.points[0];
+  const screenPos = firstPoint ? getScreenPositionFromCanvas(firstPoint.x, firstPoint.y) : undefined;
+  showClassSelectorForAnnotation("skeleton", screenPos);
 };
 
 const cancelSkeletonDrawing = () => {
@@ -1531,10 +2032,30 @@ const handleSkeletonClick = (e: any) => {
   const line = e.target;
   if (line && line.id()) {
     const trackId = line.id();
+    if (trackId === "pending_skeleton") return;
+
     selectedSkeletonTrackId.value = trackId;
     selectedBboxTrackId.value = null;
     selectedPolygonTrackId.value = null;
     timelineRef.value?.selectTrack(trackId, "skeleton");
+
+    // Get current skeleton class and show ClassSelector
+    const track = skeletonTracks.value.get(trackId);
+    if (track) {
+      const skeleton = getSkeletonAtFrame(trackId, currentFrame.value);
+      if (skeleton?.value !== undefined) {
+        const currentClass = annotationClasses.value.find((c) => c.value === skeleton.value);
+        classSelectorInitialClass.value = currentClass || null;
+        selectedClassId.value = currentClass?.id || null;
+      } else {
+        classSelectorInitialClass.value = null;
+      }
+      editingSkeletonTrackId.value = trackId;
+      // Show ClassSelector at the first point of the skeleton
+      const firstPoint = skeleton?.points[0];
+      const screenPos = firstPoint ? getScreenPositionFromCanvas(firstPoint.x, firstPoint.y) : undefined;
+      showClassSelectorForAnnotation("skeleton", screenPos);
+    }
   }
 };
 
@@ -1649,8 +2170,12 @@ const handleMergeStrokes = async () => {
   let combinedCanvas: HTMLCanvasElement;
 
   if (hasCanvasData && tempStrokesCanvas.value) {
-    // Use the existing temp strokes canvas directly
-    combinedCanvas = tempStrokesCanvas.value;
+    // Clone the existing temp strokes canvas
+    combinedCanvas = document.createElement("canvas");
+    combinedCanvas.width = tempStrokesCanvas.value.width;
+    combinedCanvas.height = tempStrokesCanvas.value.height;
+    const ctx = combinedCanvas.getContext("2d")!;
+    ctx.drawImage(tempStrokesCanvas.value, 0, 0);
   } else {
     // Create a temporary canvas to render strokes from points
     combinedCanvas = document.createElement("canvas");
@@ -1687,97 +2212,21 @@ const handleMergeStrokes = async () => {
     applyColorToCanvas(combinedCanvas, mergeColor.value);
   }
 
-  try {
-    // Convert canvas to RLE-based MaskData (pixel-perfect, fast)
-    const maskData = canvasToMaskData(
-      combinedCanvas,
-      mergeColor.value,
-      "Brush",
-      0
-    );
+  // Store pending brush and show ClassSelector
+  pendingBrush.value = {
+    canvas: combinedCanvas,
+    frame: targetFrame,
+  };
 
-    if (maskData) {
-      // Check if mask has content
-      const hasContent = maskData.rle.some(
-        (val, idx) => idx % 2 === 1 && val > 0
-      );
+  // Hide BrushMergePopup and show ClassSelector
+  showBrushMergePopup.value = false;
 
-      if (!hasContent) {
-        // No content to merge - just clean up
-        tempBrushStrokes.value = [];
-        tempStrokesCanvas.value = null;
-        tempStrokesConvertedToCanvas.value = false;
-        tempStrokesEditMode.value = "brush";
-        showBrushMergePopup.value = false;
-        bufferFrame.value = null;
-        return;
-      }
-
-      // Create array with single mask
-      const masks: MaskData[] = [maskData];
-
-      // Step 1: Create track with the NEW RLE mask data
-      const trackId = createBrushTrack(
-        targetFrame,
-        masks,
-        undefined,
-        physicalFrames.value
-      );
-      selectedBrushTrackId.value = null;
-      timelineRef.value?.selectTrack(trackId, "brush");
-
-      // Step 2: Render ONLY the NEW mask to workingCanvas
-      if (!workingCanvas || !displayCanvas) {
-        initializeCanvases(stageConfig.value.width, stageConfig.value.height);
-      }
-      clearCanvas(workingCanvas!);
-
-      // Render only the newly created mask (RLE-based, pixel-perfect)
-      renderMaskToCanvas(maskData, workingCanvas!, false, 1);
-
-      // Step 3: ADD new mask ON TOP of existing displayCanvas (don't clear it!)
-      const displayCtx = displayCanvas!.getContext("2d")!;
-      displayCtx.drawImage(workingCanvas!, 0, 0);
-
-      // Step 4: Update Konva display (displayCanvas now has old + new)
-      const brushGroup = brushAnnotationGroupRef.value?.getNode();
-      if (brushGroup) {
-        brushGroup.destroyChildren();
-        const konvaImage = new Konva.Image({
-          image: displayCanvas!,
-          x: 0,
-          y: 0,
-          width: stageConfig.value.width,
-          height: stageConfig.value.height,
-          listening: false,
-          opacity: opacity.value,
-        });
-        brushGroup.add(konvaImage);
-        annotationsLayerRef.value?.getNode()?.batchDraw();
-      }
-
-      // Step 5: Clear temp strokes and canvas state
-      tempBrushStrokes.value = [];
-      tempStrokesCanvas.value = null;
-      tempStrokesConvertedToCanvas.value = false;
-      tempStrokesEditMode.value = "brush";
-      showBrushMergePopup.value = false;
-      bufferFrame.value = null;
-      currentDisplayFrame = targetFrame;
-
-      // Step 6: Save
-      saveAnnotations();
-    }
-  } catch (err) {
-    console.error("Failed to merge strokes:", err);
-    // On error, still clean up
-    tempBrushStrokes.value = [];
-    tempStrokesCanvas.value = null;
-    tempStrokesConvertedToCanvas.value = false;
-    tempStrokesEditMode.value = "brush";
-    showBrushMergePopup.value = false;
-    bufferFrame.value = null;
-  }
+  // Calculate position for ClassSelector (center of canvas or use stored position)
+  const screenPos = getScreenPositionFromCanvas(
+    stageConfig.value.width / 2,
+    stageConfig.value.height / 2
+  );
+  showClassSelectorForAnnotation("mask", screenPos);
 };
 
 const handleClearStrokes = async () => {
@@ -3215,6 +3664,29 @@ const handleSelectSegmentationAtPoint = async (x: number, y: number) => {
     selectedBrushTrackId.value = trackId;
     timelineRef.value?.selectTrack(trackId, "brush");
 
+    // Get current brush class and show ClassSelector
+    const track = brushTracks.value.get(trackId);
+    if (track) {
+      // Get the first keyframe data to extract class info
+      const firstKeyframe = track.keyframes.values().next().value;
+      if (firstKeyframe && firstKeyframe.length > 0) {
+        const maskData = firstKeyframe[0];
+        if (maskData && 'classID' in maskData) {
+          const currentClass = annotationClasses.value.find((c) => c.value === maskData.classID);
+          classSelectorInitialClass.value = currentClass || null;
+          selectedClassId.value = currentClass?.id || null;
+        } else {
+          classSelectorInitialClass.value = null;
+        }
+      } else {
+        classSelectorInitialClass.value = null;
+      }
+      editingBrushTrackId.value = trackId;
+      // Show ClassSelector at the click position
+      const screenPos = getScreenPositionFromCanvas(x, y);
+      showClassSelectorForAnnotation("mask", screenPos);
+    }
+
     // Force re-render to show selection with reduced opacity
     currentDisplayFrame = -1;
     await renderBrushAnnotations(currentFrame.value);
@@ -3244,6 +3716,7 @@ const saveAnnotations = async () => {
       skeleton: skeletonTracks.value,
       brush: brushTracks.value,
     });
+    annotationStore.setClasses(annotationClasses.value);
     await annotationStore.save();
   } catch (error) {
     console.error("Failed to save annotations:", error);
@@ -3553,6 +4026,7 @@ const loadAnnotationsFromStore = async () => {
     polygonTracks.value = new Map(annotationStore.polygonTracks);
     skeletonTracks.value = new Map(annotationStore.skeletonTracks);
     brushTracks.value = new Map(annotationStore.brushTracks);
+    annotationClasses.value = [...annotationStore.classes];
 
     await renderFrame(currentFrame.value);
   } catch (error) {
@@ -3643,6 +4117,17 @@ watch(hoveredBrushTrackId, async () => {
     await renderBrushAnnotations(currentFrame.value);
   }
 });
+
+// Save when annotation classes change
+watch(
+  annotationClasses,
+  () => {
+    if (framesLoaded.value) {
+      saveAnnotations();
+    }
+  },
+  { deep: true }
+);
 </script>
 
 <style scoped>

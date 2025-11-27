@@ -7,7 +7,8 @@ export interface BoundingBox {
   rotation: number;
   label?: string;
   color: string;
-  classId: number;
+  classId?: number;
+  value?: number;
 }
 
 export interface BoundingBoxTrack {

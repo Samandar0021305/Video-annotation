@@ -78,7 +78,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, computed } from "vue";
 
 export type MarkupType = "bbox" | "mask" | "polygon" | "skeleton";
 
@@ -87,6 +87,7 @@ export interface AnnotationClass {
   name: string;
   color: string;
   markupType: MarkupType;
+  value: number;
 }
 
 const props = defineProps<{
@@ -101,7 +102,10 @@ const emit = defineEmits<{
   (e: "delete", id: string): void;
 }>();
 
-const classes = ref<AnnotationClass[]>(props.modelValue || []);
+const classes = computed({
+  get: () => props.modelValue || [],
+  set: (value) => emit("update:modelValue", value),
+});
 const newClassName = ref("");
 const newClassColor = ref("#FF0000");
 const newClassMarkupType = ref<MarkupType>("bbox");
@@ -109,6 +113,12 @@ const selectedClassId = ref<string | null>(props.selectedClassId || null);
 
 const generateId = () => {
   return `class_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+};
+
+const getNextValue = () => {
+  if (classes.value.length === 0) return 0;
+  const maxValue = Math.max(...classes.value.map((c) => c.value ?? 0));
+  return maxValue + 1;
 };
 
 const addClass = () => {
@@ -119,10 +129,10 @@ const addClass = () => {
     name: newClassName.value.trim(),
     color: newClassColor.value,
     markupType: newClassMarkupType.value,
+    value: getNextValue(),
   };
 
-  classes.value.push(newClass);
-  emit("update:modelValue", classes.value);
+  classes.value = [...classes.value, newClass];
 
   newClassName.value = "";
   newClassColor.value = "#FF0000";
@@ -130,7 +140,6 @@ const addClass = () => {
 
 const deleteClass = (id: string) => {
   classes.value = classes.value.filter((c) => c.id !== id);
-  emit("update:modelValue", classes.value);
   emit("delete", id);
 
   if (selectedClassId.value === id) {
