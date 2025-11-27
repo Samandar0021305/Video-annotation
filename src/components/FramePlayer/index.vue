@@ -18,6 +18,7 @@
             :class="['tool-btn', { active: mode === 'pan' }]"
             @click="setMode('pan')"
             title="Pan"
+            :disabled="toolsDisabled"
           >
             <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
               <path
@@ -54,6 +55,7 @@
             :class="['tool-btn', { active: mode === 'bbox' }]"
             @click="setMode('bbox')"
             title="Bounding Box"
+            :disabled="toolsDisabled"
           >
             <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
               <path
@@ -66,6 +68,7 @@
             :class="['tool-btn', { active: mode === 'polygon' }]"
             @click="setMode('polygon')"
             title="Polygon"
+            :disabled="toolsDisabled"
           >
             <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
               <path
@@ -78,6 +81,7 @@
             :class="['tool-btn', { active: mode === 'skeleton' }]"
             @click="setMode('skeleton')"
             title="Skeleton"
+            :disabled="toolsDisabled"
           >
             <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
               <path
@@ -121,16 +125,7 @@
           </div>
         </div>
 
-        <!-- Color Picker -->
-        <div v-if="mode === 'brush'" class="toolbar-section">
-          <div class="toolbar-title">Color</div>
-          <input
-            type="color"
-            v-model="brushColor"
-            class="color-picker"
-            @change="handleBrushColorChange"
-          />
-        </div>
+        <!-- Color Picker (not for brush - color comes from class) -->
         <div v-if="mode === 'bbox'" class="toolbar-section">
           <div class="toolbar-title">Color</div>
           <input type="color" v-model="bboxColor" class="color-picker" />
@@ -162,6 +157,46 @@
             <span class="opacity-value">{{ Math.round(opacity * 100) }}%</span>
           </div>
         </div>
+
+        <!-- Brush Actions (shown when strokes exist or editing segmentation) -->
+        <template v-if="hasPendingBrushStrokes || isEditingSegmentation">
+          <div class="toolbar-divider"></div>
+          <div class="toolbar-section brush-actions">
+            <button
+              class="action-btn clear-btn"
+              @click="handleClearStrokes"
+              title="Clear all strokes"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                fill="currentColor"
+              >
+                <path
+                  d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
+                />
+              </svg>
+              <span>Clear All</span>
+            </button>
+            <button
+              class="action-btn save-btn"
+              @click="handleSaveStrokes"
+              title="Save annotation"
+              :disabled="!hasPendingBrushStrokes && !hasUnsavedEraserChanges"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                fill="currentColor"
+              >
+                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+              </svg>
+              <span>Save</span>
+            </button>
+          </div>
+        </template>
       </div>
 
       <!-- Canvas Container -->
@@ -349,39 +384,6 @@
           </v-stage>
         </div>
         <div v-else class="loading">Loading frames...</div>
-
-        <SegmentationToolbar
-          :visible="showSegmentationToolbar"
-          :position="selectedSegmentationPosition"
-          :edit-mode="segmentationEditMode"
-          :color="selectedSegmentationColor"
-          :stage-offset="stageOffset"
-          :stage-scale="zoomLevel"
-          @set-mode="handleSegmentationEditMode"
-          @change-color="handleSegmentationColorChange"
-          @deselect="handleDeselectSegmentation"
-        />
-      </div>
-
-      <!-- Right Side Panel for BrushMergePopup -->
-      <div
-        class="right-panel"
-        :class="{ visible: showBrushMergePopup }"
-        @mousedown.stop
-        @click.stop
-      >
-        <BrushMergePopup
-          v-if="showBrushMergePopup"
-          :stroke-count="
-            tempStrokesConvertedToCanvas ? 1 : tempBrushStrokes.length
-          "
-          :color="mergeColor"
-          :edit-mode="tempStrokesEditMode"
-          @update:color="handleTempStrokesColorChange"
-          @merge="handleMergeStrokes"
-          @clear="handleClearStrokes"
-          @set-edit-mode="handleTempStrokesEditModeChange"
-        />
       </div>
     </div>
 
@@ -478,7 +480,10 @@ import { useAnnotationStore } from "../../stores/annotationStore";
 import { useBoundingBoxTracks } from "../../composables/useBoundingBoxTracks";
 import { usePolygonTracks } from "../../composables/usePolygonTracks";
 import { useSkeletonTracks } from "../../composables/useSkeletonTracks";
-import { useBrushTracks, type BrushTrack } from "../../composables/useBrushTracks";
+import {
+  useBrushTracks,
+  type BrushTrack,
+} from "../../composables/useBrushTracks";
 import { BBoxTool } from "../../utils/bboxUtils";
 import { PolygonTool } from "../../utils/polygonUtils";
 import { SkeletonTool } from "../../utils/skeletonUtils";
@@ -498,8 +503,6 @@ import type { Polygon } from "../../types/polygon";
 import type { Skeleton } from "../../types/skeleton";
 import type { ToolClass } from "../../types/contours";
 import FramePlayerTimeline from "./FramePlayerTimeline.vue";
-import BrushMergePopup from "./BrushMergePopup.vue";
-import SegmentationToolbar from "./SegmentationToolbar.vue";
 import AnnotationClassManager from "../AnnotationClassManager.vue";
 import type { AnnotationClass } from "../AnnotationClassManager.vue";
 import ClassSelector from "../ClassSelector.vue";
@@ -566,8 +569,29 @@ const visiblePolygonTracks = computed(() =>
 const visibleSkeletonTracks = computed(() =>
   hasSkeletonClasses.value ? skeletonTracks.value : new Map()
 );
-const visibleBrushTracks = computed((): Map<string, BrushTrack> =>
-  hasMaskClasses.value ? brushTracks.value : new Map<string, BrushTrack>()
+const visibleBrushTracks = computed(
+  (): Map<string, BrushTrack> =>
+    hasMaskClasses.value ? brushTracks.value : new Map<string, BrushTrack>()
+);
+
+// Check if there are pending brush strokes (for showing Save/Clear buttons)
+const hasPendingBrushStrokes = computed(
+  () => tempBrushStrokes.value.length > 0 || tempStrokesConvertedToCanvas.value
+);
+
+// Track unsaved eraser changes on existing segmentation
+const hasUnsavedEraserChanges = ref(false);
+const unsavedEraserCanvas = ref<HTMLCanvasElement | null>(null);
+
+// Check if we're editing an existing segmentation
+const isEditingSegmentation = computed(
+  () =>
+    editingBrushTrackId.value !== null || selectedBrushTrackId.value !== null
+);
+
+// Check if tools should be disabled (when brush work is in progress)
+const toolsDisabled = computed(
+  () => hasPendingBrushStrokes.value || isEditingSegmentation.value || hasUnsavedEraserChanges.value
 );
 
 const handleClassSelect = (cls: AnnotationClass) => {
@@ -629,7 +653,9 @@ const pendingBrush = ref<PendingBrush | null>(null);
 
 const getNextClassValue = () => {
   if (annotationClasses.value.length === 0) return 0;
-  const maxValue = Math.max(...annotationClasses.value.map((c) => c.value ?? 0));
+  const maxValue = Math.max(
+    ...annotationClasses.value.map((c) => c.value ?? 0)
+  );
   return maxValue + 1;
 };
 
@@ -761,7 +787,9 @@ const handleClassSelectorSelect = (cls: AnnotationClass) => {
     const trackId = createPolygonTrack(
       polygon.frame,
       {
-        id: `polygon_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+        id: `polygon_${Date.now()}_${Math.random()
+          .toString(36)
+          .substring(2, 11)}`,
         points: polygon.points,
         color: cls.color,
         value: cls.value,
@@ -780,7 +808,9 @@ const handleClassSelectorSelect = (cls: AnnotationClass) => {
     const trackId = createSkeletonTrack(
       skeleton.frame,
       {
-        id: `skeleton_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+        id: `skeleton_${Date.now()}_${Math.random()
+          .toString(36)
+          .substring(2, 11)}`,
         points: skeleton.points,
         color: cls.color,
         value: cls.value,
@@ -871,13 +901,18 @@ const handleClassSelectorSelect = (cls: AnnotationClass) => {
     tempStrokesEditMode.value = "brush";
     bufferFrame.value = null;
     pendingBrush.value = null;
+    // Deselect any editing track to re-enable other tools
+    selectedBrushTrackId.value = null;
+    editingBrushTrackId.value = null;
   }
 
   showClassSelector.value = false;
   classSelectorInitialClass.value = null;
 };
 
-const handleClassSelectorCreate = (classData: Omit<AnnotationClass, "id" | "value">) => {
+const handleClassSelectorCreate = (
+  classData: Omit<AnnotationClass, "id" | "value">
+) => {
   const newClass: AnnotationClass = {
     id: `class_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
     name: classData.name,
@@ -923,7 +958,10 @@ const handleClassSelectorClose = () => {
   }
 };
 
-const getScreenPositionFromCanvas = (canvasX: number, canvasY: number): { x: number; y: number } => {
+const getScreenPositionFromCanvas = (
+  canvasX: number,
+  canvasY: number
+): { x: number; y: number } => {
   const stage = stageRef.value?.getStage();
   const container = containerRef.value;
   if (!stage || !container) {
@@ -939,7 +977,10 @@ const getScreenPositionFromCanvas = (canvasX: number, canvasY: number): { x: num
   return { x: screenX + 10, y: screenY + 10 };
 };
 
-const showClassSelectorForAnnotation = (markupType: MarkupType, position?: { x: number; y: number }) => {
+const showClassSelectorForAnnotation = (
+  markupType: MarkupType,
+  position?: { x: number; y: number }
+) => {
   classSelectorMarkupType.value = markupType;
   if (position) {
     classSelectorPosition.value = position;
@@ -1053,7 +1094,6 @@ const {
   deselectTrack,
   setHoveredTrack,
   setSegmentationEditMode,
-  changeSelectedTrackColor,
   getSelectedTrackColor,
 } = useBrushTracks(currentFrame);
 
@@ -1127,13 +1167,6 @@ const canEditSkeleton = computed(
     mode.value === "pan" ||
     (mode.value === "skeleton" && !isSkeletonDrawing.value)
 );
-
-// Stage offset for toolbar positioning
-const stageOffset = computed(() => {
-  const stage = stageRef.value?.getStage();
-  if (!stage) return { x: 0, y: 0 };
-  return { x: stage.x(), y: stage.y() };
-});
 
 const currentFrameBboxes = computed(() => {
   const result: BoundingBox[] = [];
@@ -1608,12 +1641,6 @@ const handleSizeChange = () => {
   }
 };
 
-const handleBrushColorChange = () => {
-  if (brush.value) {
-    brush.value.changeColor(brushColor.value);
-  }
-};
-
 const handleOpacityChange = () => {
   updateAllLayersOpacity();
 };
@@ -1688,14 +1715,18 @@ const handleBboxClick = (e: any) => {
     if (track) {
       const bbox = getBoxAtFrame(trackId, currentFrame.value);
       if (bbox?.value !== undefined) {
-        const currentClass = annotationClasses.value.find((c) => c.value === bbox.value);
+        const currentClass = annotationClasses.value.find(
+          (c) => c.value === bbox.value
+        );
         classSelectorInitialClass.value = currentClass || null;
         selectedClassId.value = currentClass?.id || null;
       } else {
         classSelectorInitialClass.value = null;
       }
       editingBboxTrackId.value = trackId;
-      const screenPos = bbox ? getScreenPositionFromCanvas(bbox.x, bbox.y) : undefined;
+      const screenPos = bbox
+        ? getScreenPositionFromCanvas(bbox.x, bbox.y)
+        : undefined;
       showClassSelectorForAnnotation("bbox", screenPos);
     }
   }
@@ -1840,7 +1871,9 @@ const completePolygonDrawing = () => {
 
   // Show ClassSelector at the first point of the polygon
   const firstPoint = polygon.points[0];
-  const screenPos = firstPoint ? getScreenPositionFromCanvas(firstPoint.x, firstPoint.y) : undefined;
+  const screenPos = firstPoint
+    ? getScreenPositionFromCanvas(firstPoint.x, firstPoint.y)
+    : undefined;
   showClassSelectorForAnnotation("polygon", screenPos);
 };
 
@@ -1868,7 +1901,9 @@ const handlePolygonClick = (e: any) => {
     if (track) {
       const polygon = getPolygonAtFrame(trackId, currentFrame.value);
       if (polygon?.value !== undefined) {
-        const currentClass = annotationClasses.value.find((c) => c.value === polygon.value);
+        const currentClass = annotationClasses.value.find(
+          (c) => c.value === polygon.value
+        );
         classSelectorInitialClass.value = currentClass || null;
         selectedClassId.value = currentClass?.id || null;
       } else {
@@ -1877,7 +1912,9 @@ const handlePolygonClick = (e: any) => {
       editingPolygonTrackId.value = trackId;
       // Show ClassSelector at the first point of the polygon
       const firstPoint = polygon?.points[0];
-      const screenPos = firstPoint ? getScreenPositionFromCanvas(firstPoint.x, firstPoint.y) : undefined;
+      const screenPos = firstPoint
+        ? getScreenPositionFromCanvas(firstPoint.x, firstPoint.y)
+        : undefined;
       showClassSelectorForAnnotation("polygon", screenPos);
     }
   }
@@ -2016,7 +2053,9 @@ const completeSkeletonDrawing = () => {
 
   // Show ClassSelector at the first point of the skeleton
   const firstPoint = skeleton.points[0];
-  const screenPos = firstPoint ? getScreenPositionFromCanvas(firstPoint.x, firstPoint.y) : undefined;
+  const screenPos = firstPoint
+    ? getScreenPositionFromCanvas(firstPoint.x, firstPoint.y)
+    : undefined;
   showClassSelectorForAnnotation("skeleton", screenPos);
 };
 
@@ -2044,7 +2083,9 @@ const handleSkeletonClick = (e: any) => {
     if (track) {
       const skeleton = getSkeletonAtFrame(trackId, currentFrame.value);
       if (skeleton?.value !== undefined) {
-        const currentClass = annotationClasses.value.find((c) => c.value === skeleton.value);
+        const currentClass = annotationClasses.value.find(
+          (c) => c.value === skeleton.value
+        );
         classSelectorInitialClass.value = currentClass || null;
         selectedClassId.value = currentClass?.id || null;
       } else {
@@ -2053,7 +2094,9 @@ const handleSkeletonClick = (e: any) => {
       editingSkeletonTrackId.value = trackId;
       // Show ClassSelector at the first point of the skeleton
       const firstPoint = skeleton?.points[0];
-      const screenPos = firstPoint ? getScreenPositionFromCanvas(firstPoint.x, firstPoint.y) : undefined;
+      const screenPos = firstPoint
+        ? getScreenPositionFromCanvas(firstPoint.x, firstPoint.y)
+        : undefined;
       showClassSelectorForAnnotation("skeleton", screenPos);
     }
   }
@@ -2156,8 +2199,77 @@ const binarizeAlpha = (canvas: HTMLCanvasElement): void => {
   ctx.putImageData(imageData, 0, 0);
 };
 
-const handleMergeStrokes = async () => {
-  // Check if we have anything to merge (either canvas or points)
+const handleSaveStrokes = async () => {
+  // Handle saving unsaved eraser changes first
+  if (hasUnsavedEraserChanges.value && unsavedEraserCanvas.value && selectedBrushTrackId.value) {
+    const trackId = selectedBrushTrackId.value;
+    const track = brushTracks.value.get(trackId);
+    if (track) {
+      const targetFrame = bufferFrame.value ?? currentFrame.value;
+
+      // Get the color from existing mask data
+      const firstKeyframe = track.keyframes.values().next().value;
+      let strokeColor = "#FF0000";
+      if (firstKeyframe && firstKeyframe.length > 0) {
+        const firstMask = firstKeyframe[0];
+        if (firstMask && "color" in firstMask) {
+          strokeColor = firstMask.color;
+        }
+      }
+
+      // Convert the eraser canvas to RLE MaskData
+      const newMaskData = canvasToMaskData(
+        unsavedEraserCanvas.value,
+        strokeColor,
+        "Brush",
+        0
+      );
+
+      if (newMaskData) {
+        const hasContent = newMaskData.rle.some(
+          (val, idx) => idx % 2 === 1 && val > 0
+        );
+
+        if (hasContent) {
+          // Update the track keyframe with modified data
+          updateBrushKeyframe(
+            trackId,
+            targetFrame,
+            [newMaskData],
+            autoSuggest.value
+          );
+        } else {
+          // All content erased - delete the keyframe
+          deleteBrushKeyframe(trackId, targetFrame, autoSuggest.value);
+        }
+
+        // Update the editCanvas in trackEditStates
+        const editState = trackEditStates.value.get(trackId);
+        if (editState) {
+          const editCtx = editState.editCanvas.getContext("2d");
+          if (editCtx) {
+            editCtx.clearRect(0, 0, editState.editCanvas.width, editState.editCanvas.height);
+            editCtx.drawImage(unsavedEraserCanvas.value, 0, 0);
+          }
+        }
+
+        // Force re-render
+        currentDisplayFrame = -1;
+        await forceRenderFrame(targetFrame);
+        saveAnnotations();
+      }
+
+      // Clear unsaved eraser state
+      hasUnsavedEraserChanges.value = false;
+      unsavedEraserCanvas.value = null;
+      selectedBrushTrackId.value = null;
+      editingBrushTrackId.value = null;
+      bufferFrame.value = null;
+    }
+    return;
+  }
+
+  // Check if we have anything to save (either canvas or points)
   const hasCanvasData =
     tempStrokesConvertedToCanvas.value && tempStrokesCanvas.value;
   const hasPointsData = tempBrushStrokes.value.length > 0;
@@ -2212,16 +2324,101 @@ const handleMergeStrokes = async () => {
     applyColorToCanvas(combinedCanvas, mergeColor.value);
   }
 
-  // Store pending brush and show ClassSelector
+  // Check if we're editing an existing segmentation (has a class already)
+  const editingTrackId = selectedBrushTrackId.value;
+  if (editingTrackId) {
+    const track = brushTracks.value.get(editingTrackId);
+    if (track) {
+      // Get class info from the existing track
+      const firstKeyframe = track.keyframes.values().next().value;
+      if (firstKeyframe && firstKeyframe.length > 0) {
+        const maskData = firstKeyframe[0];
+        if (maskData && "classID" in maskData && "className" in maskData && "color" in maskData) {
+          // Use the existing class to save directly without showing ClassSelector
+          const existingClass: AnnotationClass = {
+            id: `existing_${maskData.classID}`,
+            name: maskData.className,
+            color: maskData.color,
+            markupType: "mask",
+            value: maskData.classID,
+          };
+
+          // Create a merged canvas that combines existing mask + new strokes
+          const mergedCanvas = document.createElement("canvas");
+          mergedCanvas.width = stageConfig.value.width;
+          mergedCanvas.height = stageConfig.value.height;
+          const mergedCtx = mergedCanvas.getContext("2d")!;
+          mergedCtx.imageSmoothingEnabled = false;
+
+          // First, render existing mask data for this frame
+          const existingKeyframeData = track.keyframes.get(targetFrame);
+          if (existingKeyframeData && existingKeyframeData.length > 0) {
+            for (const existingMask of existingKeyframeData) {
+              if ("rle" in existingMask) {
+                renderMaskToCanvas(existingMask as MaskData, mergedCanvas, false, 1);
+              }
+            }
+          }
+
+          // Apply existing class color to new strokes
+          applyColorToCanvas(combinedCanvas, existingClass.color);
+
+          // Draw new strokes on top of existing mask
+          mergedCtx.drawImage(combinedCanvas, 0, 0);
+
+          // Binarize alpha for clean RLE encoding
+          binarizeAlpha(mergedCanvas);
+
+          // Convert merged canvas to RLE-based MaskData
+          const newMaskData = canvasToMaskData(
+            mergedCanvas,
+            existingClass.color,
+            existingClass.name,
+            existingClass.value
+          );
+
+          if (newMaskData) {
+            const hasContent = newMaskData.rle.some(
+              (val, idx) => idx % 2 === 1 && val > 0
+            );
+
+            if (hasContent) {
+              // Update the existing track's keyframe with the merged mask
+              const masks: MaskData[] = [newMaskData];
+              track.keyframes.set(targetFrame, masks);
+              brushTracks.value.set(editingTrackId, { ...track });
+
+              // Re-render the display
+              currentDisplayFrame = -1;
+              await renderBrushAnnotations(targetFrame);
+              saveAnnotations();
+            }
+          }
+
+          // Clear temp strokes state and deselect track
+          tempBrushStrokes.value = [];
+          tempStrokesCanvas.value = null;
+          tempStrokesConvertedToCanvas.value = false;
+          tempStrokesEditMode.value = "brush";
+          bufferFrame.value = null;
+          showBrushMergePopup.value = false;
+          selectedBrushTrackId.value = null;
+          editingBrushTrackId.value = null;
+          return;
+        }
+      }
+    }
+  }
+
+  // Not editing an existing track - show ClassSelector for new annotation
   pendingBrush.value = {
     canvas: combinedCanvas,
     frame: targetFrame,
   };
 
-  // Hide BrushMergePopup and show ClassSelector
   showBrushMergePopup.value = false;
 
-  // Calculate position for ClassSelector (center of canvas or use stored position)
+  // Calculate position for ClassSelector (center of canvas)
   const screenPos = getScreenPositionFromCanvas(
     stageConfig.value.width / 2,
     stageConfig.value.height / 2
@@ -2232,14 +2429,23 @@ const handleMergeStrokes = async () => {
 const handleClearStrokes = async () => {
   const targetFrame = bufferFrame.value ?? currentFrame.value;
 
+  // Clear temp brush strokes
   tempBrushStrokes.value = [];
   tempStrokesCanvas.value = null;
   tempStrokesConvertedToCanvas.value = false;
   tempStrokesEditMode.value = "brush";
   showBrushMergePopup.value = false;
+
+  // Clear unsaved eraser changes
+  hasUnsavedEraserChanges.value = false;
+  unsavedEraserCanvas.value = null;
+
+  // Deselect track
+  selectedBrushTrackId.value = null;
+  editingBrushTrackId.value = null;
   bufferFrame.value = null;
 
-  // Force re-render to clear temp strokes
+  // Force re-render to restore original state
   currentDisplayFrame = -1;
   await renderFrame(targetFrame);
 };
@@ -2290,36 +2496,6 @@ const convertTempStrokesToCanvas = () => {
   tempStrokesCanvas.value = canvas;
   tempBrushStrokes.value = [];
   tempStrokesConvertedToCanvas.value = true;
-};
-
-// Handle edit mode change in BrushMergePopup
-const handleTempStrokesEditModeChange = async (newMode: "brush" | "eraser") => {
-  // If switching to eraser and not yet converted, convert points to canvas
-  if (newMode === "eraser" && !tempStrokesConvertedToCanvas.value) {
-    convertTempStrokesToCanvas();
-  }
-
-  tempStrokesEditMode.value = newMode;
-
-  // Update cursor style
-  const stage = stageRef.value?.getStage();
-  if (stage) {
-    stage.container().style.cursor = "none";
-  }
-};
-
-// Handle color change in BrushMergePopup
-const handleTempStrokesColorChange = async (newColor: string) => {
-  mergeColor.value = newColor;
-
-  // If already converted to canvas, recolor the canvas
-  if (tempStrokesConvertedToCanvas.value && tempStrokesCanvas.value) {
-    applyColorToCanvas(tempStrokesCanvas.value, newColor);
-
-    // Re-render to show updated color
-    const targetFrame = bufferFrame.value ?? currentFrame.value;
-    await renderTempStrokesCanvasToDisplay(targetFrame);
-  }
 };
 
 // Render temp strokes canvas to display
@@ -3226,24 +3402,57 @@ const handleMouseUp = async () => {
   }
 
   if (isInEraserMode) {
+    // Check if we have pending temp strokes to erase from (new drawing)
+    const hasTempStrokes = tempBrushStrokes.value.length > 0 || tempStrokesConvertedToCanvas.value;
+
+    if (hasTempStrokes) {
+      // Erase from temp strokes (new drawing workflow)
+      if (!tempStrokesConvertedToCanvas.value) {
+        // Convert to canvas first for erasing
+        convertTempStrokesToCanvas();
+      }
+
+      if (tempStrokesCanvas.value) {
+        // Create eraser stroke canvas
+        const eraserStrokeCanvas = document.createElement("canvas");
+        eraserStrokeCanvas.width = stageConfig.value.width;
+        eraserStrokeCanvas.height = stageConfig.value.height;
+        brush.value.renderToCanvas(eraserStrokeCanvas, points, 1, 1.0);
+
+        // Apply eraser to temp strokes canvas
+        const ctx = tempStrokesCanvas.value.getContext("2d")!;
+        ctx.globalCompositeOperation = "destination-out";
+        ctx.drawImage(eraserStrokeCanvas, 0, 0);
+        ctx.globalCompositeOperation = "source-over";
+
+        // Re-render display
+        await renderTempStrokesCanvasToDisplay(targetFrame);
+      }
+
+      isDrawing.value = false;
+      return;
+    }
+
     const selectedTrackId =
       selectedBrushTrackId.value || timelineRef.value?.selectedTrackId;
     const selectedType = timelineRef.value?.selectedTrackType;
-    const isInSegmentationEditMode = segmentationEditMode.value === "eraser";
+    // Check if editing existing segmentation: either via segmentationEditMode OR selectedBrushTrackId with eraser tool
+    const isEditingExistingSegmentation =
+      segmentationEditMode.value === "eraser" ||
+      (selectedBrushTrackId.value !== null && mode.value === "eraser");
 
-    // Allow erasing if in segmentation edit mode with a selected track, or if track is selected in timeline
+    // Allow erasing if editing existing segmentation, or if brush track is selected in timeline
     if (
       !selectedTrackId ||
-      (!isInSegmentationEditMode && selectedType !== "brush")
+      (!isEditingExistingSegmentation && selectedType !== "brush")
     ) {
       isDrawing.value = false;
       return;
     }
 
-    // Check if we're in segmentation edit mode - use RLE-based erasing
-    if (isInSegmentationEditMode && selectedBrushTrackId.value) {
+    // Use RLE-based erasing for existing segmentation
+    if (isEditingExistingSegmentation && selectedBrushTrackId.value) {
       const trackId = selectedBrushTrackId.value;
-      const strokeColor = selectedSegmentationColor.value;
 
       // Get the current track data
       const track = brushTracks.value.get(trackId);
@@ -3252,36 +3461,44 @@ const handleMouseUp = async () => {
         return;
       }
 
-      // Create a canvas with the existing mask
-      const modifiedCanvas = document.createElement("canvas");
-      modifiedCanvas.width = stageConfig.value.width;
-      modifiedCanvas.height = stageConfig.value.height;
+      // Check if we already have unsaved eraser changes - use that canvas as base
+      let modifiedCanvas: HTMLCanvasElement;
+      if (hasUnsavedEraserChanges.value && unsavedEraserCanvas.value) {
+        // Continue erasing on existing unsaved canvas
+        modifiedCanvas = unsavedEraserCanvas.value;
+      } else {
+        // Create a new canvas with the existing mask
+        modifiedCanvas = document.createElement("canvas");
+        modifiedCanvas.width = stageConfig.value.width;
+        modifiedCanvas.height = stageConfig.value.height;
+
+        // First, render existing mask data for this track at this frame
+        let existingKeyframeData = track.keyframes.get(targetFrame);
+
+        // If no keyframe at this frame but interpolation is enabled, get from previous keyframe
+        if (!existingKeyframeData && track.interpolationEnabled) {
+          const frames = Array.from(track.keyframes.keys()).sort((a, b) => a - b);
+          let beforeFrame: number | null = null;
+          for (const f of frames) {
+            if (f <= targetFrame) beforeFrame = f;
+            else break;
+          }
+          if (beforeFrame !== null) {
+            existingKeyframeData = track.keyframes.get(beforeFrame);
+          }
+        }
+
+        // If no existing data, nothing to erase
+        if (!existingKeyframeData || !isMaskData(existingKeyframeData)) {
+          isDrawing.value = false;
+          return;
+        }
+
+        // Render existing mask to the canvas
+        renderMasksToCanvas(existingKeyframeData, modifiedCanvas, false, 1);
+      }
+
       const modifiedCtx = modifiedCanvas.getContext("2d")!;
-
-      // First, render existing mask data for this track at this frame
-      let existingKeyframeData = track.keyframes.get(targetFrame);
-
-      // If no keyframe at this frame but interpolation is enabled, get from previous keyframe
-      if (!existingKeyframeData && track.interpolationEnabled) {
-        const frames = Array.from(track.keyframes.keys()).sort((a, b) => a - b);
-        let beforeFrame: number | null = null;
-        for (const f of frames) {
-          if (f <= targetFrame) beforeFrame = f;
-          else break;
-        }
-        if (beforeFrame !== null) {
-          existingKeyframeData = track.keyframes.get(beforeFrame);
-        }
-      }
-
-      // If no existing data, nothing to erase
-      if (!existingKeyframeData || !isMaskData(existingKeyframeData)) {
-        isDrawing.value = false;
-        return;
-      }
-
-      // Render existing mask to the canvas
-      renderMasksToCanvas(existingKeyframeData, modifiedCanvas, false, 1);
 
       // Create eraser stroke canvas
       const eraserStrokeCanvas = document.createElement("canvas");
@@ -3292,53 +3509,52 @@ const handleMouseUp = async () => {
       // Apply eraser using destination-out composite operation
       modifiedCtx.globalCompositeOperation = "destination-out";
       modifiedCtx.drawImage(eraserStrokeCanvas, 0, 0);
+      modifiedCtx.globalCompositeOperation = "source-over";
 
-      // Convert the modified canvas to RLE MaskData
-      const newMaskData = canvasToMaskData(
-        modifiedCanvas,
-        strokeColor,
-        "Brush",
-        0
-      );
+      // Store the modified canvas for later saving (don't save immediately)
+      unsavedEraserCanvas.value = modifiedCanvas;
+      hasUnsavedEraserChanges.value = true;
+      bufferFrame.value = targetFrame;
 
-      if (newMaskData) {
-        // Check if the mask is empty (all erased)
-        const hasContent = newMaskData.rle.some(
-          (val, idx) => idx % 2 === 1 && val > 0
-        );
+      // Render the modified canvas to display (preview only, not saved)
+      if (!workingCanvas || !displayCanvas) {
+        initializeCanvases(stageConfig.value.width, stageConfig.value.height);
+      }
 
-        if (hasContent) {
-          // Update the track keyframe with modified data
-          updateBrushKeyframe(
-            trackId,
-            targetFrame,
-            [newMaskData],
-            autoSuggest.value
-          );
-        } else {
-          // All content erased - delete the keyframe
-          deleteBrushKeyframe(trackId, targetFrame, autoSuggest.value);
-        }
+      // Update display to show erased result
+      const brushGroup = brushAnnotationGroupRef.value?.getNode();
+      if (brushGroup && displayCanvas) {
+        // Clear and redraw all brush tracks except the one being edited
+        clearCanvas(displayCanvas);
 
-        // IMPORTANT: Also update the editCanvas in trackEditStates
-        // This ensures deselectTrack() will save the correct data when "Done" is clicked
-        const editState = trackEditStates.value.get(trackId);
-        if (editState) {
-          const editCtx = editState.editCanvas.getContext("2d");
-          if (editCtx) {
-            editCtx.clearRect(
-              0,
-              0,
-              editState.editCanvas.width,
-              editState.editCanvas.height
-            );
-            editCtx.drawImage(modifiedCanvas, 0, 0);
+        // Render other tracks
+        for (const [otherTrackId] of brushTracks.value) {
+          if (otherTrackId === trackId) continue;
+          const otherTrack = brushTracks.value.get(otherTrackId);
+          if (!otherTrack) continue;
+          const otherKeyframeData = otherTrack.keyframes.get(targetFrame);
+          if (otherKeyframeData && isMaskData(otherKeyframeData)) {
+            renderMasksToCanvas(otherKeyframeData, displayCanvas, false, 1);
           }
         }
 
-        // Force re-render to show the erased result
-        currentDisplayFrame = -1;
-        await forceRenderFrame(targetFrame);
+        // Draw the modified (erased) canvas on top
+        const displayCtx = displayCanvas.getContext("2d")!;
+        displayCtx.drawImage(modifiedCanvas, 0, 0);
+
+        // Update Konva display
+        brushGroup.destroyChildren();
+        const konvaImage = new Konva.Image({
+          image: displayCanvas,
+          x: 0,
+          y: 0,
+          width: stageConfig.value.width,
+          height: stageConfig.value.height,
+          listening: false,
+          opacity: opacity.value,
+        });
+        brushGroup.add(konvaImage);
+        annotationsLayerRef.value?.getNode()?.batchDraw();
       }
     } else {
       // Legacy eraser mode for contour-based tracks (non-segmentation edit mode)
@@ -3605,24 +3821,6 @@ const handleClearCache = async () => {
 
 // ========== Segmentation Selection Handlers ==========
 
-const handleSegmentationEditMode = (newEditMode: "brush" | "eraser") => {
-  setSegmentationEditMode(newEditMode);
-
-  // Update cursor style for brush/eraser mode
-  const stage = stageRef.value?.getStage();
-  if (stage) {
-    stage.container().style.cursor = "none";
-  }
-};
-
-const handleSegmentationColorChange = async (newColor: string) => {
-  selectedSegmentationColor.value = newColor;
-  changeSelectedTrackColor(newColor);
-
-  // Re-render the display with updated color
-  await forceRenderFrame(currentFrame.value);
-};
-
 const handleDeselectSegmentation = async () => {
   deselectTrack();
   showSegmentationToolbar.value = false;
@@ -3671,8 +3869,10 @@ const handleSelectSegmentationAtPoint = async (x: number, y: number) => {
       const firstKeyframe = track.keyframes.values().next().value;
       if (firstKeyframe && firstKeyframe.length > 0) {
         const maskData = firstKeyframe[0];
-        if (maskData && 'classID' in maskData) {
-          const currentClass = annotationClasses.value.find((c) => c.value === maskData.classID);
+        if (maskData && "classID" in maskData) {
+          const currentClass = annotationClasses.value.find(
+            (c) => c.value === maskData.classID
+          );
           classSelectorInitialClass.value = currentClass || null;
           selectedClassId.value = currentClass?.id || null;
         } else {
@@ -4228,6 +4428,49 @@ watch(
 
 .tool-btn svg {
   flex-shrink: 0;
+}
+
+/* Brush Actions */
+.brush-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.clear-btn {
+  background: #fc8181;
+  color: white;
+}
+
+.clear-btn:hover:not(:disabled) {
+  background: #e53e3e;
+}
+
+.save-btn {
+  background: #48bb78;
+  color: white;
+}
+
+.save-btn:hover:not(:disabled) {
+  background: #38a169;
 }
 
 /* Size and Opacity Controls */
