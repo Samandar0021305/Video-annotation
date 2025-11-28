@@ -308,7 +308,9 @@ export function renderMaskToCanvas(
   mask: MaskData,
   targetCanvas: HTMLCanvasElement,
   clearFirst: boolean = false,
-  scale: number = 1
+  scale: number = 1,
+  offsetX: number = 0,
+  offsetY: number = 0
 ): void {
   const ctx = targetCanvas.getContext('2d');
   if (!ctx) return;
@@ -337,12 +339,12 @@ export function renderMaskToCanvas(
   tempCtx.putImageData(imageData, 0, 0);
 
   if (scale === 1) {
-    ctx.drawImage(tempCanvas, mask.left, mask.top);
+    ctx.drawImage(tempCanvas, mask.left + offsetX, mask.top + offsetY);
   } else {
     ctx.drawImage(
       tempCanvas,
       0, 0, width, height,
-      mask.left * scale, mask.top * scale,
+      (mask.left + offsetX) * scale, (mask.top + offsetY) * scale,
       width * scale, height * scale
     );
   }
@@ -355,12 +357,16 @@ export function renderMaskToCanvas(
  * @param targetCanvas - Canvas to render to
  * @param clearFirst - Whether to clear the canvas first
  * @param scale - Scale factor for rendering
+ * @param offsetX - X offset for rendering (default 0)
+ * @param offsetY - Y offset for rendering (default 0)
  */
 export function renderMasksToCanvas(
   masks: MaskData[],
   targetCanvas: HTMLCanvasElement,
   clearFirst: boolean = true,
-  scale: number = 1
+  scale: number = 1,
+  offsetX: number = 0,
+  offsetY: number = 0
 ): void {
   const ctx = targetCanvas.getContext('2d');
   if (!ctx) return;
@@ -370,7 +376,7 @@ export function renderMasksToCanvas(
   }
 
   for (const mask of masks) {
-    renderMaskToCanvas(mask, targetCanvas, false, scale);
+    renderMaskToCanvas(mask, targetCanvas, false, scale, offsetX, offsetY);
   }
 }
 

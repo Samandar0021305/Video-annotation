@@ -58,10 +58,10 @@
             :selected-canvas="brushAnnotationCanvasData.selectedCanvas"
             :hovered-canvas="brushAnnotationCanvasData.hoveredCanvas"
             :opacity="opacity"
-            :stage-width="imageSize.width"
-            :stage-height="imageSize.height"
-            :offset-x="imageOffset.x"
-            :offset-y="imageOffset.y"
+            :stage-width="containerSize.width"
+            :stage-height="containerSize.height"
+            :offset-x="0"
+            :offset-y="0"
             :frame-number="brushAnnotationCanvasData.frameNumber"
             :render-version="brushAnnotationCanvasData.renderVersion"
             @render-complete="handleBrushAnnotationRenderComplete"
@@ -612,10 +612,10 @@ const handleClassSelectorSelect = (cls: AnnotationClass) => {
 
         // Render the new mask to display
         if (!workingCanvas || !displayCanvas) {
-          initCanvases(imageSize.value.width, imageSize.value.height);
+          initCanvases();
         }
         clearCanvas(workingCanvas!);
-        renderMaskToCanvas(maskData, workingCanvas!, false, 1);
+        renderMaskToCanvas(maskData, workingCanvas!, false, 1, imageOffset.value.x, imageOffset.value.y);
 
         // Add new mask on top of existing displayCanvas
         const displayCtx = displayCanvas!.getContext("2d")!;
@@ -843,8 +843,11 @@ let workingCanvas: HTMLCanvasElement | null = null;
 let displayCanvas: HTMLCanvasElement | null = null;
 let currentDisplayFrame = -1;
 
-const initCanvases = (width: number, height: number) => {
-  const canvases = initializeCanvases(width, height);
+const initCanvases = () => {
+  const canvases = initializeCanvases(
+    containerSize.value.width,
+    containerSize.value.height
+  );
   workingCanvas = canvases.workingCanvas;
   displayCanvas = canvases.displayCanvas;
 };
@@ -1071,7 +1074,7 @@ const renderFrame = async (frameIndex: number) => {
 
 const renderBrushAnnotations = async (frameIndex: number) => {
   if (!workingCanvas || !displayCanvas) {
-    initCanvases(imageSize.value.width, imageSize.value.height);
+    initCanvases();
   }
 
   // Skip re-render if frame hasn't changed and no selection/hover state changes
@@ -1093,15 +1096,15 @@ const renderBrushAnnotations = async (frameIndex: number) => {
   let selectedTrackCanvas: HTMLCanvasElement | null = null;
   if (selectedTrackIdValue && showSegmentationToolbar.value) {
     selectedTrackCanvas = document.createElement("canvas");
-    selectedTrackCanvas.width = imageSize.value.width;
-    selectedTrackCanvas.height = imageSize.value.height;
+    selectedTrackCanvas.width = containerSize.value.width;
+    selectedTrackCanvas.height = containerSize.value.height;
   }
 
   let hoveredTrackCanvas: HTMLCanvasElement | null = null;
   if (hoveredTrackIdValue && !showSegmentationToolbar.value) {
     hoveredTrackCanvas = document.createElement("canvas");
-    hoveredTrackCanvas.width = imageSize.value.width;
-    hoveredTrackCanvas.height = imageSize.value.height;
+    hoveredTrackCanvas.width = containerSize.value.width;
+    hoveredTrackCanvas.height = containerSize.value.height;
   }
 
   // Use visibleBrushTracks to respect hasMaskClasses visibility control
@@ -1137,7 +1140,7 @@ const renderBrushAnnotations = async (frameIndex: number) => {
     const keyframeData = track.keyframes.get(frameIndex);
     if (keyframeData && keyframeData.length > 0) {
       if (isMaskData(keyframeData)) {
-        renderMasksToCanvas(keyframeData, targetCanvas, false, 1);
+        renderMasksToCanvas(keyframeData, targetCanvas, false, 1, imageOffset.value.x, imageOffset.value.y);
       } else {
         await renderContoursToTargetCanvas(
           brushClasses.value,
@@ -1159,7 +1162,7 @@ const renderBrushAnnotations = async (frameIndex: number) => {
         const beforeData = track.keyframes.get(beforeFrame);
         if (beforeData && beforeData.length > 0) {
           if (isMaskData(beforeData)) {
-            renderMasksToCanvas(beforeData, targetCanvas, false, 1);
+            renderMasksToCanvas(beforeData, targetCanvas, false, 1, imageOffset.value.x, imageOffset.value.y);
           } else {
             await renderContoursToTargetCanvas(
               brushClasses.value,
@@ -1208,7 +1211,7 @@ const renderFrameWithMaskOffset = async (
   offsetY: number
 ) => {
   if (!workingCanvas || !displayCanvas) {
-    initCanvases(imageSize.value.width, imageSize.value.height);
+    initCanvases();
   }
 
   clearCanvas(workingCanvas!);
@@ -1216,8 +1219,8 @@ const renderFrameWithMaskOffset = async (
   let hasAnnotations = false;
 
   const draggingTrackCanvas = document.createElement("canvas");
-  draggingTrackCanvas.width = imageSize.value.width;
-  draggingTrackCanvas.height = imageSize.value.height;
+  draggingTrackCanvas.width = containerSize.value.width;
+  draggingTrackCanvas.height = containerSize.value.height;
 
   // Render all visible brush tracks
   for (const [trackId] of visibleBrushTracks.value) {
@@ -1248,9 +1251,9 @@ const renderFrameWithMaskOffset = async (
             right: mask.right + offsetX,
             bottom: mask.bottom + offsetY,
           }));
-          renderMasksToCanvas(offsetMasks, targetCanvas, false, 1);
+          renderMasksToCanvas(offsetMasks, targetCanvas, false, 1, imageOffset.value.x, imageOffset.value.y);
         } else {
-          renderMasksToCanvas(keyframeData, targetCanvas, false, 1);
+          renderMasksToCanvas(keyframeData, targetCanvas, false, 1, imageOffset.value.x, imageOffset.value.y);
         }
       } else {
         await renderContoursToTargetCanvas(
@@ -1281,9 +1284,9 @@ const renderFrameWithMaskOffset = async (
                 right: mask.right + offsetX,
                 bottom: mask.bottom + offsetY,
               }));
-              renderMasksToCanvas(offsetMasks, targetCanvas, false, 1);
+              renderMasksToCanvas(offsetMasks, targetCanvas, false, 1, imageOffset.value.x, imageOffset.value.y);
             } else {
-              renderMasksToCanvas(beforeData, targetCanvas, false, 1);
+              renderMasksToCanvas(beforeData, targetCanvas, false, 1, imageOffset.value.x, imageOffset.value.y);
             }
           } else {
             await renderContoursToTargetCanvas(
@@ -1313,7 +1316,7 @@ const renderFrameWithMaskOffset = async (
 
 const renderBrushAnnotationsWithTempStrokes = async (frameIndex: number) => {
   if (!workingCanvas) {
-    initCanvases(imageSize.value.width, imageSize.value.height);
+    initCanvases();
   }
 
   clearCanvas(workingCanvas!);
@@ -1336,7 +1339,7 @@ const renderBrushAnnotationsWithTempStrokes = async (frameIndex: number) => {
     const keyframeData = track.keyframes.get(frameIndex);
     if (keyframeData && keyframeData.length > 0) {
       if (isMaskData(keyframeData)) {
-        renderMasksToCanvas(keyframeData, workingCanvas!, false, 1);
+        renderMasksToCanvas(keyframeData, workingCanvas!, false, 1, imageOffset.value.x, imageOffset.value.y);
       } else {
         await renderContoursToTargetCanvas(
           brushClasses.value,
@@ -1357,7 +1360,7 @@ const renderBrushAnnotationsWithTempStrokes = async (frameIndex: number) => {
         const beforeData = track.keyframes.get(beforeFrame);
         if (beforeData && beforeData.length > 0) {
           if (isMaskData(beforeData)) {
-            renderMasksToCanvas(beforeData, workingCanvas!, false, 1);
+            renderMasksToCanvas(beforeData, workingCanvas!, false, 1, imageOffset.value.x, imageOffset.value.y);
           } else {
             await renderContoursToTargetCanvas(
               brushClasses.value,
@@ -1372,9 +1375,11 @@ const renderBrushAnnotationsWithTempStrokes = async (frameIndex: number) => {
     }
   }
 
-  // Then render temp brush strokes on top
+  // Then render temp brush strokes on top (offset by imageOffset since strokes are image-relative)
   const ctx = workingCanvas!.getContext("2d")!;
   ctx.imageSmoothingEnabled = false;
+  const offsetX = imageOffset.value.x;
+  const offsetY = imageOffset.value.y;
   for (const stroke of tempBrushStrokes.value) {
     if (stroke.frame !== frameIndex || stroke.points.length < 2) continue;
 
@@ -1387,11 +1392,11 @@ const renderBrushAnnotationsWithTempStrokes = async (frameIndex: number) => {
     ctx.beginPath();
     const firstPoint = stroke.points[0];
     if (firstPoint) {
-      ctx.moveTo(firstPoint.x, firstPoint.y);
+      ctx.moveTo(firstPoint.x + offsetX, firstPoint.y + offsetY);
       for (let i = 1; i < stroke.points.length; i++) {
         const point = stroke.points[i];
         if (point) {
-          ctx.lineTo(point.x, point.y);
+          ctx.lineTo(point.x + offsetX, point.y + offsetY);
         }
       }
       ctx.stroke();
@@ -2318,7 +2323,7 @@ const renderTempStrokesCanvasToDisplay = async (frameIndex: number) => {
   if (!tempStrokesCanvas.value) return;
 
   if (!workingCanvas) {
-    initCanvases(imageSize.value.width, imageSize.value.height);
+    initCanvases();
   }
 
   clearCanvas(workingCanvas!);
@@ -2340,7 +2345,7 @@ const renderTempStrokesCanvasToDisplay = async (frameIndex: number) => {
     const keyframeData = track.keyframes.get(frameIndex);
     if (keyframeData && keyframeData.length > 0) {
       if (isMaskData(keyframeData)) {
-        renderMasksToCanvas(keyframeData, workingCanvas!, false, 1);
+        renderMasksToCanvas(keyframeData, workingCanvas!, false, 1, imageOffset.value.x, imageOffset.value.y);
       } else {
         await renderContoursToTargetCanvas(
           brushClasses.value,
@@ -2361,7 +2366,7 @@ const renderTempStrokesCanvasToDisplay = async (frameIndex: number) => {
         const beforeData = track.keyframes.get(beforeFrame);
         if (beforeData && beforeData.length > 0) {
           if (isMaskData(beforeData)) {
-            renderMasksToCanvas(beforeData, workingCanvas!, false, 1);
+            renderMasksToCanvas(beforeData, workingCanvas!, false, 1, imageOffset.value.x, imageOffset.value.y);
           } else {
             await renderContoursToTargetCanvas(
               brushClasses.value,
@@ -2378,7 +2383,7 @@ const renderTempStrokesCanvasToDisplay = async (frameIndex: number) => {
 
   // Then render the temp strokes canvas on top
   const ctx = workingCanvas!.getContext("2d")!;
-  ctx.drawImage(tempStrokesCanvas.value, 0, 0);
+  ctx.drawImage(tempStrokesCanvas.value, imageOffset.value.x, imageOffset.value.y);
 
   // Update display
   currentDisplayFrame = -1;
@@ -2595,6 +2600,14 @@ const handleZoomChange = (newZoom: number) => {
 
 const handleContainerResize = (size: { width: number; height: number }) => {
   containerSize.value = size;
+  // Re-initialize canvases when container size changes
+  if (workingCanvas || displayCanvas) {
+    workingCanvas = null;
+    displayCanvas = null;
+    initCanvases();
+    // Re-render current frame with new canvas size
+    renderBrushAnnotations(currentFrame.value);
+  }
 };
 
 const handleCanvasMouseDown = (event: CanvasMouseEvent) => {
@@ -3397,7 +3410,7 @@ const handleMouseUp = async () => {
 
       // Render the modified canvas to display (preview only, not saved)
       if (!workingCanvas || !displayCanvas) {
-        initCanvases(imageSize.value.width, imageSize.value.height);
+        initCanvases();
       }
 
       // Update display to show erased result
@@ -3412,13 +3425,13 @@ const handleMouseUp = async () => {
           if (!otherTrack) continue;
           const otherKeyframeData = otherTrack.keyframes.get(targetFrame);
           if (otherKeyframeData && isMaskData(otherKeyframeData)) {
-            renderMasksToCanvas(otherKeyframeData, displayCanvas, false, 1);
+            renderMasksToCanvas(otherKeyframeData, displayCanvas, false, 1, imageOffset.value.x, imageOffset.value.y);
           }
         }
 
-        // Draw the modified (erased) canvas on top
+        // Draw the modified (erased) canvas on top (modifiedCanvas is image-sized, so draw at offset)
         const displayCtx = displayCanvas.getContext("2d")!;
-        displayCtx.drawImage(modifiedCanvas, 0, 0);
+        displayCtx.drawImage(modifiedCanvas, imageOffset.value.x, imageOffset.value.y);
 
         // Update Konva display via component
         brushAnnotationCanvasData.value = {
@@ -3828,7 +3841,7 @@ const updateAnnotationLayer = (
 
   // Use the displayCanvas for Konva rendering
   if (!displayCanvas) {
-    initCanvases(imageSize.value.width, imageSize.value.height);
+    initCanvases();
   }
 
   const ctx = displayCanvas!.getContext("2d", { alpha: true })!;
@@ -3858,7 +3871,7 @@ const updateAnnotationLayerWithSelectionAndHover = (
 ) => {
   // Use the displayCanvas for Konva rendering
   if (!displayCanvas) {
-    initCanvases(imageSize.value.width, imageSize.value.height);
+    initCanvases();
   }
 
   // Copy nonSelectedCanvas to displayCanvas
