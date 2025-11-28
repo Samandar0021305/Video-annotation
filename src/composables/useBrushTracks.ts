@@ -550,15 +550,30 @@ export function useBrushTracks(currentFrame: Ref<number>) {
       // Re-encode canvas to RLE and update keyframe
       const originalMask = editState.originalMasks[0];
       if (originalMask) {
+        // Get the current track to use its potentially updated color
+        const track = tracks.value.get(selectedTrackId.value);
+        const currentKeyframeData = track?.keyframes.get(currentFrame.value);
+
+        // Use color from current keyframe data if available (may have been updated),
+        // otherwise fall back to originalMask color
+        let maskColor = originalMask.color;
+        let maskClassName = originalMask.className;
+        let maskClassID = originalMask.classID;
+
+        if (currentKeyframeData && isMaskData(currentKeyframeData) && currentKeyframeData[0]) {
+          maskColor = currentKeyframeData[0].color;
+          maskClassName = currentKeyframeData[0].className;
+          maskClassID = currentKeyframeData[0].classID;
+        }
+
         const newMaskData = canvasToMaskData(
           editState.editCanvas,
-          originalMask.color,
-          originalMask.className,
-          originalMask.classID
+          maskColor,
+          maskClassName,
+          maskClassID
         );
 
         if (newMaskData) {
-          const track = tracks.value.get(selectedTrackId.value);
           if (track) {
             track.keyframes.set(currentFrame.value, [newMaskData]);
           }

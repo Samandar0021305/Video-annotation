@@ -220,7 +220,6 @@ import {
 } from "../../utils/opencv-contours";
 import {
   canvasToMaskData,
-  renderMaskToCanvas,
   renderMasksToCanvas,
 } from "../../utils/rle";
 import type { MaskData } from "../../types/mask";
@@ -269,6 +268,7 @@ import {
   loadImage,
   findColocatedPoints,
   findNearbySkeletonPoint,
+  renderStrokeToCanvas,
 } from "./utils";
 
 const router = useRouter();
@@ -422,7 +422,7 @@ const getNextClassValue = () => {
   return maxValue + 1;
 };
 
-const handleClassSelectorSelect = (cls: AnnotationClass) => {
+const handleClassSelectorSelect = async (cls: AnnotationClass) => {
   selectedClassId.value = cls.id;
 
   // Handle editing existing bbox class
@@ -517,9 +517,11 @@ const handleClassSelectorSelect = (cls: AnnotationClass) => {
     // Now actually update the mask position in the data
     updateMaskPosition(trackId, dx, dy, frame, autoSuggest.value);
 
-    // Clear pending drag state
+    // Clear all drag and selection state
     pendingMaskDrag.value = null;
     editingBrushTrackId.value = null;
+    selectedBrushTrackId.value = null;
+    showSegmentationToolbar.value = false;
     classSelectorInitialClass.value = null;
     showClassSelector.value = false;
 
@@ -549,6 +551,8 @@ const handleClassSelectorSelect = (cls: AnnotationClass) => {
     editingBrushTrackId.value = null;
     classSelectorInitialClass.value = null;
     showClassSelector.value = false;
+    // Force re-render by invalidating cache
+    currentDisplayFrame = -1;
     // Re-render brush annotations with new color
     renderFrame(currentFrame.value);
     saveAnnotations();
@@ -676,27 +680,9 @@ const handleClassSelectorSelect = (cls: AnnotationClass) => {
         selectedBrushTrackId.value = null;
         timelineRef.value?.selectTrack(trackId, TrackTypeEnum.BRUSH);
 
-        // Render the new mask to display
-        if (!workingCanvas || !displayCanvas) {
-          initCanvases();
-        }
-        clearCanvas(workingCanvas!);
-        renderMaskToCanvas(maskData, workingCanvas!, false, 1, imageOffset.value.x, imageOffset.value.y);
-
-        // Add new mask on top of existing displayCanvas
-        const displayCtx = displayCanvas!.getContext("2d")!;
-        displayCtx.drawImage(workingCanvas!, 0, 0);
-
-        // Update Konva display via component
-        brushAnnotationCanvasData.value = {
-          nonSelectedCanvas: displayCanvas,
-          selectedCanvas: null,
-          hoveredCanvas: null,
-          frameNumber: brushData.frame,
-          renderVersion: ++brushRenderVersion,
-        };
-
-        currentDisplayFrame = brushData.frame;
+        // Force re-render to show the new mask properly
+        currentDisplayFrame = -1;
+        await renderBrushAnnotations(brushData.frame);
         saveAnnotations();
       }
     }
@@ -1348,6 +1334,10 @@ const renderBrushAnnotations = async (frameIndex: number) => {
       frameIndex
     );
   } else {
+    // Clear displayCanvas to prevent stale content from showing up when drawing new strokes
+    if (displayCanvas) {
+      clearCanvas(displayCanvas);
+    }
     // Clear brush annotation via component
     brushAnnotationCanvasData.value = {
       nonSelectedCanvas: null,
@@ -1546,36 +1536,14 @@ const renderBrushAnnotationsWithTempStrokes = async (frameIndex: number) => {
   }
 
   // Then render temp brush strokes on top (offset by imageOffset since strokes are image-relative)
-  const ctx = workingCanvas!.getContext("2d")!;
-  ctx.imageSmoothingEnabled = false;
   const offsetX = imageOffset.value.x;
   const offsetY = imageOffset.value.y;
   for (const stroke of tempBrushStrokes.value) {
     if (stroke.frame !== frameIndex || stroke.points.length < 2) continue;
 
-    ctx.strokeStyle = stroke.color;
-    ctx.lineWidth = stroke.size;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.globalCompositeOperation = "source-over";
-
-    ctx.beginPath();
-    const firstPoint = stroke.points[0];
-    if (firstPoint) {
-      ctx.moveTo(firstPoint.x + offsetX, firstPoint.y + offsetY);
-      for (let i = 1; i < stroke.points.length; i++) {
-        const point = stroke.points[i];
-        if (point) {
-          ctx.lineTo(point.x + offsetX, point.y + offsetY);
-        }
-      }
-      ctx.stroke();
-    }
-  }
-
-  // Binarize alpha to eliminate anti-aliasing noise (match RLE encoding behavior)
-  if (tempBrushStrokes.value.length > 0) {
-    binarizeAlpha(workingCanvas!);
+    // Apply offset to points for rendering
+    const offsetPoints = stroke.points.map((p) => ({ x: p.x + offsetX, y: p.y + offsetY }));
+    renderStrokeToCanvas(workingCanvas!, offsetPoints, stroke.color, stroke.size);
   }
 
   // Update display
@@ -2239,38 +2207,15 @@ const convertTempStrokesToCanvas = () => {
   const canvas = document.createElement("canvas");
   canvas.width = imageSize.value.width;
   canvas.height = imageSize.value.height;
-  const ctx = canvas.getContext("2d")!;
-  ctx.imageSmoothingEnabled = false;
 
-  // Render all strokes from points
+  // Render all strokes from points using direct pixel manipulation (no anti-aliasing)
   for (const stroke of tempBrushStrokes.value) {
     if (stroke.points.length < 2) continue;
-
-    ctx.strokeStyle = stroke.color;
-    ctx.lineWidth = stroke.size;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.globalCompositeOperation = "source-over";
-
-    ctx.beginPath();
-    const firstPoint = stroke.points[0];
-    if (firstPoint) {
-      ctx.moveTo(firstPoint.x, firstPoint.y);
-      for (let i = 1; i < stroke.points.length; i++) {
-        const point = stroke.points[i];
-        if (point) {
-          ctx.lineTo(point.x, point.y);
-        }
-      }
-      ctx.stroke();
-    }
+    renderStrokeToCanvas(canvas, stroke.points, stroke.color, stroke.size);
   }
 
   // Apply merge color to ensure consistency
   applyColorToCanvas(canvas, mergeColor.value);
-
-  // Binarize alpha to eliminate anti-aliasing noise
-  binarizeAlpha(canvas);
 
   // Store canvas and clear points
   tempStrokesCanvas.value = canvas;
@@ -3117,32 +3062,10 @@ const handleMouseUp = async () => {
     if (tempStrokesEditMode.value === SegEditMode.BRUSH) {
       // Brush mode - add stroke
       if (tempStrokesConvertedToCanvas.value && tempStrokesCanvas.value) {
-        // Already converted to canvas - draw directly on it
-        const ctx = tempStrokesCanvas.value.getContext("2d")!;
-        ctx.imageSmoothingEnabled = false;
-        ctx.strokeStyle = mergeColor.value;
-        ctx.lineWidth = brushSize.value;
-        ctx.lineCap = "round";
-        ctx.lineJoin = "round";
-        ctx.globalCompositeOperation = "source-over";
-
+        // Already converted to canvas - draw directly on it using pixel manipulation (no anti-aliasing)
         if (points.length >= 2) {
-          ctx.beginPath();
-          const firstPoint = points[0];
-          if (firstPoint) {
-            ctx.moveTo(firstPoint.x, firstPoint.y);
-            for (let i = 1; i < points.length; i++) {
-              const point = points[i];
-              if (point) {
-                ctx.lineTo(point.x, point.y);
-              }
-            }
-            ctx.stroke();
-          }
+          renderStrokeToCanvas(tempStrokesCanvas.value, points, mergeColor.value, brushSize.value);
         }
-
-        // Binarize alpha to eliminate anti-aliasing noise
-        binarizeAlpha(tempStrokesCanvas.value);
 
         // Re-render display
         await renderTempStrokesCanvasToDisplay(targetFrame);
@@ -3348,31 +3271,8 @@ const handleMouseUp = async () => {
       const strokeCtxForSave = strokeCanvasForSave.getContext("2d")!;
       strokeCtxForSave.imageSmoothingEnabled = false;
 
-      // Render stroke to canvas
-      strokeCtxForSave.strokeStyle = strokeColor;
-      strokeCtxForSave.lineWidth = brushSize.value;
-      strokeCtxForSave.lineCap = "round";
-      strokeCtxForSave.lineJoin = "round";
-      strokeCtxForSave.globalCompositeOperation = "source-over";
-
-      if (points.length >= 2) {
-        strokeCtxForSave.beginPath();
-        const firstPoint = points[0];
-        if (firstPoint) {
-          strokeCtxForSave.moveTo(firstPoint.x, firstPoint.y);
-          for (let i = 1; i < points.length; i++) {
-            const point = points[i];
-            if (point) {
-              strokeCtxForSave.lineTo(point.x, point.y);
-            }
-          }
-          strokeCtxForSave.stroke();
-        }
-      }
-
-      // Apply color and binarize
-      applyColorToCanvas(strokeCanvasForSave, strokeColor);
-      binarizeAlpha(strokeCanvasForSave);
+      // Render stroke to canvas using direct pixel manipulation (no anti-aliasing)
+      renderStrokeToCanvas(strokeCanvasForSave, points, strokeColor, brushSize.value);
 
       // Set pending brush and show ClassSelector
       pendingBrush.value = {
