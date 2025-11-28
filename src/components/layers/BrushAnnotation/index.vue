@@ -6,16 +6,21 @@
 import { ref, watch } from "vue";
 import Konva from "konva";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   nonSelectedCanvas: HTMLCanvasElement | null;
   selectedCanvas: HTMLCanvasElement | null;
   hoveredCanvas: HTMLCanvasElement | null;
   opacity: number;
   stageWidth: number;
   stageHeight: number;
+  offsetX?: number;
+  offsetY?: number;
   frameNumber: number;
   renderVersion?: number;
-}>();
+}>(), {
+  offsetX: 0,
+  offsetY: 0,
+});
 
 const emit = defineEmits<{
   (e: "render-complete"): void;
@@ -89,7 +94,7 @@ const extractBorder = (
 };
 
 const initDisplayCanvas = () => {
-  if (!displayCanvas) {
+  if (!displayCanvas || displayCanvas.width !== props.stageWidth || displayCanvas.height !== props.stageHeight) {
     displayCanvas = document.createElement("canvas");
     displayCanvas.width = props.stageWidth;
     displayCanvas.height = props.stageHeight;
@@ -116,7 +121,6 @@ const renderDisplay = () => {
 
   initDisplayCanvas();
 
-  // Render non-selected/non-hovered tracks at normal opacity
   const ctx = displayCanvas!.getContext("2d", { alpha: true })!;
   ctx.clearRect(0, 0, displayCanvas!.width, displayCanvas!.height);
   ctx.imageSmoothingEnabled = false;
@@ -124,8 +128,8 @@ const renderDisplay = () => {
 
   const nonSelectedImage = new Konva.Image({
     image: displayCanvas!,
-    x: 0,
-    y: 0,
+    x: props.offsetX,
+    y: props.offsetY,
     width: props.stageWidth,
     height: props.stageHeight,
     listening: false,
@@ -143,8 +147,8 @@ const renderDisplay = () => {
 
     const hoveredFillImage = new Konva.Image({
       image: hoveredFillCanvas,
-      x: 0,
-      y: 0,
+      x: props.offsetX,
+      y: props.offsetY,
       width: props.stageWidth,
       height: props.stageHeight,
       listening: false,
@@ -156,8 +160,8 @@ const renderDisplay = () => {
 
     const borderImage = new Konva.Image({
       image: borderCanvas,
-      x: 0,
-      y: 0,
+      x: props.offsetX,
+      y: props.offsetY,
       width: props.stageWidth,
       height: props.stageHeight,
       listening: false,
@@ -166,7 +170,6 @@ const renderDisplay = () => {
     group.add(borderImage);
   }
 
-  // Render selected track with reduced opacity (50% of normal)
   if (props.selectedCanvas) {
     const selectedDisplayCanvas = document.createElement("canvas");
     selectedDisplayCanvas.width = props.stageWidth;
@@ -179,8 +182,8 @@ const renderDisplay = () => {
 
     const selectedImage = new Konva.Image({
       image: selectedDisplayCanvas,
-      x: 0,
-      y: 0,
+      x: props.offsetX,
+      y: props.offsetY,
       width: props.stageWidth,
       height: props.stageHeight,
       listening: false,

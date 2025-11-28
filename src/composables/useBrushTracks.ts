@@ -731,8 +731,6 @@ export function useBrushTracks(currentFrame: Ref<number>) {
    * @param dx - Delta X offset
    * @param dy - Delta Y offset
    * @param frame - The frame to update
-   * @param canvasWidth - Canvas width for boundary checking
-   * @param canvasHeight - Canvas height for boundary checking
    * @param autoSuggestEnabled - If true, creates keyframe at next frame with original data
    */
   function updateMaskPosition(
@@ -740,8 +738,6 @@ export function useBrushTracks(currentFrame: Ref<number>) {
     dx: number,
     dy: number,
     frame: number,
-    canvasWidth: number,
-    canvasHeight: number,
     autoSuggestEnabled: boolean = false
   ): void {
     const track = tracks.value.get(trackId);
@@ -766,43 +762,13 @@ export function useBrushTracks(currentFrame: Ref<number>) {
 
     if (!keyframeData || !isMaskData(keyframeData)) return;
 
-    // Update each mask's bounding box coordinates
-    const updatedMasks = keyframeData.map((mask) => {
-      // Calculate new bounds with boundary checking
-      let newLeft = Math.round(mask.left + dx);
-      let newTop = Math.round(mask.top + dy);
-      let newRight = Math.round(mask.right + dx);
-      let newBottom = Math.round(mask.bottom + dy);
-
-      // Clamp to canvas boundaries
-      const maskWidth = mask.right - mask.left;
-      const maskHeight = mask.bottom - mask.top;
-
-      if (newLeft < 0) {
-        newLeft = 0;
-        newRight = maskWidth;
-      }
-      if (newTop < 0) {
-        newTop = 0;
-        newBottom = maskHeight;
-      }
-      if (newRight >= canvasWidth) {
-        newRight = canvasWidth - 1;
-        newLeft = newRight - maskWidth;
-      }
-      if (newBottom >= canvasHeight) {
-        newBottom = canvasHeight - 1;
-        newTop = newBottom - maskHeight;
-      }
-
-      return {
-        ...mask,
-        left: newLeft,
-        top: newTop,
-        right: newRight,
-        bottom: newBottom,
-      };
-    });
+    const updatedMasks = keyframeData.map((mask) => ({
+      ...mask,
+      left: Math.round(mask.left + dx),
+      top: Math.round(mask.top + dy),
+      right: Math.round(mask.right + dx),
+      bottom: Math.round(mask.bottom + dy),
+    }));
 
     // Set the updated keyframe at current frame
     track.keyframes.set(frame, updatedMasks);

@@ -9,6 +9,7 @@ export const useLayerRefs = () => {
   const backgroundLayerRef = ref<any>(null);
   const annotationsLayerRef = ref<any>(null);
   const interactiveLayerRef = ref<any>(null);
+  const annotationOffsetGroupRef = ref<any>(null);
   const bboxLayerRef = ref<InstanceType<typeof BoundingBoxLayer> | null>(null);
   const polygonLayerRef = ref<InstanceType<typeof PolygonLayer> | null>(null);
   const skeletonLayerRef = ref<InstanceType<typeof SkeletonLayer> | null>(null);
@@ -20,6 +21,7 @@ export const useLayerRefs = () => {
     backgroundLayerRef,
     annotationsLayerRef,
     interactiveLayerRef,
+    annotationOffsetGroupRef,
     bboxLayerRef,
     polygonLayerRef,
     skeletonLayerRef,

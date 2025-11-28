@@ -1,15 +1,15 @@
 <template>
   <div class="frame-player">
-    <div class="class-manager-panel">
-      <AnnotationClassManager
-        v-model="annotationClasses"
-        v-model:selectedClassId="selectedClassId"
-        @select="handleClassSelect"
-        @add="handleClassAdd"
-        @delete="handleClassDelete"
-      />
-    </div>
     <div class="main-content">
+      <div class="class-manager-panel">
+        <AnnotationClassManager
+          v-model="annotationClasses"
+          v-model:selectedClassId="selectedClassId"
+          @select="handleClassSelect"
+          @add="handleClassAdd"
+          @delete="handleClassDelete"
+        />
+      </div>
       <VerticalToolbar
         v-model:mode="mode"
         v-model:brushSize="brushSize"
@@ -33,10 +33,10 @@
       <BaseCanvas
         v-if="framesLoaded"
         ref="baseCanvasRef"
-        :width="stageConfig.width"
-        :height="stageConfig.height"
+        :fill-container="true"
         :enable-zoom="true"
         :enable-pan="true"
+        :style="{ minHeight: imageSize.height + 'px' }"
         @mousedown="handleCanvasMouseDown"
         @mousemove="handleCanvasMouseMove"
         @mouseup="handleCanvasMouseUp"
@@ -45,6 +45,7 @@
         @wheel="handleCanvasWheel"
         @zoom-change="handleZoomChange"
         @stage-ready="handleStageReady"
+        @container-resize="handleContainerResize"
       >
         <template #background>
           <v-image :config="imageConfig" />
@@ -57,60 +58,67 @@
             :selected-canvas="brushAnnotationCanvasData.selectedCanvas"
             :hovered-canvas="brushAnnotationCanvasData.hoveredCanvas"
             :opacity="opacity"
-            :stage-width="stageConfig.width"
-            :stage-height="stageConfig.height"
+            :stage-width="imageSize.width"
+            :stage-height="imageSize.height"
+            :offset-x="imageOffset.x"
+            :offset-y="imageOffset.y"
             :frame-number="brushAnnotationCanvasData.frameNumber"
             :render-version="brushAnnotationCanvasData.renderVersion"
             @render-complete="handleBrushAnnotationRenderComplete"
           />
 
-          <BoundingBoxLayer
-            ref="bboxLayerRef"
-            :bboxes="currentFrameBboxes"
-            :selected-track-id="selectedBboxTrackId"
-            :mode="mode"
-            :opacity="opacity"
-            :classes="annotationClasses"
-            @click="handleBboxLayerClick"
-            @drag-end="handleBboxLayerDragEnd"
-            @transform-end="handleBboxTransformEnd"
-          />
+          <v-group ref="annotationOffsetGroupRef" :config="{ x: imageOffset.x, y: imageOffset.y }">
+            <BoundingBoxLayer
+              ref="bboxLayerRef"
+              :bboxes="currentFrameBboxes"
+              :selected-track-id="selectedBboxTrackId"
+              :mode="mode"
+              :opacity="opacity"
+              :classes="annotationClasses"
+              @click="handleBboxLayerClick"
+              @drag-end="handleBboxLayerDragEnd"
+              @transform-end="handleBboxTransformEnd"
+            />
 
-          <PolygonLayer
-            ref="polygonLayerRef"
-            :polygons="currentFramePolygons"
-            :selected-track-id="selectedPolygonTrackId"
-            :mode="mode"
-            :opacity="opacity"
-            @click="handlePolygonLayerClick"
-            @drag-end="handlePolygonLayerDragEnd"
-            @vertex-drag-move="handlePolygonLayerVertexDragMove"
-            @vertex-drag-end="handlePolygonLayerVertexDragEnd"
-            @vertex-click="handlePolygonLayerVertexClick"
-          />
+            <PolygonLayer
+              ref="polygonLayerRef"
+              :polygons="currentFramePolygons"
+              :selected-track-id="selectedPolygonTrackId"
+              :mode="mode"
+              :opacity="opacity"
+              @click="handlePolygonLayerClick"
+              @drag-end="handlePolygonLayerDragEnd"
+              @vertex-drag-move="handlePolygonLayerVertexDragMove"
+              @vertex-drag-end="handlePolygonLayerVertexDragEnd"
+              @vertex-click="handlePolygonLayerVertexClick"
+            />
 
-          <SkeletonLayer
-            ref="skeletonLayerRef"
-            :skeletons="currentFrameSkeletons"
-            :selected-track-id="selectedSkeletonTrackId"
-            :mode="mode"
-            :opacity="opacity"
-            @click="handleSkeletonLayerClick"
-            @drag-end="handleSkeletonLayerDragEnd"
-            @keypoint-drag-start="handleSkeletonLayerKeypointDragStart"
-            @keypoint-drag-move="handleSkeletonLayerKeypointDragMove"
-            @keypoint-drag-end="handleSkeletonLayerKeypointDragEnd"
-            @keypoint-click="handleSkeletonLayerKeypointClick"
-          />
+            <SkeletonLayer
+              ref="skeletonLayerRef"
+              :skeletons="currentFrameSkeletons"
+              :selected-track-id="selectedSkeletonTrackId"
+              :mode="mode"
+              :opacity="opacity"
+              @click="handleSkeletonLayerClick"
+              @drag-end="handleSkeletonLayerDragEnd"
+              @keypoint-drag-start="handleSkeletonLayerKeypointDragStart"
+              @keypoint-drag-move="handleSkeletonLayerKeypointDragMove"
+              @keypoint-drag-end="handleSkeletonLayerKeypointDragEnd"
+              @keypoint-click="handleSkeletonLayerKeypointClick"
+            />
+          </v-group>
         </template>
 
         <template #interactive>
           <BrushPreviewLayer
             ref="brushPreviewLayerRef"
-            :stage-width="stageConfig.width"
-            :stage-height="stageConfig.height"
+            :stage-width="imageSize.width"
+            :stage-height="imageSize.height"
           />
-          <v-group ref="cursorGroupRef"></v-group>
+          <v-group
+            ref="cursorGroupRef"
+            :config="{ x: imageOffset.x, y: imageOffset.y }"
+          ></v-group>
         </template>
 
         <template #loading> Loading frames... </template>
@@ -261,6 +269,7 @@ const {
   backgroundLayerRef,
   annotationsLayerRef,
   interactiveLayerRef,
+  annotationOffsetGroupRef,
   bboxLayerRef,
   polygonLayerRef,
   skeletonLayerRef,
@@ -603,7 +612,7 @@ const handleClassSelectorSelect = (cls: AnnotationClass) => {
 
         // Render the new mask to display
         if (!workingCanvas || !displayCanvas) {
-          initCanvases(stageConfig.value.width, stageConfig.value.height);
+          initCanvases(imageSize.value.width, imageSize.value.height);
         }
         clearCanvas(workingCanvas!);
         renderMaskToCanvas(maskData, workingCanvas!, false, 1);
@@ -930,18 +939,33 @@ let skeletonTool: SkeletonTool | null = null;
 let animationId: number | null = null;
 let lastFrameTime = 0;
 
-const stageConfig = ref({
+// Container dimensions (from ResizeObserver)
+const containerSize = ref({
   width: 800,
-  height: 600,
+  height: 800,
 });
+
+// Image dimensions (actual scaled image size)
+const imageSize = ref({
+  width: 800,
+  height: 800,
+});
+
+// Offset to center image within container
+const imageOffset = computed(() => ({
+  x: Math.max(0, (containerSize.value.width - imageSize.value.width) / 2),
+  y: Math.max(0, (containerSize.value.height - imageSize.value.height) / 2),
+}));
 
 const frames = computed(() => framesStore.allFrames.map((f) => f.imageUrl));
 const physicalFrames = computed(() => framesStore.totalFrames);
 
 const imageConfig = computed(() => ({
   image: currentImage.value,
-  width: stageConfig.value.width,
-  height: stageConfig.value.height,
+  x: imageOffset.value.x,
+  y: imageOffset.value.y,
+  width: imageSize.value.width,
+  height: imageSize.value.height,
 }));
 
 const isPolygonDrawing = ref(false);
@@ -1047,7 +1071,7 @@ const renderFrame = async (frameIndex: number) => {
 
 const renderBrushAnnotations = async (frameIndex: number) => {
   if (!workingCanvas || !displayCanvas) {
-    initCanvases(stageConfig.value.width, stageConfig.value.height);
+    initCanvases(imageSize.value.width, imageSize.value.height);
   }
 
   // Skip re-render if frame hasn't changed and no selection/hover state changes
@@ -1066,20 +1090,18 @@ const renderBrushAnnotations = async (frameIndex: number) => {
   let hasAnnotations = false;
   const selectedTrackIdValue = selectedBrushTrackId.value;
 
-  // Create a separate canvas for the selected track (to render with different opacity)
   let selectedTrackCanvas: HTMLCanvasElement | null = null;
   if (selectedTrackIdValue && showSegmentationToolbar.value) {
     selectedTrackCanvas = document.createElement("canvas");
-    selectedTrackCanvas.width = stageConfig.value.width;
-    selectedTrackCanvas.height = stageConfig.value.height;
+    selectedTrackCanvas.width = imageSize.value.width;
+    selectedTrackCanvas.height = imageSize.value.height;
   }
 
-  // Create a separate canvas for hovered track (highlight effect)
   let hoveredTrackCanvas: HTMLCanvasElement | null = null;
   if (hoveredTrackIdValue && !showSegmentationToolbar.value) {
     hoveredTrackCanvas = document.createElement("canvas");
-    hoveredTrackCanvas.width = stageConfig.value.width;
-    hoveredTrackCanvas.height = stageConfig.value.height;
+    hoveredTrackCanvas.width = imageSize.value.width;
+    hoveredTrackCanvas.height = imageSize.value.height;
   }
 
   // Use visibleBrushTracks to respect hasMaskClasses visibility control
@@ -1114,12 +1136,9 @@ const renderBrushAnnotations = async (frameIndex: number) => {
 
     const keyframeData = track.keyframes.get(frameIndex);
     if (keyframeData && keyframeData.length > 0) {
-      // Check if this is RLE data or contour data
       if (isMaskData(keyframeData)) {
-        // RLE-based rendering (fast, pixel-perfect)
         renderMasksToCanvas(keyframeData, targetCanvas, false, 1);
       } else {
-        // Legacy contour-based rendering
         await renderContoursToTargetCanvas(
           brushClasses.value,
           keyframeData,
@@ -1139,12 +1158,9 @@ const renderBrushAnnotations = async (frameIndex: number) => {
       if (beforeFrame !== null) {
         const beforeData = track.keyframes.get(beforeFrame);
         if (beforeData && beforeData.length > 0) {
-          // Check if this is RLE data or contour data
           if (isMaskData(beforeData)) {
-            // RLE-based rendering (fast, pixel-perfect)
             renderMasksToCanvas(beforeData, targetCanvas, false, 1);
           } else {
-            // Legacy contour-based rendering
             await renderContoursToTargetCanvas(
               brushClasses.value,
               beforeData,
@@ -1192,17 +1208,16 @@ const renderFrameWithMaskOffset = async (
   offsetY: number
 ) => {
   if (!workingCanvas || !displayCanvas) {
-    initCanvases(stageConfig.value.width, stageConfig.value.height);
+    initCanvases(imageSize.value.width, imageSize.value.height);
   }
 
   clearCanvas(workingCanvas!);
 
   let hasAnnotations = false;
 
-  // Create a separate canvas for the dragging track
   const draggingTrackCanvas = document.createElement("canvas");
-  draggingTrackCanvas.width = stageConfig.value.width;
-  draggingTrackCanvas.height = stageConfig.value.height;
+  draggingTrackCanvas.width = imageSize.value.width;
+  draggingTrackCanvas.height = imageSize.value.height;
 
   // Render all visible brush tracks
   for (const [trackId] of visibleBrushTracks.value) {
@@ -1226,7 +1241,6 @@ const renderFrameWithMaskOffset = async (
     if (keyframeData && keyframeData.length > 0) {
       if (isMaskData(keyframeData)) {
         if (isDragging) {
-          // Render with offset for dragging track
           const offsetMasks = keyframeData.map((mask) => ({
             ...mask,
             left: mask.left + offsetX,
@@ -1239,7 +1253,6 @@ const renderFrameWithMaskOffset = async (
           renderMasksToCanvas(keyframeData, targetCanvas, false, 1);
         }
       } else {
-        // Legacy contour rendering (no offset support)
         await renderContoursToTargetCanvas(
           brushClasses.value,
           keyframeData,
@@ -1300,7 +1313,7 @@ const renderFrameWithMaskOffset = async (
 
 const renderBrushAnnotationsWithTempStrokes = async (frameIndex: number) => {
   if (!workingCanvas) {
-    initCanvases(stageConfig.value.width, stageConfig.value.height);
+    initCanvases(imageSize.value.width, imageSize.value.height);
   }
 
   clearCanvas(workingCanvas!);
@@ -1322,12 +1335,9 @@ const renderBrushAnnotationsWithTempStrokes = async (frameIndex: number) => {
 
     const keyframeData = track.keyframes.get(frameIndex);
     if (keyframeData && keyframeData.length > 0) {
-      // Check if this is RLE data or contour data
       if (isMaskData(keyframeData)) {
-        // RLE-based rendering (fast, pixel-perfect)
         renderMasksToCanvas(keyframeData, workingCanvas!, false, 1);
       } else {
-        // Legacy contour-based rendering
         await renderContoursToTargetCanvas(
           brushClasses.value,
           keyframeData,
@@ -1346,12 +1356,9 @@ const renderBrushAnnotationsWithTempStrokes = async (frameIndex: number) => {
       if (beforeFrame !== null) {
         const beforeData = track.keyframes.get(beforeFrame);
         if (beforeData && beforeData.length > 0) {
-          // Check if this is RLE data or contour data
           if (isMaskData(beforeData)) {
-            // RLE-based rendering (fast, pixel-perfect)
             renderMasksToCanvas(beforeData, workingCanvas!, false, 1);
           } else {
-            // Legacy contour-based rendering
             await renderContoursToTargetCanvas(
               brushClasses.value,
               beforeData,
@@ -1520,7 +1527,13 @@ const getStagePointerPosition = () => {
 const getLogicalPointerPosition = () => {
   const stage = stageRef.value?.getStage();
   if (!stage) return null;
-  return stage.getRelativePointerPosition();
+  const pos = stage.getRelativePointerPosition();
+  if (!pos) return null;
+  // Subtract image offset to get coordinates relative to the image
+  return {
+    x: pos.x - imageOffset.value.x,
+    y: pos.y - imageOffset.value.y,
+  };
 };
 
 const setupTransformer = () => {
@@ -1528,6 +1541,12 @@ const setupTransformer = () => {
   const layer = annotationsLayerRef.value.getNode();
   bboxTool = new BBoxTool(layer);
   bboxTool.setupTransformer();
+
+  // Set the offset group as the preview parent so previews are drawn with correct offset
+  const offsetGroup = annotationOffsetGroupRef.value?.getNode();
+  if (offsetGroup) {
+    bboxTool.setPreviewParent(offsetGroup);
+  }
 };
 
 const updateTransformerSelection = () => {
@@ -1677,6 +1696,12 @@ const setupPolygonTool = () => {
   if (!annotationsLayerRef.value) return;
   const layer = annotationsLayerRef.value.getNode();
   polygonTool = new PolygonTool(layer);
+
+  // Set the offset group as the preview parent so previews are drawn with correct offset
+  const offsetGroup = annotationOffsetGroupRef.value?.getNode();
+  if (offsetGroup) {
+    polygonTool.setPreviewParent(offsetGroup);
+  }
 };
 
 const startPolygonDrawing = (pos: { x: number; y: number }) => {
@@ -1853,6 +1878,12 @@ const setupSkeletonTool = () => {
   if (!annotationsLayerRef.value) return;
   const layer = annotationsLayerRef.value.getNode();
   skeletonTool = new SkeletonTool(layer);
+
+  // Set the offset group as the preview parent so previews are drawn with correct offset
+  const offsetGroup = annotationOffsetGroupRef.value?.getNode();
+  if (offsetGroup) {
+    skeletonTool.setPreviewParent(offsetGroup);
+  }
 };
 
 const startSkeletonDrawing = (pos: { x: number; y: number }) => {
@@ -2065,8 +2096,8 @@ const handleSaveStrokes = async () => {
   } else {
     // Create a temporary canvas to render strokes from points
     combinedCanvas = document.createElement("canvas");
-    combinedCanvas.width = stageConfig.value.width;
-    combinedCanvas.height = stageConfig.value.height;
+    combinedCanvas.width = imageSize.value.width;
+    combinedCanvas.height = imageSize.value.height;
     const combinedCtx = combinedCanvas.getContext("2d")!;
     combinedCtx.imageSmoothingEnabled = false;
 
@@ -2124,8 +2155,8 @@ const handleSaveStrokes = async () => {
 
           // Create a merged canvas that combines existing mask + new strokes
           const mergedCanvas = document.createElement("canvas");
-          mergedCanvas.width = stageConfig.value.width;
-          mergedCanvas.height = stageConfig.value.height;
+          mergedCanvas.width = imageSize.value.width;
+          mergedCanvas.height = imageSize.value.height;
           const mergedCtx = mergedCanvas.getContext("2d")!;
           mergedCtx.imageSmoothingEnabled = false;
 
@@ -2204,8 +2235,8 @@ const handleSaveStrokes = async () => {
 
   // Calculate position for ClassSelector (center of canvas)
   const screenPos = getScreenPositionFromCanvas(
-    stageConfig.value.width / 2,
-    stageConfig.value.height / 2
+    imageSize.value.width / 2,
+    imageSize.value.height / 2
   );
   showClassSelectorForAnnotation(MarkupType.MASK, screenPos);
 };
@@ -2241,8 +2272,8 @@ const convertTempStrokesToCanvas = () => {
 
   // Create canvas
   const canvas = document.createElement("canvas");
-  canvas.width = stageConfig.value.width;
-  canvas.height = stageConfig.value.height;
+  canvas.width = imageSize.value.width;
+  canvas.height = imageSize.value.height;
   const ctx = canvas.getContext("2d")!;
   ctx.imageSmoothingEnabled = false;
 
@@ -2287,7 +2318,7 @@ const renderTempStrokesCanvasToDisplay = async (frameIndex: number) => {
   if (!tempStrokesCanvas.value) return;
 
   if (!workingCanvas) {
-    initCanvases(stageConfig.value.width, stageConfig.value.height);
+    initCanvases(imageSize.value.width, imageSize.value.height);
   }
 
   clearCanvas(workingCanvas!);
@@ -2562,6 +2593,10 @@ const handleZoomChange = (newZoom: number) => {
   zoomLevel.value = newZoom;
 };
 
+const handleContainerResize = (size: { width: number; height: number }) => {
+  containerSize.value = size;
+};
+
 const handleCanvasMouseDown = (event: CanvasMouseEvent) => {
   // Adapt to existing handler - pass the konva event
   handleMouseDown(event.konvaEvent);
@@ -2667,7 +2702,10 @@ const handleMouseDown = (e: any) => {
         );
         if (trackId) {
           // Check if this segmentation is already selected - start dragging
-          if (selectedBrushTrackId.value === trackId && showSegmentationToolbar.value) {
+          if (
+            selectedBrushTrackId.value === trackId &&
+            showSegmentationToolbar.value
+          ) {
             // Start dragging the selected segmentation
             isDraggingMask.value = true;
             draggingMaskTrackId.value = trackId;
@@ -2788,7 +2826,11 @@ const handleMouseMove = () => {
   if (!screenPos) return;
 
   // Handle mask dragging
-  if (isDraggingMask.value && maskDragStartPoint.value && draggingMaskTrackId.value) {
+  if (
+    isDraggingMask.value &&
+    maskDragStartPoint.value &&
+    draggingMaskTrackId.value
+  ) {
     const logicalPos = getLogicalPointerPosition();
     if (!logicalPos) return;
 
@@ -2797,7 +2839,12 @@ const handleMouseMove = () => {
     maskDragCurrentDelta.value = { dx, dy };
 
     // Re-render with drag offset for visual feedback
-    renderFrameWithMaskOffset(currentFrame.value, draggingMaskTrackId.value, dx, dy);
+    renderFrameWithMaskOffset(
+      currentFrame.value,
+      draggingMaskTrackId.value,
+      dx,
+      dy
+    );
     return;
   }
 
@@ -2871,8 +2918,10 @@ const handleMouseMove = () => {
     const shape = brush.value.renderStrokeShape(
       brush.value.getCurrentPoints(),
       1,
-      stageConfig.value.width,
-      stageConfig.value.height
+      imageSize.value.width,
+      imageSize.value.height,
+      imageOffset.value.x,
+      imageOffset.value.y
     );
     brushPreviewLayerRef.value?.renderStrokePreview(shape);
     interactiveLayerRef.value?.getNode()?.batchDraw();
@@ -2923,8 +2972,6 @@ const handleMouseUp = async () => {
         dx,
         dy,
         currentFrame.value,
-        stageConfig.value.width,
-        stageConfig.value.height,
         autoSuggest.value
       );
 
@@ -3040,8 +3087,8 @@ const handleMouseUp = async () => {
       if (tempStrokesCanvas.value) {
         // Create eraser stroke canvas
         const eraserStrokeCanvas = document.createElement("canvas");
-        eraserStrokeCanvas.width = stageConfig.value.width;
-        eraserStrokeCanvas.height = stageConfig.value.height;
+        eraserStrokeCanvas.width = imageSize.value.width;
+        eraserStrokeCanvas.height = imageSize.value.height;
         brush.value.renderToCanvas(eraserStrokeCanvas, points, 1, 1.0);
 
         // Apply eraser to temp strokes canvas
@@ -3083,8 +3130,8 @@ const handleMouseUp = async () => {
 
   const strokeCanvas = createOffscreenCanvas(
     currentImage.value,
-    stageConfig.value.width,
-    stageConfig.value.height
+    imageSize.value.width,
+    imageSize.value.height
   );
   const strokeCtx = strokeCanvas.getContext("2d")!;
   strokeCtx.clearRect(0, 0, strokeCanvas.width, strokeCanvas.height);
@@ -3114,8 +3161,8 @@ const handleMouseUp = async () => {
 
       // Create a canvas with the existing mask + new stroke
       const mergedCanvas = document.createElement("canvas");
-      mergedCanvas.width = stageConfig.value.width;
-      mergedCanvas.height = stageConfig.value.height;
+      mergedCanvas.width = imageSize.value.width;
+      mergedCanvas.height = imageSize.value.height;
       const mergedCtx = mergedCanvas.getContext("2d")!;
       mergedCtx.imageSmoothingEnabled = false;
 
@@ -3244,8 +3291,8 @@ const handleMouseUp = async () => {
       if (tempStrokesCanvas.value) {
         // Create eraser stroke canvas
         const eraserStrokeCanvas = document.createElement("canvas");
-        eraserStrokeCanvas.width = stageConfig.value.width;
-        eraserStrokeCanvas.height = stageConfig.value.height;
+        eraserStrokeCanvas.width = imageSize.value.width;
+        eraserStrokeCanvas.height = imageSize.value.height;
         brush.value.renderToCanvas(eraserStrokeCanvas, points, 1, 1.0);
 
         // Apply eraser to temp strokes canvas
@@ -3299,8 +3346,8 @@ const handleMouseUp = async () => {
       } else {
         // Create a new canvas with the existing mask
         modifiedCanvas = document.createElement("canvas");
-        modifiedCanvas.width = stageConfig.value.width;
-        modifiedCanvas.height = stageConfig.value.height;
+        modifiedCanvas.width = imageSize.value.width;
+        modifiedCanvas.height = imageSize.value.height;
 
         // First, render existing mask data for this track at this frame
         let existingKeyframeData = track.keyframes.get(targetFrame);
@@ -3334,8 +3381,8 @@ const handleMouseUp = async () => {
 
       // Create eraser stroke canvas
       const eraserStrokeCanvas = document.createElement("canvas");
-      eraserStrokeCanvas.width = stageConfig.value.width;
-      eraserStrokeCanvas.height = stageConfig.value.height;
+      eraserStrokeCanvas.width = imageSize.value.width;
+      eraserStrokeCanvas.height = imageSize.value.height;
       brush.value.renderToCanvas(eraserStrokeCanvas, points, 1, 1.0);
 
       // Apply eraser using destination-out composite operation
@@ -3350,7 +3397,7 @@ const handleMouseUp = async () => {
 
       // Render the modified canvas to display (preview only, not saved)
       if (!workingCanvas || !displayCanvas) {
-        initCanvases(stageConfig.value.width, stageConfig.value.height);
+        initCanvases(imageSize.value.width, imageSize.value.height);
       }
 
       // Update display to show erased result
@@ -3388,8 +3435,8 @@ const handleMouseUp = async () => {
         selectedTrackId,
         targetFrame,
         brushClasses.value,
-        stageConfig.value.width,
-        stageConfig.value.height,
+        imageSize.value.width,
+        imageSize.value.height,
         1
       );
 
@@ -3399,8 +3446,8 @@ const handleMouseUp = async () => {
       }
 
       const eraserStrokeCanvas = document.createElement("canvas");
-      eraserStrokeCanvas.width = stageConfig.value.width;
-      eraserStrokeCanvas.height = stageConfig.value.height;
+      eraserStrokeCanvas.width = imageSize.value.width;
+      eraserStrokeCanvas.height = imageSize.value.height;
       const eraserCtx = eraserStrokeCanvas.getContext("2d")!;
       eraserCtx.imageSmoothingEnabled = false;
       brush.value.renderToCanvas(eraserStrokeCanvas, points, 1, 1.0);
@@ -3675,8 +3722,8 @@ const handleSelectSegmentationAtPoint = async (x: number, y: number) => {
     // Select this track for editing
     selectTrackForEditing(
       trackId,
-      stageConfig.value.width,
-      stageConfig.value.height
+      imageSize.value.width,
+      imageSize.value.height
     );
 
     // Get the color of selected track
@@ -3781,7 +3828,7 @@ const updateAnnotationLayer = (
 
   // Use the displayCanvas for Konva rendering
   if (!displayCanvas) {
-    initCanvases(stageConfig.value.width, stageConfig.value.height);
+    initCanvases(imageSize.value.width, imageSize.value.height);
   }
 
   const ctx = displayCanvas!.getContext("2d", { alpha: true })!;
@@ -3811,7 +3858,7 @@ const updateAnnotationLayerWithSelectionAndHover = (
 ) => {
   // Use the displayCanvas for Konva rendering
   if (!displayCanvas) {
-    initCanvases(stageConfig.value.width, stageConfig.value.height);
+    initCanvases(imageSize.value.width, imageSize.value.height);
   }
 
   // Copy nonSelectedCanvas to displayCanvas
@@ -3892,8 +3939,8 @@ const initializePlayer = async () => {
       1
     );
 
-    stageConfig.value.width = Math.floor(firstImg.width * scale);
-    stageConfig.value.height = Math.floor(firstImg.height * scale);
+    imageSize.value.width = Math.floor(firstImg.width * scale);
+    imageSize.value.height = Math.floor(firstImg.height * scale);
 
     currentImage.value = firstImg;
     framesLoaded.value = true;
@@ -4024,7 +4071,6 @@ watch(hoveredBrushTrackId, async () => {
     await renderBrushAnnotations(currentFrame.value);
   }
 });
-
 </script>
 
 <style scoped>
@@ -4034,19 +4080,23 @@ watch(hoveredBrushTrackId, async () => {
   flex-direction: column;
   gap: 16px;
   max-width: 100%;
+  box-sizing: border-box;
 }
 
 .main-content {
   display: flex;
   gap: 16px;
-  align-items: flex-start;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
   /* position: relative; */
 }
 
 /* Class Manager Panel */
 .class-manager-panel {
   flex-shrink: 0;
-  max-height: calc(100vh - 200px);
+  align-self: flex-start;
+  max-height: 100%;
   overflow-y: auto;
 }
 

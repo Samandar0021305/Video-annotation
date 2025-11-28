@@ -6,9 +6,15 @@ export class BBoxTool {
   private bboxPreview: Konva.Rect | null = null;
   private transformer: Konva.Transformer | null = null;
   private layer: Konva.Layer | null = null;
+  private previewParent: Konva.Group | Konva.Layer | null = null;
 
   constructor(layer: Konva.Layer) {
     this.layer = layer;
+    this.previewParent = layer; // Default to layer, can be changed with setPreviewParent
+  }
+
+  setPreviewParent(parent: Konva.Group | Konva.Layer): void {
+    this.previewParent = parent;
   }
 
   setupTransformer(): Konva.Transformer {
@@ -61,7 +67,7 @@ export class BBoxTool {
 
   startDrawing(pos: { x: number; y: number }, color: string): void {
     this.bboxStartPos = pos;
-    if (!this.layer) return;
+    if (!this.previewParent || !this.layer) return;
 
     this.bboxPreview = new Konva.Rect({
       x: pos.x,
@@ -74,7 +80,7 @@ export class BBoxTool {
       listening: false,
     });
 
-    this.layer.add(this.bboxPreview);
+    this.previewParent.add(this.bboxPreview);
     this.layer.batchDraw();
   }
 

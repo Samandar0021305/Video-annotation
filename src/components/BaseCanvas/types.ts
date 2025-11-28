@@ -68,10 +68,11 @@ export interface BaseCanvasEmits {
 // ============ Props Types ============
 
 export interface BaseCanvasProps {
-  width: number;
-  height: number;
+  width?: number | string;
+  height?: number;
   zoomConfig?: ZoomConfig;
   enablePan?: boolean;
   enableZoom?: boolean;
   cursor?: string;
+  fillContainer?: boolean;
 }

@@ -5,6 +5,7 @@ const SKELETON_MERGE_THRESHOLD = 10;
 
 export class SkeletonTool {
   private layer: Konva.Layer | null = null;
+  private previewParent: Konva.Group | Konva.Layer | null = null;
   private isDrawing: boolean = false;
   private currentPoints: SkeletonPoint[] = [];
   private previewLine: Konva.Line | null = null;
@@ -12,6 +13,11 @@ export class SkeletonTool {
 
   constructor(layer: Konva.Layer) {
     this.layer = layer;
+    this.previewParent = layer; // Default to layer, can be changed with setPreviewParent
+  }
+
+  setPreviewParent(parent: Konva.Group | Konva.Layer): void {
+    this.previewParent = parent;
   }
 
   isDrawingActive(): boolean {
@@ -58,7 +64,7 @@ export class SkeletonTool {
     this.isDrawing = true;
     this.currentPoints = [{ x: pos.x, y: pos.y }];
 
-    if (!this.layer) return;
+    if (!this.previewParent || !this.layer) return;
 
     this.previewLine = new Konva.Line({
       points: [pos.x, pos.y],
@@ -69,10 +75,10 @@ export class SkeletonTool {
       lineJoin: "round",
       listening: false,
     });
-    this.layer.add(this.previewLine);
+    this.previewParent.add(this.previewLine);
 
     const circle = this.createPreviewCircle(pos.x, pos.y, color);
-    this.layer.add(circle);
+    this.previewParent.add(circle);
     this.previewCircles.push(circle);
 
     this.layer.batchDraw();
@@ -85,10 +91,10 @@ export class SkeletonTool {
 
     this.currentPoints.push({ x: pos.x, y: pos.y });
 
-    if (!this.layer) return false;
+    if (!this.previewParent || !this.layer) return false;
 
     const circle = this.createPreviewCircle(pos.x, pos.y, color);
-    this.layer.add(circle);
+    this.previewParent.add(circle);
     this.previewCircles.push(circle);
 
     this.updatePreview();
