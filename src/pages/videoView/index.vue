@@ -99,6 +99,21 @@
               @keypoint-drag-end="handleSkeletonLayerKeypointDragEnd"
               @keypoint-click="handleSkeletonLayerKeypointClick"
             />
+
+          <PointLayer
+              ref="pointLayerRef"
+              :points="currentFramePoints"
+              :current-frame="currentFrame"
+              :selected-point-id="selectedPointTrackId"
+              :hovered-point-id="hoveredPointId"
+              :draggable="mode === 'point'"
+              :opacity="opacity"
+              :image-offset="{ x: 0, y: 0 }"
+              @point-click="handlePointLayerClick"
+              @point-dragend="handlePointLayerDragEnd"
+              @point-mouseenter="handlePointMouseEnter"
+              @point-mouseleave="handlePointMouseLeave"
+            />
           </v-group>
         </template>
 
@@ -159,6 +174,7 @@
       :polygon-tracks="visiblePolygonTracks"
       :skeleton-tracks="visibleSkeletonTracks"
       :brush-tracks="visibleBrushTracks"
+      :point-tracks="pointTracks"
       @jump-to-frame="jumpToFrame"
       @select-track="handleSelectTrack"
       @toggle-interpolation="handleToggleInterpolation"
@@ -178,6 +194,7 @@ import {
   BoundingBoxLayer,
   PolygonLayer,
   SkeletonLayer,
+  PointLayer,
   BrushAnnotationLayer,
   BrushPreviewLayer,
   BBoxTool,
@@ -192,6 +209,7 @@ import { useAnnotationStore } from "../../stores/annotationStore";
 import { useBoundingBoxTracks } from "../../composables/useBoundingBoxTracks";
 import { usePolygonTracks } from "../../composables/usePolygonTracks";
 import { useSkeletonTracks } from "../../composables/useSkeletonTracks";
+import { usePointTracks, type Point } from "../../composables/usePointTracks";
 import {
   useBrushTracks,
   type BrushTrack,
@@ -226,6 +244,7 @@ import type {
   PendingPolygon,
   PendingSkeleton,
   PendingBrush,
+  PendingPoint,
   TempBrushStroke,
   ColocatedPoint,
 } from "./types";
@@ -266,6 +285,7 @@ const {
   bboxLayerRef,
   polygonLayerRef,
   skeletonLayerRef,
+  pointLayerRef,
   brushAnnotationLayerRef,
   brushPreviewLayerRef,
   cursorGroupRef,
@@ -301,6 +321,7 @@ const brushColor = ref("#FF0000");
 const bboxColor = ref("#FF0000");
 const polygonColor = ref("#00FF00");
 const skeletonColor = ref("#0000FF");
+const pointColor = ref("#FFA500");
 const opacity = ref(0.7);
 const zoomLevel = ref(1);
 const autoSuggest = ref(false);
@@ -320,6 +341,9 @@ const hasSkeletonClasses = computed(() =>
 const hasMaskClasses = computed(() =>
   annotationClasses.value.some((c) => c.markupType === MarkupType.MASK)
 );
+const hasPointClasses = computed(() =>
+  annotationClasses.value.some((c) => c.markupType === MarkupType.POINT)
+);
 
 const visibleBboxTracks = computed(() =>
   hasBboxClasses.value ? bboxTracks.value : new Map()
@@ -334,7 +358,6 @@ const visibleBrushTracks = computed(
   (): Map<string, BrushTrack> =>
     hasMaskClasses.value ? brushTracks.value : new Map<string, BrushTrack>()
 );
-
 // Check if we're editing an existing segmentation
 const isEditingSegmentation = computed(
   () =>
@@ -361,6 +384,9 @@ const handleClassSelect = (cls: AnnotationClass) => {
   } else if (cls.markupType === MarkupType.SKELETON) {
     skeletonColor.value = cls.color;
     setMode(ToolModeEnum.SKELETON);
+  } else if (cls.markupType === MarkupType.POINT) {
+    pointColor.value = cls.color;
+    setMode(ToolModeEnum.POINT);
   }
 };
 
@@ -386,6 +412,7 @@ const pendingBbox = ref<PendingBbox | null>(null);
 const pendingPolygon = ref<PendingPolygon | null>(null);
 const pendingSkeleton = ref<PendingSkeleton | null>(null);
 const pendingBrush = ref<PendingBrush | null>(null);
+const pendingPoint = ref<PendingPoint | null>(null);
 
 const getNextClassValue = () => {
   if (annotationClasses.value.length === 0) return 0;
@@ -458,6 +485,25 @@ const handleClassSelectorSelect = (cls: AnnotationClass) => {
       skeletonTracks.value.set(editingSkeletonTrackId.value, { ...track });
     }
     editingSkeletonTrackId.value = null;
+    classSelectorInitialClass.value = null;
+    showClassSelector.value = false;
+    saveAnnotations();
+    return;
+  }
+
+  if (editingPointTrackId.value) {
+    const track = pointTracks.value.get(editingPointTrackId.value);
+    if (track) {
+      for (const [frame, point] of track.keyframes) {
+        track.keyframes.set(frame, {
+          ...point,
+          color: cls.color,
+          classId: cls.value,
+        });
+      }
+      pointTracks.value.set(editingPointTrackId.value, { ...track });
+    }
+    editingPointTrackId.value = null;
     classSelectorInitialClass.value = null;
     showClassSelector.value = false;
     saveAnnotations();
@@ -574,6 +620,25 @@ const handleClassSelectorSelect = (cls: AnnotationClass) => {
     saveAnnotations();
   }
 
+  if (pendingPoint.value) {
+    const pointData = pendingPoint.value;
+    const trackId = createPointTrack(
+      pointData.frame,
+      {
+        ...pointData.point,
+        color: cls.color,
+        classId: cls.value,
+      },
+      cls.color,
+      cls.value,
+      physicalFrames.value
+    );
+    selectedPointTrackId.value = trackId;
+    timelineRef.value?.selectTrack(trackId, TrackTypeEnum.POINT);
+    pendingPoint.value = null;
+    saveAnnotations();
+  }
+
   if (pendingBrush.value) {
     const brushData = pendingBrush.value;
 
@@ -676,10 +741,12 @@ const handleClassSelectorClose = () => {
   pendingBbox.value = null;
   pendingPolygon.value = null;
   pendingSkeleton.value = null;
+  pendingPoint.value = null;
   editingBboxTrackId.value = null;
   editingPolygonTrackId.value = null;
   editingSkeletonTrackId.value = null;
   editingBrushTrackId.value = null;
+  editingPointTrackId.value = null;
   classSelectorInitialClass.value = null;
   showClassSelector.value = false;
 
@@ -740,12 +807,18 @@ const handleClassSelectorDelete = () => {
     selectedBrushTrackId.value = null;
     saveAnnotations();
     renderFrame(currentFrame.value);
+  } else if (editingPointTrackId.value) {
+    deletePointTrack(editingPointTrackId.value);
+    editingPointTrackId.value = null;
+    selectedPointTrackId.value = null;
+    saveAnnotations();
   }
 
   // Clear any pending annotations (newly drawn but not yet saved)
   pendingBbox.value = null;
   pendingPolygon.value = null;
   pendingSkeleton.value = null;
+  pendingPoint.value = null;
 
   // Clean up pending brush
   if (pendingBrush.value) {
@@ -903,6 +976,19 @@ const {
 } = useSkeletonTracks(currentFrame);
 
 const {
+  tracks: pointTracks,
+  selectedTrackId: selectedPointTrackId,
+  editingTrackId: editingPointTrackId,
+  createTrack: createPointTrack,
+  getPointAtFrame,
+  updateKeyframe: updatePointKeyframe,
+  toggleInterpolation: togglePointInterpolation,
+  deleteTrack: deletePointTrack,
+  deleteKeyframe: _deletePointKeyframe,
+  selectTrack: selectPointTrack,
+} = usePointTracks(currentFrame);
+
+const {
   tracks: brushTracks,
   selectedTrackId: selectedBrushTrackId,
   hoveredTrackId: hoveredBrushTrackId,
@@ -922,6 +1008,8 @@ const {
   getSelectedTrackColor,
   updateMaskPosition,
 } = useBrushTracks(currentFrame);
+
+const hoveredPointId = ref<string | null>(null);
 
 const brushClasses = computed(() => {
   const classes: ToolClass[] = [];
@@ -1059,6 +1147,27 @@ const currentFrameSkeletons = computed(() => {
       id: "pending_skeleton",
       points: pendingSkeleton.value.points,
       color: skeletonColor.value,
+    });
+  }
+  return result;
+});
+
+const currentFramePoints = computed(() => {
+  const result: Map<string, Point> = new Map();
+  if (hasPointClasses.value) {
+    for (const [trackId] of pointTracks.value) {
+      const point = getPointAtFrame(trackId, currentFrame.value);
+      if (point) {
+        result.set(trackId, point);
+      }
+    }
+  }
+  if (pendingPoint.value && showClassSelector.value) {
+    result.set("pending_point", {
+      ...pendingPoint.value.point,
+      id: "pending_point",
+      color: pointColor.value,
+      classId: 0,
     });
   }
   return result;
@@ -1565,6 +1674,16 @@ const setMode = (newMode: ToolMode) => {
     brush.value.changeColor("#FF0000");
   }
 
+  if (newMode === ToolModeEnum.POINT) {
+    const pointClass = annotationClasses.value.find(
+      (c) => c.markupType === MarkupType.POINT
+    );
+    if (pointClass) {
+      pointColor.value = pointClass.color;
+    }
+    stage.container().style.cursor = "crosshair";
+  }
+
   if (newMode !== ToolModeEnum.POLYGON && polygonTool?.isDrawingActive()) {
     cancelPolygonDrawing();
   }
@@ -2059,6 +2178,56 @@ const handleSkeletonLayerKeypointClick = (trackId: string) => {
   selectedBboxTrackId.value = null;
   selectedPolygonTrackId.value = null;
   timelineRef.value?.selectTrack(trackId, TrackTypeEnum.SKELETON);
+};
+
+const handlePointLayerClick = (trackId: string) => {
+  if (mode.value !== ToolModeEnum.PAN && mode.value !== ToolModeEnum.POINT) return;
+  if (trackId === "pending_point") return;
+
+  selectedPointTrackId.value = trackId;
+  selectedBboxTrackId.value = null;
+  selectedPolygonTrackId.value = null;
+  selectedSkeletonTrackId.value = null;
+  timelineRef.value?.selectTrack(trackId, TrackTypeEnum.POINT);
+
+  const point = getPointAtFrame(trackId, currentFrame.value);
+  if (point) {
+    const currentClass = annotationClasses.value.find(
+      (c) => c.value === point.classId
+    );
+    classSelectorInitialClass.value = currentClass || null;
+    selectedClassId.value = currentClass?.id || null;
+    editingPointTrackId.value = trackId;
+    const screenPos = getScreenPositionFromCanvas(point.x, point.y);
+    showClassSelectorForAnnotation(MarkupType.POINT, screenPos);
+  }
+};
+
+const handlePointLayerDragEnd = (
+  event: Konva.KonvaEventObject<DragEvent>,
+  trackId: string
+) => {
+  if (trackId === "pending_point") return;
+  const currentPoint = getPointAtFrame(trackId, currentFrame.value);
+  if (!currentPoint) return;
+
+  const rect = event.target as Konva.Rect;
+  const updatedPoint: Point = {
+    ...currentPoint,
+    x: rect.x(),
+    y: rect.y(),
+  };
+
+  updatePointKeyframe(trackId, currentFrame.value, updatedPoint);
+  saveAnnotations();
+};
+
+const handlePointMouseEnter = (trackId: string) => {
+  hoveredPointId.value = trackId;
+};
+
+const handlePointMouseLeave = () => {
+  hoveredPointId.value = null;
 };
 
 // Convert temp brush strokes from points to canvas (for eraser support)
@@ -2613,6 +2782,46 @@ const handleMouseDown = (e: any) => {
     } else {
       addSkeletonPoint(logicalPos);
     }
+    return;
+  }
+
+  if (mode.value === ToolModeEnum.POINT) {
+    const target = e.target;
+    const isClickOnPoint = target.name() === "point";
+
+    if (isClickOnPoint) {
+      const pointId = target.id();
+      selectPointTrack(pointId);
+      editingPointTrackId.value = pointId;
+      const point = getPointAtFrame(pointId, currentFrame.value);
+      if (point) {
+        const cls = annotationClasses.value.find((c) => c.value === point.classId);
+        classSelectorInitialClass.value = cls || null;
+        selectedClassId.value = cls?.id || null;
+        const screenPos = getScreenPositionFromCanvas(point.x, point.y);
+        showClassSelectorForAnnotation(MarkupType.POINT, screenPos);
+      }
+      return;
+    }
+
+    const logicalPos = getLogicalPointerPosition();
+    if (!logicalPos) return;
+
+    const point: Point = {
+      id: `point_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`,
+      x: logicalPos.x,
+      y: logicalPos.y,
+      color: pointColor.value,
+      classId: 0,
+    };
+
+    pendingPoint.value = {
+      point,
+      frame: currentFrame.value,
+    };
+
+    const screenPos = getScreenPositionFromCanvas(logicalPos.x, logicalPos.y);
+    showClassSelectorForAnnotation(MarkupType.POINT, screenPos);
     return;
   }
 
@@ -3487,20 +3696,30 @@ const handleSelectTrack = (trackId: string, type: TrackType) => {
     selectedBboxTrackId.value = trackId;
     selectedPolygonTrackId.value = null;
     selectedSkeletonTrackId.value = null;
+    selectedPointTrackId.value = null;
     updateTransformerSelection();
   } else if (type === TrackTypeEnum.POLYGON) {
     selectedPolygonTrackId.value = trackId;
     selectedBboxTrackId.value = null;
     selectedSkeletonTrackId.value = null;
+    selectedPointTrackId.value = null;
   } else if (type === TrackTypeEnum.SKELETON) {
     selectedSkeletonTrackId.value = trackId;
     selectedBboxTrackId.value = null;
     selectedPolygonTrackId.value = null;
+    selectedPointTrackId.value = null;
   } else if (type === TrackTypeEnum.BRUSH) {
     selectedBrushTrackId.value = trackId;
     selectedBboxTrackId.value = null;
     selectedPolygonTrackId.value = null;
     selectedSkeletonTrackId.value = null;
+    selectedPointTrackId.value = null;
+  } else if (type === TrackTypeEnum.POINT) {
+    selectedPointTrackId.value = trackId;
+    selectedBboxTrackId.value = null;
+    selectedPolygonTrackId.value = null;
+    selectedSkeletonTrackId.value = null;
+    selectedBrushTrackId.value = null;
   }
 };
 
@@ -3513,6 +3732,8 @@ const handleToggleInterpolation = (trackId: string, type: TrackType) => {
     toggleSkeletonInterpolation(trackId);
   } else if (type === TrackTypeEnum.BRUSH) {
     toggleBrushInterpolation(trackId);
+  } else if (type === TrackTypeEnum.POINT) {
+    togglePointInterpolation(trackId);
   }
 };
 
@@ -3547,6 +3768,11 @@ const handleAddKeyframe = (trackId: string, type: TrackType) => {
         autoSuggest.value
       );
     }
+  } else if (type === TrackTypeEnum.POINT) {
+    const currentPoint = getPointAtFrame(trackId, currentFrame.value);
+    if (currentPoint) {
+      updatePointKeyframe(trackId, currentFrame.value, currentPoint);
+    }
   }
   saveAnnotations();
 };
@@ -3567,6 +3793,8 @@ const handleUpdateRange = (
     track = skeletonTracks.value.get(trackId);
   } else if (type === TrackTypeEnum.BRUSH) {
     track = brushTracks.value.get(trackId);
+  } else if (type === TrackTypeEnum.POINT) {
+    track = pointTracks.value.get(trackId);
   }
 
   if (track && track.ranges[rangeIndex]) {
@@ -3701,6 +3929,7 @@ const saveAnnotations = async () => {
       polygon: polygonTracks.value,
       skeleton: skeletonTracks.value,
       brush: brushTracks.value,
+      point: pointTracks.value,
     });
     annotationStore.setClasses(annotationClasses.value);
     await annotationStore.save();

@@ -14,6 +14,7 @@ export const useAnnotationStore = defineStore("annotations", () => {
   const polygonTracks = ref<Map<string, any>>(new Map());
   const skeletonTracks = ref<Map<string, any>>(new Map());
   const brushTracks = ref<Map<string, any>>(new Map());
+  const pointTracks = ref<Map<string, any>>(new Map());
 
   // Classes
   const classes = ref<AnnotationClass[]>([]);
@@ -29,7 +30,8 @@ export const useAnnotationStore = defineStore("annotations", () => {
       bboxTracks.value.size > 0 ||
       polygonTracks.value.size > 0 ||
       skeletonTracks.value.size > 0 ||
-      brushTracks.value.size > 0
+      brushTracks.value.size > 0 ||
+      pointTracks.value.size > 0
     );
   });
 
@@ -44,6 +46,7 @@ export const useAnnotationStore = defineStore("annotations", () => {
       polygonTracks.value = tracksArrayToMap(data.polygon || []);
       skeletonTracks.value = tracksArrayToMap(data.skeleton || []);
       brushTracks.value = tracksArrayToMap(data.brush || []);
+      pointTracks.value = tracksArrayToMap(data.point || []);
       classes.value = data.classes || [];
       videoFileName.value = fileName;
     } catch (error) {
@@ -64,6 +67,7 @@ export const useAnnotationStore = defineStore("annotations", () => {
         polygon: tracksMapToArray(polygonTracks.value),
         skeleton: tracksMapToArray(skeletonTracks.value),
         brush: tracksMapToArray(brushTracks.value),
+        point: tracksMapToArray(pointTracks.value),
       };
       await saveAnnotations(videoFileName.value, payload, classes.value);
     } catch (error) {
@@ -79,6 +83,7 @@ export const useAnnotationStore = defineStore("annotations", () => {
     polygonTracks.value.clear();
     skeletonTracks.value.clear();
     brushTracks.value.clear();
+    pointTracks.value.clear();
     classes.value = [];
 
     // Save empty state to API
@@ -137,6 +142,19 @@ export const useAnnotationStore = defineStore("annotations", () => {
     return brushTracks.value.get(trackId);
   }
 
+  // Point track operations
+  function setPointTrack(trackId: string, track: any) {
+    pointTracks.value.set(trackId, track);
+  }
+
+  function deletePointTrack(trackId: string) {
+    pointTracks.value.delete(trackId);
+  }
+
+  function getPointTrack(trackId: string) {
+    return pointTracks.value.get(trackId);
+  }
+
   // Set video filename (for when video changes)
   function setVideoFileName(fileName: string) {
     videoFileName.value = fileName;
@@ -148,11 +166,13 @@ export const useAnnotationStore = defineStore("annotations", () => {
     polygon: Map<string, any>;
     skeleton: Map<string, any>;
     brush: Map<string, any>;
+    point: Map<string, any>;
   }) {
     bboxTracks.value = data.bbox;
     polygonTracks.value = data.polygon;
     skeletonTracks.value = data.skeleton;
     brushTracks.value = data.brush;
+    pointTracks.value = data.point;
   }
 
   // Class operations
@@ -178,6 +198,7 @@ export const useAnnotationStore = defineStore("annotations", () => {
     polygonTracks,
     skeletonTracks,
     brushTracks,
+    pointTracks,
     classes,
     videoFileName,
     isLoading,
@@ -212,6 +233,11 @@ export const useAnnotationStore = defineStore("annotations", () => {
     setBrushTrack,
     deleteBrushTrack,
     getBrushTrack,
+
+    // Point operations
+    setPointTrack,
+    deletePointTrack,
+    getPointTrack,
 
     // Class operations
     setClasses,

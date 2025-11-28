@@ -46,11 +46,12 @@
           bboxTracks.size === 0 &&
           polygonTracks.size === 0 &&
           skeletonTracks.size === 0 &&
-          brushTracks.size === 0
+          brushTracks.size === 0 &&
+          pointTracks.size === 0
         "
         class="timeline-empty"
       >
-        No tracks yet. Draw with bbox, polygon, skeleton, or brush tool to create one.
+        No tracks yet. Draw with bbox, polygon, skeleton, brush, or point tool to create one.
       </div>
 
       <div
@@ -405,6 +406,95 @@
           </div>
         </div>
       </div>
+
+      <div
+        v-for="[trackId, track] in Array.from(pointTracks.entries())"
+        :key="trackId"
+        class="timeline-track-row"
+        :class="{
+          selected:
+            selectedTrackId === trackId && selectedTrackType === 'point',
+        }"
+        @click="selectTrack(trackId, 'point')"
+      >
+        <div class="track-label">
+          <span class="track-icon">📍</span>
+          <span class="track-name">{{ trackId.substring(0, 12) }}...</span>
+          <span class="keyframe-count">{{ track.keyframes.size }} keys</span>
+        </div>
+
+        <div class="track-timeline">
+          <div
+            class="current-frame-line"
+            :style="{ left: currentFramePercentage + '%' }"
+          >
+            <div class="playhead"></div>
+          </div>
+
+          <div
+            v-for="(range, rangeIndex) in track.ranges || []"
+            :key="`${trackId}-point-range-${rangeIndex}`"
+            class="timeline-segment-bar point"
+            :class="{
+              selected:
+                selectedTrackId === trackId && selectedTrackType === 'point',
+            }"
+            :style="{
+              left: (range[0] / (totalFrames || 1)) * 100 + '%',
+              width: ((range[1] - range[0]) / (totalFrames || 1)) * 100 + '%',
+              backgroundColor: track.color + '40',
+              borderColor: track.color,
+            }"
+          >
+            <div
+              class="resize-handle left"
+              @mousedown.stop="
+                startRangeResize(
+                  $event,
+                  trackId,
+                  'point',
+                  rangeIndex,
+                  'left',
+                  range[0],
+                  range[1]
+                )
+              "
+            ></div>
+            <div
+              class="resize-handle right"
+              @mousedown.stop="
+                startRangeResize(
+                  $event,
+                  trackId,
+                  'point',
+                  rangeIndex,
+                  'right',
+                  range[0],
+                  range[1]
+                )
+              "
+            ></div>
+          </div>
+
+          <div
+            v-for="frameNum in Array.from(track.keyframes.keys())"
+            :key="`${trackId}-point-${frameNum}`"
+            v-show="isFrameInRanges(frameNum, track.ranges || [])"
+            class="keyframe-diamond"
+            :class="{
+              active: frameNum === currentFrame,
+              selected:
+                selectedTrackId === trackId &&
+                selectedTrackType === 'point' &&
+                frameNum === currentFrame,
+            }"
+            :style="{ left: (frameNum / (totalFrames || 1)) * 100 + '%' }"
+            @click.stop="$emit('jump-to-frame', frameNum)"
+          >
+            <div class="diamond-shape"></div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -415,8 +505,9 @@ import type { BoundingBoxTrack } from "../layers/BoundingBox";
 import type { PolygonTrack } from "../layers/Polygon";
 import type { SkeletonTrack } from "../layers/Skeleton";
 import type { BrushTrack } from "../../composables/useBrushTracks";
+import type { PointTrack } from "../../composables/usePointTracks";
 
-type TrackType = "bbox" | "polygon" | "skeleton" | "brush";
+type TrackType = "bbox" | "polygon" | "skeleton" | "brush" | "point";
 
 const props = defineProps<{
   currentFrame: number;
@@ -426,6 +517,7 @@ const props = defineProps<{
   polygonTracks: Map<string, PolygonTrack>;
   skeletonTracks: Map<string, SkeletonTrack>;
   brushTracks: Map<string, BrushTrack>;
+  pointTracks: Map<string, PointTrack>;
 }>();
 
 const emit = defineEmits<{
@@ -480,6 +572,7 @@ const isCurrentFrameKeyframe = computed(() => {
     | PolygonTrack
     | SkeletonTrack
     | BrushTrack
+    | PointTrack
     | undefined;
 
   if (selectedTrackType.value === "bbox") {
@@ -490,6 +583,8 @@ const isCurrentFrameKeyframe = computed(() => {
     track = props.skeletonTracks.get(selectedTrackId.value);
   } else if (selectedTrackType.value === "brush") {
     track = props.brushTracks.get(selectedTrackId.value);
+  } else if (selectedTrackType.value === "point") {
+    track = props.pointTracks.get(selectedTrackId.value);
   }
 
   return track ? track.keyframes.has(props.currentFrame) : false;
@@ -503,6 +598,7 @@ const isInterpolationEnabled = computed(() => {
     | PolygonTrack
     | SkeletonTrack
     | BrushTrack
+    | PointTrack
     | undefined;
 
   if (selectedTrackType.value === "bbox") {
@@ -513,6 +609,8 @@ const isInterpolationEnabled = computed(() => {
     track = props.skeletonTracks.get(selectedTrackId.value);
   } else if (selectedTrackType.value === "brush") {
     track = props.brushTracks.get(selectedTrackId.value);
+  } else if (selectedTrackType.value === "point") {
+    track = props.pointTracks.get(selectedTrackId.value);
   }
 
   return track ? track.interpolationEnabled : false;

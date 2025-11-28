@@ -15,6 +15,7 @@ export const MarkupType = {
   POLYGON: "polygon",
   SKELETON: "skeleton",
   MASK: "mask",
+  POINT: "point",
 } as const;
 
 export type MarkupTypeValue = (typeof MarkupType)[keyof typeof MarkupType];
@@ -25,6 +26,7 @@ export const TrackType = {
   POLYGON: "polygon",
   SKELETON: "skeleton",
   BRUSH: "brush",
+  POINT: "point",
 } as const;
 
 export type TrackTypeValue = (typeof TrackType)[keyof typeof TrackType];
@@ -37,6 +39,7 @@ export const ToolMode = {
   SKELETON: "skeleton",
   BRUSH: "brush",
   ERASER: "eraser",
+  POINT: "point",
 } as const;
 
 export type ToolModeValue = (typeof ToolMode)[keyof typeof ToolMode];
@@ -57,4 +60,5 @@ export const DefaultColors = {
   POLYGON: "#00FF00",
   SKELETON: "#0000FF",
   BRUSH: "#FF0000",
+  POINT: "#FFA500",
 } as const;
