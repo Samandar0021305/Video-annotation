@@ -79,17 +79,17 @@
         <span>Skeleton</span>
       </button>
       <button
-        @click="$emit('delete')"
-        class="tool-btn delete-btn"
-        :disabled="!canDelete"
-        title="Delete Selected"
+        :class="['tool-btn', { active: mode === 'point' }]"
+        @click="$emit('update:mode', 'point')"
+        title="Point"
+        :disabled="toolsDisabled"
       >
         <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
           <path
-            d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
+            d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0013 3.06V1h-2v2.06A8.994 8.994 0 003.06 11H1v2h2.06A8.994 8.994 0 0011 20.94V23h2v-2.06A8.994 8.994 0 0020.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"
           />
         </svg>
-        <span>Delete</span>
+        <span>Point</span>
       </button>
     </div>
 
@@ -158,40 +158,11 @@
       </div>
     </div>
 
-    <!-- Brush Actions (shown when strokes exist or editing segmentation) -->
-    <template v-if="hasPendingBrushStrokes || isEditingSegmentation">
-      <div class="toolbar-divider"></div>
-      <div class="toolbar-section brush-actions">
-        <button
-          class="action-btn clear-btn"
-          @click="$emit('clear')"
-          title="Clear all strokes"
-        >
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-            <path
-              d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
-            />
-          </svg>
-          <span>Clear All</span>
-        </button>
-        <button
-          class="action-btn save-btn"
-          @click="$emit('save')"
-          title="Save annotation"
-          :disabled="!hasPendingBrushStrokes && !hasUnsavedEraserChanges"
-        >
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-          </svg>
-          <span>Save</span>
-        </button>
-      </div>
-    </template>
   </div>
 </template>
 
 <script setup lang="ts">
-export type ToolMode = "brush" | "eraser" | "pan" | "bbox" | "polygon" | "skeleton";
+export type ToolMode = "brush" | "eraser" | "pan" | "bbox" | "polygon" | "skeleton" | "point";
 
 defineProps<{
   mode: ToolMode;
@@ -201,10 +172,6 @@ defineProps<{
   skeletonColor: string;
   opacity: number;
   toolsDisabled: boolean;
-  canDelete: boolean;
-  hasPendingBrushStrokes: boolean;
-  isEditingSegmentation: boolean;
-  hasUnsavedEraserChanges: boolean;
 }>();
 
 defineEmits<{
@@ -214,9 +181,6 @@ defineEmits<{
   (e: "update:polygonColor", color: string): void;
   (e: "update:skeletonColor", color: string): void;
   (e: "update:opacity", opacity: number): void;
-  (e: "delete"): void;
-  (e: "clear"): void;
-  (e: "save"): void;
 }>();
 </script>
 
@@ -284,60 +248,8 @@ defineEmits<{
   cursor: not-allowed;
 }
 
-.tool-btn.delete-btn {
-  color: #fc8181;
-}
-
-.tool-btn.delete-btn:hover:not(:disabled) {
-  background: #e53e3e;
-  color: white;
-}
-
 .tool-btn svg {
   flex-shrink: 0;
-}
-
-/* Brush Actions */
-.brush-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.action-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  border: none;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.action-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.clear-btn {
-  background: #fc8181;
-  color: white;
-}
-
-.clear-btn:hover:not(:disabled) {
-  background: #e53e3e;
-}
-
-.save-btn {
-  background: #48bb78;
-  color: white;
-}
-
-.save-btn:hover:not(:disabled) {
-  background: #38a169;
 }
 
 /* Size and Opacity Controls */

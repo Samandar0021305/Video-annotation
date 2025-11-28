@@ -52,17 +52,63 @@ export function encodeRLE(imageData: Uint8ClampedArray): number[] {
   return rle;
 }
 
-/**
- * Decode RLE data to image data (CVAT-style expandChannels)
- *
- * @param rle - Run-length encoded data
- * @param r - Red channel value (0-255)
- * @param g - Green channel value (0-255)
- * @param b - Blue channel value (0-255)
- * @param width - Width of the mask region
- * @param height - Height of the mask region
- * @returns Decoded RGBA image data
- */
+export function clipMaskRLE(
+  mask: MaskData,
+  originalLeft: number,
+  originalTop: number,
+  clippedLeft: number,
+  clippedTop: number,
+  clippedRight: number,
+  clippedBottom: number
+): MaskData | null {
+  const originalWidth = mask.right - mask.left + 1;
+  const originalHeight = mask.bottom - mask.top + 1;
+
+  const [r, g, b] = hexToRgb(mask.color);
+  const decoded = decodeRLE(mask.rle, r, g, b, originalWidth, originalHeight);
+
+  const newWidth = clippedRight - clippedLeft + 1;
+  const newHeight = clippedBottom - clippedTop + 1;
+
+  const offsetX = clippedLeft - originalLeft;
+  const offsetY = clippedTop - originalTop;
+
+  const clippedData = new Uint8ClampedArray(newWidth * newHeight * 4);
+
+  for (let y = 0; y < newHeight; y++) {
+    for (let x = 0; x < newWidth; x++) {
+      const srcX = x + offsetX;
+      const srcY = y + offsetY;
+
+      if (srcX >= 0 && srcX < originalWidth && srcY >= 0 && srcY < originalHeight) {
+        const srcIdx = (srcY * originalWidth + srcX) * 4;
+        const dstIdx = (y * newWidth + x) * 4;
+
+        clippedData[dstIdx] = decoded[srcIdx] ?? 0;
+        clippedData[dstIdx + 1] = decoded[srcIdx + 1] ?? 0;
+        clippedData[dstIdx + 2] = decoded[srcIdx + 2] ?? 0;
+        clippedData[dstIdx + 3] = decoded[srcIdx + 3] ?? 0;
+      }
+    }
+  }
+
+  const newRle = encodeRLE(clippedData);
+
+  const hasOpaquePixels = newRle.some((count, idx) => idx % 2 === 1 && count > 0);
+  if (!hasOpaquePixels) {
+    return null;
+  }
+
+  return {
+    ...mask,
+    rle: newRle,
+    left: clippedLeft,
+    top: clippedTop,
+    right: clippedRight,
+    bottom: clippedBottom,
+  };
+}
+
 export function decodeRLE(
   rle: number[],
   r: number,
@@ -262,12 +308,13 @@ export function renderMaskToCanvas(
   mask: MaskData,
   targetCanvas: HTMLCanvasElement,
   clearFirst: boolean = false,
-  scale: number = 1
+  scale: number = 1,
+  offsetX: number = 0,
+  offsetY: number = 0
 ): void {
   const ctx = targetCanvas.getContext('2d');
   if (!ctx) return;
 
-  // Disable image smoothing for pixel-perfect rendering
   ctx.imageSmoothingEnabled = false;
 
   if (clearFirst) {
@@ -278,17 +325,12 @@ export function renderMaskToCanvas(
   const width = mask.right - mask.left + 1;
   const height = mask.bottom - mask.top + 1;
 
-  // Decode the RLE data
   const decoded = decodeRLE(mask.rle, r, g, b, width, height);
 
-  // Create ImageData and render
   const imageArray = new Uint8ClampedArray(width * height * 4);
   imageArray.set(decoded);
   const imageData = new ImageData(imageArray, width, height);
 
-  // IMPORTANT: Always use temp canvas + drawImage for proper alpha compositing
-  // putImageData is destructive - it overwrites ALL pixels including transparent ones
-  // drawImage respects alpha - transparent pixels won't overwrite existing content
   const tempCanvas = document.createElement('canvas');
   tempCanvas.width = width;
   tempCanvas.height = height;
@@ -297,14 +339,12 @@ export function renderMaskToCanvas(
   tempCtx.putImageData(imageData, 0, 0);
 
   if (scale === 1) {
-    // Direct composite - drawImage respects alpha channel
-    ctx.drawImage(tempCanvas, mask.left, mask.top);
+    ctx.drawImage(tempCanvas, mask.left + offsetX, mask.top + offsetY);
   } else {
-    // Scaled composite
     ctx.drawImage(
       tempCanvas,
       0, 0, width, height,
-      mask.left * scale, mask.top * scale,
+      (mask.left + offsetX) * scale, (mask.top + offsetY) * scale,
       width * scale, height * scale
     );
   }
@@ -317,12 +357,16 @@ export function renderMaskToCanvas(
  * @param targetCanvas - Canvas to render to
  * @param clearFirst - Whether to clear the canvas first
  * @param scale - Scale factor for rendering
+ * @param offsetX - X offset for rendering (default 0)
+ * @param offsetY - Y offset for rendering (default 0)
  */
 export function renderMasksToCanvas(
   masks: MaskData[],
   targetCanvas: HTMLCanvasElement,
   clearFirst: boolean = true,
-  scale: number = 1
+  scale: number = 1,
+  offsetX: number = 0,
+  offsetY: number = 0
 ): void {
   const ctx = targetCanvas.getContext('2d');
   if (!ctx) return;
@@ -332,7 +376,7 @@ export function renderMasksToCanvas(
   }
 
   for (const mask of masks) {
-    renderMaskToCanvas(mask, targetCanvas, false, scale);
+    renderMaskToCanvas(mask, targetCanvas, false, scale, offsetX, offsetY);
   }
 }
 

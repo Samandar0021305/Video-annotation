@@ -7,7 +7,7 @@ export interface AnnotationClass {
   id: string;
   name: string;
   color: string;
-  markupType: "bbox" | "mask" | "polygon" | "skeleton";
+  markupType: "bbox" | "mask" | "polygon" | "skeleton" | "point";
   value: number;
 }
 
@@ -16,6 +16,7 @@ export interface AnnotationData {
   polygon: any[];
   skeleton: any[];
   brush: any[];
+  point: any[];
 }
 
 export interface AnnotationDataWithClasses extends AnnotationData {
@@ -54,6 +55,7 @@ export async function loadAnnotations(
       polygon: [],
       skeleton: [],
       brush: [],
+      point: [],
     };
 
     return {
@@ -61,6 +63,7 @@ export async function loadAnnotations(
       polygon: result.polygon || [],
       skeleton: result.skeleton || [],
       brush: result.brush || [],
+      point: result.point || [],
       classes: result.classes || [],
     };
   } catch (error: any) {
@@ -70,6 +73,7 @@ export async function loadAnnotations(
         polygon: [],
         skeleton: [],
         brush: [],
+        point: [],
         classes: [],
       };
     }

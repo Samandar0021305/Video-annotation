@@ -2,7 +2,7 @@
   <div
     ref="selectorRef"
     class="class-selector"
-    :style="{ left: position.x + 150 + 'px', top: position.y + 'px' }"
+    :style="{ left: position.x + 'px', top: position.y + 'px' }"
   >
     <div class="selector-header" @mousedown="startDrag">
       <span class="header-title">Annotate selector</span>
@@ -93,7 +93,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from "vue";
 
-export type MarkupType = "bbox" | "mask" | "polygon" | "skeleton";
+export type MarkupType = "bbox" | "mask" | "polygon" | "skeleton" | "point";
 
 export interface AnnotationClass {
   id: string;

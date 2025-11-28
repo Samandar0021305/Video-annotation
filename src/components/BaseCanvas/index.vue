@@ -1,5 +1,5 @@
 <template>
-  <div class="canvas-container">
+  <div ref="canvasContainerRef" class="canvas-container">
     <div v-if="ready" ref="containerRef" class="stage-wrapper" @wheel="onWheel">
       <v-stage
         ref="stageRef"
@@ -10,12 +10,10 @@
         @mouseleave="onMouseLeave"
         @dblclick="onDblClick"
       >
-        <!-- Background Layer -->
         <v-layer ref="backgroundLayerRef">
           <slot name="background"></slot>
         </v-layer>
 
-        <!-- Annotations Layer -->
         <v-layer
           ref="annotationsLayerRef"
           :config="{ imageSmoothingEnabled: false }"
@@ -23,12 +21,10 @@
           <slot name="annotations"></slot>
         </v-layer>
 
-        <!-- Interactive Layer (cursor, preview, etc.) -->
         <v-layer ref="interactiveLayerRef">
           <slot name="interactive"></slot>
         </v-layer>
 
-        <!-- Additional custom layers -->
         <slot name="layers"></slot>
       </v-stage>
     </div>
@@ -39,7 +35,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted } from "vue";
+import { ref, watch, onMounted, onUnmounted, nextTick } from "vue";
 import type Konva from "konva";
 import type {
   BaseCanvasProps,
@@ -52,6 +48,9 @@ const props = withDefaults(defineProps<BaseCanvasProps>(), {
   enablePan: true,
   enableZoom: true,
   cursor: "default",
+  width: 800,
+  height: 800,
+  fillContainer: false,
 });
 
 const emit = defineEmits<{
@@ -63,27 +62,62 @@ const emit = defineEmits<{
   (e: "wheel", event: CanvasWheelEvent): void;
   (e: "zoom-change", zoomLevel: number): void;
   (e: "stage-ready", stage: Konva.Stage): void;
+  (e: "container-resize", size: { width: number; height: number }): void;
 }>();
 
-// Internal state
 const ready = ref(false);
+const canvasContainerRef = ref<HTMLDivElement | null>(null);
 
-// Layer refs
 const backgroundLayerRef = ref<{ getNode: () => Konva.Layer } | null>(null);
 const annotationsLayerRef = ref<{ getNode: () => Konva.Layer } | null>(null);
 const interactiveLayerRef = ref<{ getNode: () => Konva.Layer } | null>(null);
 
-// Stage composable
 const stage = useStage({
-  width: props.width,
-  height: props.height,
+  width: typeof props.width === "number" ? props.width : 800,
+  height: props.height || 800,
   zoomConfig: props.zoomConfig,
 });
 
-// Destructure stageConfig for template access
 const { stageConfig, stageRef, containerRef } = stage;
 
-// Event handlers
+let resizeObserver: ResizeObserver | null = null;
+
+const measureContainer = () => {
+  if (!canvasContainerRef.value || !props.fillContainer) return;
+
+  const rect = canvasContainerRef.value.getBoundingClientRect();
+  const newWidth = Math.floor(rect.width);
+  const newHeight = Math.floor(rect.height);
+
+  if (newWidth > 0 && newHeight > 0) {
+    if (
+      stageConfig.value.width !== newWidth ||
+      stageConfig.value.height !== newHeight
+    ) {
+      stage.updateSize(newWidth, newHeight);
+      emit("container-resize", { width: newWidth, height: newHeight });
+    }
+  }
+};
+
+const setupResizeObserver = () => {
+  if (!props.fillContainer || !canvasContainerRef.value) return;
+
+  resizeObserver = new ResizeObserver(() => {
+    measureContainer();
+  });
+
+  resizeObserver.observe(canvasContainerRef.value);
+  measureContainer();
+};
+
+const cleanupResizeObserver = () => {
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+    resizeObserver = null;
+  }
+};
+
 const onMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
   const event = stage.createMouseEvent(e);
   emit("mousedown", event);
@@ -126,60 +160,86 @@ const onWheel = (e: WheelEvent) => {
   emit("wheel", wheelEvent);
 };
 
-// Watch for size changes
 watch(
   () => [props.width, props.height] as const,
   ([newWidth, newHeight]) => {
-    stage.updateSize(newWidth as number, newHeight as number);
+    if (
+      !props.fillContainer &&
+      typeof newWidth === "number" &&
+      typeof newHeight === "number"
+    ) {
+      stage.updateSize(newWidth, newHeight);
+    }
   }
 );
 
-// Lifecycle
-onMounted(() => {
+watch(
+  () => props.fillContainer,
+  (fillContainer) => {
+    if (fillContainer) {
+      setupResizeObserver();
+    } else {
+      cleanupResizeObserver();
+    }
+  }
+);
+
+onMounted(async () => {
+  // Measure container BEFORE setting ready to ensure correct dimensions
+  if (props.fillContainer && canvasContainerRef.value) {
+    const rect = canvasContainerRef.value.getBoundingClientRect();
+    const newWidth = Math.floor(rect.width);
+    const newHeight = Math.floor(rect.height);
+    if (newWidth > 0 && newHeight > 0) {
+      stage.updateSize(newWidth, newHeight);
+      emit("container-resize", { width: newWidth, height: newHeight });
+    }
+  }
+
   ready.value = true;
 
-  // Wait for next tick to ensure stage is mounted
-  setTimeout(() => {
-    const stageInstance = stage.getStage();
-    if (stageInstance) {
-      emit("stage-ready", stageInstance);
-    }
-  }, 0);
+  // Use nextTick to ensure DOM is fully rendered before setting up observer
+  await nextTick();
+
+  if (props.fillContainer) {
+    setupResizeObserver();
+  }
+
+  const stageInstance = stage.getStage();
+  if (stageInstance) {
+    emit("stage-ready", stageInstance);
+  }
 });
 
-// Expose stage utilities and refs for parent component
+onUnmounted(() => {
+  cleanupResizeObserver();
+});
+
 defineExpose({
-  // Stage
   stageRef: stage.stageRef,
   containerRef: stage.containerRef,
+  canvasContainerRef,
   stageConfig: stage.stageConfig,
   getStage: stage.getStage,
   batchDraw: stage.batchDraw,
-
-  // Layers
   backgroundLayerRef,
   annotationsLayerRef,
   interactiveLayerRef,
-
-  // Pointer position
   getScreenPosition: stage.getScreenPosition,
   getLogicalPosition: stage.getLogicalPosition,
   screenToLogical: stage.screenToLogical,
   logicalToScreen: stage.logicalToScreen,
-
-  // Panning
   isPanning: stage.isPanning,
   startPan: stage.startPan,
   updatePan: stage.updatePan,
   endPan: stage.endPan,
   setCursor: stage.setCursor,
-
-  // Zoom
   zoomLevel: stage.zoomLevel,
   zoomIn: stage.zoomIn,
   zoomOut: stage.zoomOut,
   resetZoom: stage.resetZoom,
   setZoom: stage.setZoom,
+  measureContainer,
 });
 </script>
 
@@ -193,12 +253,17 @@ defineExpose({
   border-radius: 8px;
   margin: 0 16px;
   position: relative;
+  min-height: 0;
+  overflow: hidden;
+  background-color: white;
 }
 
 .stage-wrapper {
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 100%;
+  height: 100%;
 }
 
 .loading {

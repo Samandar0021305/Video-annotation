@@ -34,6 +34,17 @@ export interface PendingBrush {
   frame: number;
 }
 
+export interface PendingPoint {
+  point: {
+    id: string;
+    x: number;
+    y: number;
+    color: string;
+    classId: number;
+  };
+  frame: number;
+}
+
 export interface TempBrushStroke {
   points: Point[];
   color: string;

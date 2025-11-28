@@ -144,7 +144,9 @@ export class KonvaBrush {
     points: Point[],
     scale: number = 1,
     canvasWidth?: number,
-    canvasHeight?: number
+    canvasHeight?: number,
+    offsetX: number = 0,
+    offsetY: number = 0
   ): Konva.Shape {
     const tintedBrush = this.tintedBrush;
     const brushLoaded = this.brushLoaded;
@@ -176,7 +178,7 @@ export class KonvaBrush {
         context.save();
         context.globalAlpha = opacity;
         context.imageSmoothingEnabled = false;
-        context.drawImage(preRenderedBuffer, 0, 0);
+        context.drawImage(preRenderedBuffer, offsetX, offsetY);
         context.restore();
       },
       listening: false,

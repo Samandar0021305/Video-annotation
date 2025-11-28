@@ -80,7 +80,7 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
 
-export type MarkupType = "bbox" | "mask" | "polygon" | "skeleton";
+export type MarkupType = "bbox" | "mask" | "polygon" | "skeleton" | "point";
 
 export interface AnnotationClass {
   id: string;
