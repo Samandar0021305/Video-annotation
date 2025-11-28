@@ -18,8 +18,6 @@
         v-model:skeletonColor="skeletonColor"
         v-model:opacity="opacity"
         :tools-disabled="toolsDisabled"
-        :can-delete="!!timelineRef?.selectedTrackId"
-        @delete="handleDeleteSelected"
         @update:mode="setMode"
         @update:brush-size="handleSizeChange"
         @update:opacity="handleOpacityChange"
@@ -3581,31 +3579,6 @@ const handleRangeResizeEnd = (
   _start: number,
   _end: number
 ) => {
-  saveAnnotations();
-};
-
-const handleDeleteSelected = () => {
-  const trackId = timelineRef.value?.selectedTrackId;
-  const trackType = timelineRef.value?.selectedTrackType;
-
-  if (!trackId || !trackType) return;
-
-  if (trackType === TrackTypeEnum.BBOX) {
-    deleteBboxTrack(trackId);
-    selectedBboxTrackId.value = null;
-  } else if (trackType === TrackTypeEnum.POLYGON) {
-    deletePolygonTrack(trackId);
-    selectedPolygonTrackId.value = null;
-  } else if (trackType === TrackTypeEnum.SKELETON) {
-    deleteSkeletonTrack(trackId);
-    selectedSkeletonTrackId.value = null;
-  } else if (trackType === TrackTypeEnum.BRUSH) {
-    deleteBrushTrack(trackId);
-    selectedBrushTrackId.value = null;
-  }
-
-  timelineRef.value?.clearSelection();
-  updateTransformerSelection();
   saveAnnotations();
 };
 

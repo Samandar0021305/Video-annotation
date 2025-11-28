@@ -78,19 +78,6 @@
         </svg>
         <span>Skeleton</span>
       </button>
-      <button
-        @click="$emit('delete')"
-        class="tool-btn delete-btn"
-        :disabled="!canDelete"
-        title="Delete Selected"
-      >
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-          <path
-            d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
-          />
-        </svg>
-        <span>Delete</span>
-      </button>
     </div>
 
     <div class="toolbar-divider"></div>
@@ -172,7 +159,6 @@ defineProps<{
   skeletonColor: string;
   opacity: number;
   toolsDisabled: boolean;
-  canDelete: boolean;
 }>();
 
 defineEmits<{
@@ -182,7 +168,6 @@ defineEmits<{
   (e: "update:polygonColor", color: string): void;
   (e: "update:skeletonColor", color: string): void;
   (e: "update:opacity", opacity: number): void;
-  (e: "delete"): void;
 }>();
 </script>
 
@@ -248,15 +233,6 @@ defineEmits<{
 .tool-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
-}
-
-.tool-btn.delete-btn {
-  color: #fc8181;
-}
-
-.tool-btn.delete-btn:hover:not(:disabled) {
-  background: #e53e3e;
-  color: white;
 }
 
 .tool-btn svg {
