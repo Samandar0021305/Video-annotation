@@ -25,6 +25,69 @@ const groupRef = ref<{ getNode: () => Konva.Group } | null>(null);
 
 let displayCanvas: HTMLCanvasElement | null = null;
 
+const extractBorder = (
+  sourceCanvas: HTMLCanvasElement,
+  borderWidth: number = 3
+): HTMLCanvasElement => {
+  const w = sourceCanvas.width;
+  const h = sourceCanvas.height;
+
+  const srcCtx = sourceCanvas.getContext("2d", { willReadFrequently: true });
+  if (!srcCtx) return sourceCanvas;
+
+  const srcData = srcCtx.getImageData(0, 0, w, h);
+
+  const borderCanvas = document.createElement("canvas");
+  borderCanvas.width = w;
+  borderCanvas.height = h;
+  const borderCtx = borderCanvas.getContext("2d")!;
+  const borderData = borderCtx.createImageData(w, h);
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const idx = (y * w + x) * 4;
+      const alpha = srcData.data[idx + 3];
+
+      if (alpha !== undefined && alpha > 0) {
+        let isEdge = false;
+
+        for (let dy = -borderWidth; dy <= borderWidth && !isEdge; dy++) {
+          for (let dx = -borderWidth; dx <= borderWidth && !isEdge; dx++) {
+            if (dx === 0 && dy === 0) continue;
+
+            const nx = x + dx;
+            const ny = y + dy;
+
+            if (nx < 0 || nx >= w || ny < 0 || ny >= h) {
+              isEdge = true;
+            } else {
+              const nIdx = (ny * w + nx) * 4;
+              const neighborAlpha = srcData.data[nIdx + 3];
+              if (neighborAlpha === 0) {
+                isEdge = true;
+              }
+            }
+          }
+        }
+
+        if (isEdge) {
+          const r = srcData.data[idx] ?? 0;
+          const g = srcData.data[idx + 1] ?? 0;
+          const b = srcData.data[idx + 2] ?? 0;
+
+          borderData.data[idx] = Math.round(r * 0.6);
+          borderData.data[idx + 1] = Math.round(g * 0.6);
+          borderData.data[idx + 2] = Math.round(b * 0.6);
+          borderData.data[idx + 3] = 255;
+        }
+      }
+    }
+  }
+
+  borderCtx.putImageData(borderData, 0, 0);
+  return borderCanvas;
+};
+
 const initDisplayCanvas = () => {
   if (!displayCanvas) {
     displayCanvas = document.createElement("canvas");
@@ -70,50 +133,37 @@ const renderDisplay = () => {
   });
   group.add(nonSelectedImage);
 
-  // Render hovered track with brightness boost effect
   if (props.hoveredCanvas) {
-    const hoveredDisplayCanvas = document.createElement("canvas");
-    hoveredDisplayCanvas.width = props.stageWidth;
-    hoveredDisplayCanvas.height = props.stageHeight;
-    const hoveredCtx = hoveredDisplayCanvas.getContext("2d", { alpha: true })!;
-    hoveredCtx.imageSmoothingEnabled = false;
-    hoveredCtx.drawImage(props.hoveredCanvas, 0, 0);
+    const hoveredFillCanvas = document.createElement("canvas");
+    hoveredFillCanvas.width = props.stageWidth;
+    hoveredFillCanvas.height = props.stageHeight;
+    const hoveredFillCtx = hoveredFillCanvas.getContext("2d", { alpha: true })!;
+    hoveredFillCtx.imageSmoothingEnabled = false;
+    hoveredFillCtx.drawImage(props.hoveredCanvas, 0, 0);
 
-    const hoveredImage = new Konva.Image({
-      image: hoveredDisplayCanvas,
+    const hoveredFillImage = new Konva.Image({
+      image: hoveredFillCanvas,
       x: 0,
       y: 0,
       width: props.stageWidth,
       height: props.stageHeight,
       listening: false,
-      opacity: Math.min(1, props.opacity * 1.3), // Slightly brighter on hover
+      opacity: props.opacity,
     });
-    group.add(hoveredImage);
+    group.add(hoveredFillImage);
 
-    // Add a subtle white outline/glow effect for hover
-    const glowCanvas = document.createElement("canvas");
-    glowCanvas.width = props.stageWidth;
-    glowCanvas.height = props.stageHeight;
-    const glowCtx = glowCanvas.getContext("2d", { alpha: true })!;
-    glowCtx.imageSmoothingEnabled = false;
+    const borderCanvas = extractBorder(props.hoveredCanvas, 3);
 
-    // Create outline by drawing the mask slightly expanded with white
-    glowCtx.filter = "blur(2px)";
-    glowCtx.drawImage(props.hoveredCanvas, 0, 0);
-    glowCtx.globalCompositeOperation = "source-in";
-    glowCtx.fillStyle = "rgba(255, 255, 255, 0.5)";
-    glowCtx.fillRect(0, 0, glowCanvas.width, glowCanvas.height);
-
-    const glowImage = new Konva.Image({
-      image: glowCanvas,
+    const borderImage = new Konva.Image({
+      image: borderCanvas,
       x: 0,
       y: 0,
       width: props.stageWidth,
       height: props.stageHeight,
       listening: false,
-      opacity: 0.4,
+      opacity: 1,
     });
-    group.add(glowImage);
+    group.add(borderImage);
   }
 
   // Render selected track with reduced opacity (50% of normal)
@@ -147,18 +197,19 @@ const updateOpacity = (newOpacity: number) => {
   if (!group) return;
 
   const images = group.getChildren();
+  const hasHovered = !!props.hoveredCanvas;
+  const hasSelected = !!props.selectedCanvas;
+
   images.forEach((img: any, index: number) => {
     if (index === 0) {
-      // Non-selected image
       img.opacity(newOpacity);
-    } else if (props.hoveredCanvas && index === 1) {
-      // Hovered image
-      img.opacity(Math.min(1, newOpacity * 1.3));
-    } else if (props.hoveredCanvas && index === 2) {
-      // Glow image
-      img.opacity(0.4);
-    } else {
-      // Selected image
+    } else if (hasHovered && index === 1) {
+      img.opacity(newOpacity);
+    } else if (hasHovered && index === 2) {
+      img.opacity(1);
+    } else if (hasHovered && hasSelected && index === 3) {
+      img.opacity(newOpacity * 0.5);
+    } else if (!hasHovered && hasSelected && index === 1) {
       img.opacity(newOpacity * 0.5);
     }
   });
