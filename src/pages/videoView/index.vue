@@ -60,7 +60,10 @@
             @render-complete="handleBrushAnnotationRenderComplete"
           />
 
-          <v-group ref="annotationOffsetGroupRef" :config="{ x: imageOffset.x, y: imageOffset.y }">
+          <v-group
+            ref="annotationOffsetGroupRef"
+            :config="{ x: imageOffset.x, y: imageOffset.y }"
+          >
             <BoundingBoxLayer
               ref="bboxLayerRef"
               :bboxes="currentFrameBboxes"
@@ -100,7 +103,7 @@
               @keypoint-click="handleSkeletonLayerKeypointClick"
             />
 
-          <PointLayer
+            <PointLayer
               ref="pointLayerRef"
               :points="currentFramePoints"
               :current-frame="currentFrame"
@@ -218,10 +221,7 @@ import {
   getSegmentationImageContoursForSaving,
   renderContoursToTargetCanvas,
 } from "../../utils/opencv-contours";
-import {
-  canvasToMaskData,
-  renderMasksToCanvas,
-} from "../../utils/rle";
+import { canvasToMaskData, renderMasksToCanvas } from "../../utils/rle";
 import type { MaskData } from "../../types/mask";
 import { isMaskData } from "../../composables/useBrushTracks";
 import type { ToolClass } from "../../types/contours";
@@ -549,6 +549,8 @@ const handleClassSelectorSelect = async (cls: AnnotationClass) => {
       brushTracks.value.set(editingBrushTrackId.value, { ...track });
     }
     editingBrushTrackId.value = null;
+    selectedBrushTrackId.value = null; // Clear selection to re-enable tools
+    showSegmentationToolbar.value = false;
     classSelectorInitialClass.value = null;
     showClassSelector.value = false;
     // Force re-render by invalidating cache
@@ -646,6 +648,18 @@ const handleClassSelectorSelect = async (cls: AnnotationClass) => {
   if (pendingBrush.value) {
     const brushData = pendingBrush.value;
 
+    // Clear temp strokes and pending brush state IMMEDIATELY
+    // This prevents handleClassSelectorClose from re-rendering with old colors
+    // (since ClassSelector emits both 'select' and 'close' synchronously)
+    tempBrushStrokes.value = [];
+    tempStrokesCanvas.value = null;
+    tempStrokesConvertedToCanvas.value = false;
+    tempStrokesEditMode.value = SegEditMode.BRUSH;
+    bufferFrame.value = null;
+    pendingBrush.value = null;
+    editingBrushTrackId.value = null;
+    selectedBrushTrackId.value = null;
+
     // Apply selected class color to the canvas
     applyColorToCanvas(brushData.canvas, cls.color);
 
@@ -671,14 +685,14 @@ const handleClassSelectorSelect = async (cls: AnnotationClass) => {
         const masks: MaskData[] = [maskData];
 
         // Create track with the RLE mask data
-        const trackId = createBrushTrack(
+        // Note: Don't select the track after creation - that would set
+        // selectedBrushTrackId and keep tools disabled
+        createBrushTrack(
           brushData.frame,
           masks,
           cls.name,
           physicalFrames.value
         );
-        selectedBrushTrackId.value = null;
-        timelineRef.value?.selectTrack(trackId, TrackTypeEnum.BRUSH);
 
         // Force re-render to show the new mask properly
         currentDisplayFrame = -1;
@@ -686,21 +700,14 @@ const handleClassSelectorSelect = async (cls: AnnotationClass) => {
         saveAnnotations();
       }
     }
-
-    // Clear temp strokes and pending brush state
-    tempBrushStrokes.value = [];
-    tempStrokesCanvas.value = null;
-    tempStrokesConvertedToCanvas.value = false;
-    tempStrokesEditMode.value = SegEditMode.BRUSH;
-    bufferFrame.value = null;
-    pendingBrush.value = null;
-    // Deselect any editing track to re-enable other tools
-    selectedBrushTrackId.value = null;
-    editingBrushTrackId.value = null;
   }
 
   showClassSelector.value = false;
   classSelectorInitialClass.value = null;
+  // Always clear selection state after saving to re-enable tools
+  selectedBrushTrackId.value = null;
+  editingBrushTrackId.value = null;
+  showSegmentationToolbar.value = false;
 };
 
 const handleBrushAnnotationRenderComplete = () => {
@@ -746,17 +753,14 @@ const handleClassSelectorClose = () => {
     renderFrame(frame);
   }
 
-  // Clean up pending brush if cancelled
+  // Clean up pending brush reference but KEEP temp strokes so user can continue drawing
   if (pendingBrush.value) {
     pendingBrush.value = null;
-    tempBrushStrokes.value = [];
-    tempStrokesCanvas.value = null;
-    tempStrokesConvertedToCanvas.value = false;
-    tempStrokesEditMode.value = SegEditMode.BRUSH;
-    bufferFrame.value = null;
+    // DON'T clear tempBrushStrokes - allow user to continue adding more strokes
+    // tempBrushStrokes will be cleared when user saves or switches tools/frames
     selectedBrushTrackId.value = null; // Clear selection to re-enable tools
-    // Re-render to clear temp strokes from display
-    renderFrame(currentFrame.value);
+    // Re-render to show accumulated temp strokes
+    renderBrushAnnotationsWithTempStrokes(currentFrame.value);
   }
 
   if (bboxTool) {
@@ -806,8 +810,8 @@ const handleClassSelectorDelete = () => {
   pendingSkeleton.value = null;
   pendingPoint.value = null;
 
-  // Clean up pending brush
-  if (pendingBrush.value) {
+  // Clean up pending brush and temp strokes
+  if (pendingBrush.value || tempBrushStrokes.value.length > 0) {
     pendingBrush.value = null;
     tempBrushStrokes.value = [];
     tempStrokesCanvas.value = null;
@@ -1272,9 +1276,23 @@ const renderBrushAnnotations = async (frameIndex: number) => {
             right: mask.right + dragOffsetX,
             bottom: mask.bottom + dragOffsetY,
           }));
-          renderMasksToCanvas(offsetMasks, targetCanvas, false, 1, imageOffset.value.x, imageOffset.value.y);
+          renderMasksToCanvas(
+            offsetMasks,
+            targetCanvas,
+            false,
+            1,
+            imageOffset.value.x,
+            imageOffset.value.y
+          );
         } else {
-          renderMasksToCanvas(keyframeData, targetCanvas, false, 1, imageOffset.value.x, imageOffset.value.y);
+          renderMasksToCanvas(
+            keyframeData,
+            targetCanvas,
+            false,
+            1,
+            imageOffset.value.x,
+            imageOffset.value.y
+          );
         }
       } else {
         await renderContoursToTargetCanvas(
@@ -1306,9 +1324,23 @@ const renderBrushAnnotations = async (frameIndex: number) => {
                 right: mask.right + dragOffsetX,
                 bottom: mask.bottom + dragOffsetY,
               }));
-              renderMasksToCanvas(offsetMasks, targetCanvas, false, 1, imageOffset.value.x, imageOffset.value.y);
+              renderMasksToCanvas(
+                offsetMasks,
+                targetCanvas,
+                false,
+                1,
+                imageOffset.value.x,
+                imageOffset.value.y
+              );
             } else {
-              renderMasksToCanvas(beforeData, targetCanvas, false, 1, imageOffset.value.x, imageOffset.value.y);
+              renderMasksToCanvas(
+                beforeData,
+                targetCanvas,
+                false,
+                1,
+                imageOffset.value.x,
+                imageOffset.value.y
+              );
             }
           } else {
             await renderContoursToTargetCanvas(
@@ -1411,9 +1443,23 @@ const renderFrameWithMaskOffset = async (
             right: mask.right + totalOffsetX,
             bottom: mask.bottom + totalOffsetY,
           }));
-          renderMasksToCanvas(offsetMasks, targetCanvas, false, 1, imageOffset.value.x, imageOffset.value.y);
+          renderMasksToCanvas(
+            offsetMasks,
+            targetCanvas,
+            false,
+            1,
+            imageOffset.value.x,
+            imageOffset.value.y
+          );
         } else {
-          renderMasksToCanvas(keyframeData, targetCanvas, false, 1, imageOffset.value.x, imageOffset.value.y);
+          renderMasksToCanvas(
+            keyframeData,
+            targetCanvas,
+            false,
+            1,
+            imageOffset.value.x,
+            imageOffset.value.y
+          );
         }
       } else {
         await renderContoursToTargetCanvas(
@@ -1444,9 +1490,23 @@ const renderFrameWithMaskOffset = async (
                 right: mask.right + totalOffsetX,
                 bottom: mask.bottom + totalOffsetY,
               }));
-              renderMasksToCanvas(offsetMasks, targetCanvas, false, 1, imageOffset.value.x, imageOffset.value.y);
+              renderMasksToCanvas(
+                offsetMasks,
+                targetCanvas,
+                false,
+                1,
+                imageOffset.value.x,
+                imageOffset.value.y
+              );
             } else {
-              renderMasksToCanvas(beforeData, targetCanvas, false, 1, imageOffset.value.x, imageOffset.value.y);
+              renderMasksToCanvas(
+                beforeData,
+                targetCanvas,
+                false,
+                1,
+                imageOffset.value.x,
+                imageOffset.value.y
+              );
             }
           } else {
             await renderContoursToTargetCanvas(
@@ -1499,7 +1559,14 @@ const renderBrushAnnotationsWithTempStrokes = async (frameIndex: number) => {
     const keyframeData = track.keyframes.get(frameIndex);
     if (keyframeData && keyframeData.length > 0) {
       if (isMaskData(keyframeData)) {
-        renderMasksToCanvas(keyframeData, workingCanvas!, false, 1, imageOffset.value.x, imageOffset.value.y);
+        renderMasksToCanvas(
+          keyframeData,
+          workingCanvas!,
+          false,
+          1,
+          imageOffset.value.x,
+          imageOffset.value.y
+        );
       } else {
         await renderContoursToTargetCanvas(
           brushClasses.value,
@@ -1520,7 +1587,14 @@ const renderBrushAnnotationsWithTempStrokes = async (frameIndex: number) => {
         const beforeData = track.keyframes.get(beforeFrame);
         if (beforeData && beforeData.length > 0) {
           if (isMaskData(beforeData)) {
-            renderMasksToCanvas(beforeData, workingCanvas!, false, 1, imageOffset.value.x, imageOffset.value.y);
+            renderMasksToCanvas(
+              beforeData,
+              workingCanvas!,
+              false,
+              1,
+              imageOffset.value.x,
+              imageOffset.value.y
+            );
           } else {
             await renderContoursToTargetCanvas(
               brushClasses.value,
@@ -1542,8 +1616,16 @@ const renderBrushAnnotationsWithTempStrokes = async (frameIndex: number) => {
     if (stroke.frame !== frameIndex || stroke.points.length < 2) continue;
 
     // Apply offset to points for rendering
-    const offsetPoints = stroke.points.map((p) => ({ x: p.x + offsetX, y: p.y + offsetY }));
-    renderStrokeToCanvas(workingCanvas!, offsetPoints, stroke.color, stroke.size);
+    const offsetPoints = stroke.points.map((p) => ({
+      x: p.x + offsetX,
+      y: p.y + offsetY,
+    }));
+    renderStrokeToCanvas(
+      workingCanvas!,
+      offsetPoints,
+      stroke.color,
+      stroke.size
+    );
   }
 
   // Update display
@@ -1658,6 +1740,15 @@ const setMode = (newMode: ToolMode) => {
 
   if (newMode !== ToolModeEnum.SKELETON && skeletonTool?.isDrawingActive()) {
     cancelSkeletonDrawing();
+  }
+
+  // When switching away from brush mode with accumulated strokes, trigger save
+  if (
+    newMode !== ToolModeEnum.BRUSH &&
+    newMode !== ToolModeEnum.ERASER &&
+    tempBrushStrokes.value.length > 0
+  ) {
+    completeBrushDrawing();
   }
 };
 
@@ -1907,6 +1998,44 @@ const cancelPolygonDrawing = () => {
   isPolygonDrawing.value = false;
 };
 
+/**
+ * Complete brush drawing - convert accumulated temp strokes to pending brush and show ClassSelector
+ */
+const completeBrushDrawing = () => {
+  if (tempBrushStrokes.value.length === 0) return;
+
+  const targetFrame = bufferFrame.value ?? currentFrame.value;
+
+  // Create a canvas with all accumulated strokes
+  const strokeCanvasForSave = document.createElement("canvas");
+  strokeCanvasForSave.width = imageSize.value.width;
+  strokeCanvasForSave.height = imageSize.value.height;
+
+  // Render all accumulated strokes to the canvas
+  for (const stroke of tempBrushStrokes.value) {
+    if (stroke.points.length < 2) continue;
+    renderStrokeToCanvas(
+      strokeCanvasForSave,
+      stroke.points,
+      stroke.color,
+      stroke.size
+    );
+  }
+
+  // Set pending brush with merged strokes
+  pendingBrush.value = {
+    canvas: strokeCanvasForSave,
+    frame: targetFrame,
+  };
+
+  // Show ClassSelector at center of canvas
+  const screenPos = getScreenPositionFromCanvas(
+    imageSize.value.width / 2,
+    imageSize.value.height / 2
+  );
+  showClassSelectorForAnnotation(MarkupType.MASK, screenPos);
+};
+
 const handlePolygonLayerClick = (trackId: string, _e: any) => {
   if (mode.value !== ToolModeEnum.PAN) return;
   if (trackId === "pending_polygon") return;
@@ -2149,7 +2278,8 @@ const handleSkeletonLayerKeypointClick = (trackId: string) => {
 };
 
 const handlePointLayerClick = (trackId: string) => {
-  if (mode.value !== ToolModeEnum.PAN && mode.value !== ToolModeEnum.POINT) return;
+  if (mode.value !== ToolModeEnum.PAN && mode.value !== ToolModeEnum.POINT)
+    return;
   if (trackId === "pending_point") return;
 
   selectedPointTrackId.value = trackId;
@@ -2250,7 +2380,14 @@ const renderTempStrokesCanvasToDisplay = async (frameIndex: number) => {
     const keyframeData = track.keyframes.get(frameIndex);
     if (keyframeData && keyframeData.length > 0) {
       if (isMaskData(keyframeData)) {
-        renderMasksToCanvas(keyframeData, workingCanvas!, false, 1, imageOffset.value.x, imageOffset.value.y);
+        renderMasksToCanvas(
+          keyframeData,
+          workingCanvas!,
+          false,
+          1,
+          imageOffset.value.x,
+          imageOffset.value.y
+        );
       } else {
         await renderContoursToTargetCanvas(
           brushClasses.value,
@@ -2271,7 +2408,14 @@ const renderTempStrokesCanvasToDisplay = async (frameIndex: number) => {
         const beforeData = track.keyframes.get(beforeFrame);
         if (beforeData && beforeData.length > 0) {
           if (isMaskData(beforeData)) {
-            renderMasksToCanvas(beforeData, workingCanvas!, false, 1, imageOffset.value.x, imageOffset.value.y);
+            renderMasksToCanvas(
+              beforeData,
+              workingCanvas!,
+              false,
+              1,
+              imageOffset.value.x,
+              imageOffset.value.y
+            );
           } else {
             await renderContoursToTargetCanvas(
               brushClasses.value,
@@ -2288,7 +2432,11 @@ const renderTempStrokesCanvasToDisplay = async (frameIndex: number) => {
 
   // Then render the temp strokes canvas on top
   const ctx = workingCanvas!.getContext("2d")!;
-  ctx.drawImage(tempStrokesCanvas.value, imageOffset.value.x, imageOffset.value.y);
+  ctx.drawImage(
+    tempStrokesCanvas.value,
+    imageOffset.value.x,
+    imageOffset.value.y
+  );
 
   // Update display
   currentDisplayFrame = -1;
@@ -2644,7 +2792,10 @@ const handleMouseDown = (e: any) => {
         );
         if (trackId) {
           // Check if this segmentation is already selected - start dragging
-          if (selectedBrushTrackId.value === trackId && showSegmentationToolbar.value) {
+          if (
+            selectedBrushTrackId.value === trackId &&
+            showSegmentationToolbar.value
+          ) {
             // Start dragging the selected segmentation
             isDraggingMask.value = true;
             draggingMaskTrackId.value = trackId;
@@ -2740,7 +2891,9 @@ const handleMouseDown = (e: any) => {
       editingPointTrackId.value = pointId;
       const point = getPointAtFrame(pointId, currentFrame.value);
       if (point) {
-        const cls = annotationClasses.value.find((c) => c.value === point.classId);
+        const cls = annotationClasses.value.find(
+          (c) => c.value === point.classId
+        );
         classSelectorInitialClass.value = cls || null;
         selectedClassId.value = cls?.id || null;
         const screenPos = getScreenPositionFromCanvas(point.x, point.y);
@@ -3064,7 +3217,12 @@ const handleMouseUp = async () => {
       if (tempStrokesConvertedToCanvas.value && tempStrokesCanvas.value) {
         // Already converted to canvas - draw directly on it using pixel manipulation (no anti-aliasing)
         if (points.length >= 2) {
-          renderStrokeToCanvas(tempStrokesCanvas.value, points, mergeColor.value, brushSize.value);
+          renderStrokeToCanvas(
+            tempStrokesCanvas.value,
+            points,
+            mergeColor.value,
+            brushSize.value
+          );
         }
 
         // Re-render display
@@ -3152,11 +3310,15 @@ const handleMouseUp = async () => {
   interactiveLayerRef.value?.getNode()?.batchDraw();
 
   if (isInBrushMode) {
-    // Check if we're in segmentation edit mode - auto-merge into selected track
-    if (
-      segmentationEditMode.value === SegEditMode.BRUSH &&
-      selectedBrushTrackId.value
-    ) {
+    // Check if we should merge into selected track:
+    // 1. Either segmentation edit mode is BRUSH (from segmentation toolbar), OR
+    // 2. User is using brush tool from VerticalToolbar while a segmentation is selected
+    const shouldMergeIntoSelectedTrack =
+      selectedBrushTrackId.value &&
+      (segmentationEditMode.value === SegEditMode.BRUSH ||
+        mode.value === ToolModeEnum.BRUSH);
+
+    if (shouldMergeIntoSelectedTrack && selectedBrushTrackId.value) {
       const selectedTrackId = selectedBrushTrackId.value;
       const strokeColor = selectedSegmentationColor.value;
 
@@ -3195,27 +3357,16 @@ const handleMouseUp = async () => {
         renderMasksToCanvas(existingKeyframeData, mergedCanvas, false, 1);
       }
 
-      // Now draw the new stroke on top
-      mergedCtx.strokeStyle = strokeColor;
-      mergedCtx.lineWidth = brushSize.value;
-      mergedCtx.lineCap = "round";
-      mergedCtx.lineJoin = "round";
-      mergedCtx.globalCompositeOperation = "source-over";
+      // Create stroke canvas and render the new stroke using the brush tool
+      // This ensures consistent rendering (using brush image, not raw canvas strokes)
+      const brushStrokeCanvas = document.createElement("canvas");
+      brushStrokeCanvas.width = imageSize.value.width;
+      brushStrokeCanvas.height = imageSize.value.height;
+      brush.value.renderToCanvas(brushStrokeCanvas, points, 1);
 
-      if (points.length >= 2) {
-        mergedCtx.beginPath();
-        const firstPoint = points[0];
-        if (firstPoint) {
-          mergedCtx.moveTo(firstPoint.x, firstPoint.y);
-          for (let i = 1; i < points.length; i++) {
-            const point = points[i];
-            if (point) {
-              mergedCtx.lineTo(point.x, point.y);
-            }
-          }
-          mergedCtx.stroke();
-        }
-      }
+      // Draw the stroke canvas on top of the existing mask
+      mergedCtx.globalCompositeOperation = "source-over";
+      mergedCtx.drawImage(brushStrokeCanvas, 0, 0);
 
       // Apply the color to ensure consistency
       applyColorToCanvas(mergedCanvas, strokeColor);
@@ -3261,34 +3412,57 @@ const handleMouseUp = async () => {
         await forceRenderFrame(targetFrame);
       }
     } else {
-      // Regular brush mode - show ClassSelector immediately after stroke
+      // Regular brush mode - accumulate strokes and show ClassSelector
       const strokeColor = brushColor.value;
 
-      // Create a canvas with the stroke
+      // Add stroke to temp strokes array (accumulate multiple strokes)
+      tempBrushStrokes.value.push({
+        points: [...points],
+        color: strokeColor,
+        size: brushSize.value,
+        frame: targetFrame,
+      });
+
+      if (bufferFrame.value === null) {
+        bufferFrame.value = targetFrame;
+      }
+
+      // Create a canvas with ALL accumulated strokes for pendingBrush
       const strokeCanvasForSave = document.createElement("canvas");
       strokeCanvasForSave.width = imageSize.value.width;
       strokeCanvasForSave.height = imageSize.value.height;
-      const strokeCtxForSave = strokeCanvasForSave.getContext("2d")!;
-      strokeCtxForSave.imageSmoothingEnabled = false;
 
-      // Render stroke to canvas using direct pixel manipulation (no anti-aliasing)
-      renderStrokeToCanvas(strokeCanvasForSave, points, strokeColor, brushSize.value);
+      // Render all accumulated strokes to the canvas
+      for (const stroke of tempBrushStrokes.value) {
+        if (stroke.points.length >= 2) {
+          renderStrokeToCanvas(
+            strokeCanvasForSave,
+            stroke.points,
+            stroke.color,
+            stroke.size
+          );
+        }
+      }
 
-      // Set pending brush and show ClassSelector
+      // Set pending brush with ALL accumulated strokes
       pendingBrush.value = {
         canvas: strokeCanvasForSave,
         frame: targetFrame,
       };
 
-      // Render the pending stroke to display so it remains visible while ClassSelector is open
+      // Render the pending strokes to display so they remain visible while ClassSelector is open
       if (!workingCanvas || !displayCanvas) {
         initCanvases();
       }
       // First render existing annotations
       await renderBrushAnnotations(targetFrame);
-      // Then overlay the pending stroke
+      // Then overlay the pending strokes
       const displayCtx = displayCanvas!.getContext("2d")!;
-      displayCtx.drawImage(strokeCanvasForSave, imageOffset.value.x, imageOffset.value.y);
+      displayCtx.drawImage(
+        strokeCanvasForSave,
+        imageOffset.value.x,
+        imageOffset.value.y
+      );
       // Update Konva display
       brushAnnotationCanvasData.value = {
         nonSelectedCanvas: displayCanvas,
@@ -3379,9 +3553,7 @@ const handleMouseUp = async () => {
 
       // If no keyframe at this frame but interpolation is enabled, get from previous keyframe
       if (!existingKeyframeData && track.interpolationEnabled) {
-        const frames = Array.from(track.keyframes.keys()).sort(
-          (a, b) => a - b
-        );
+        const frames = Array.from(track.keyframes.keys()).sort((a, b) => a - b);
         let beforeFrame: number | null = null;
         for (const f of frames) {
           if (f <= targetFrame) beforeFrame = f;
@@ -4076,6 +4248,11 @@ watch(currentFrame, () => {
 
   if (skeletonTool?.isDrawingActive()) {
     cancelSkeletonDrawing();
+  }
+
+  // When changing frames with accumulated brush strokes, trigger save
+  if (tempBrushStrokes.value.length > 0) {
+    completeBrushDrawing();
   }
 });
 

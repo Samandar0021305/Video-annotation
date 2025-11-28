@@ -2,7 +2,7 @@
   <div
     ref="selectorRef"
     class="class-selector"
-    :style="{ left: position.x + 150 + 'px', top: position.y + 'px' }"
+    :style="{ left: position.x + 'px', top: position.y + 'px' }"
   >
     <div class="selector-header" @mousedown="startDrag">
       <span class="header-title">Annotate selector</span>
