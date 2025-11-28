@@ -687,6 +687,7 @@ const handleClassSelectorClose = () => {
   if (pendingMaskDrag.value) {
     const { frame } = pendingMaskDrag.value;
     pendingMaskDrag.value = null;
+    selectedBrushTrackId.value = null; // Clear selection to re-enable tools
     // Re-render to show original position (without the drag offset)
     currentDisplayFrame = -1;
     renderFrame(frame);
@@ -700,6 +701,7 @@ const handleClassSelectorClose = () => {
     tempStrokesConvertedToCanvas.value = false;
     tempStrokesEditMode.value = SegEditMode.BRUSH;
     bufferFrame.value = null;
+    selectedBrushTrackId.value = null; // Clear selection to re-enable tools
     // Re-render to clear temp strokes from display
     renderFrame(currentFrame.value);
   }
